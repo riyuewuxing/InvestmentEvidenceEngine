@@ -1,114 +1,55 @@
 # InvestmentEvidenceEngine
 
-Portable public-data evidence/compute executor for the `touzizhuanjia` Commander architecture.
+Public-data evidence/compute executor for the private `touzizhuanjia` Commander architecture.
 
-This repository is the canonical Public `riyuewuxing/InvestmentEvidenceEngine` implementation.
+**Canonical Engine repository:** `riyuewuxing/InvestmentEvidenceEngine`  
+**Accepted executor snapshot:** `86887ff40fee3166629f6e14d7531fe9542cc266`
 
-It is intentionally isolated from private investment state and never checks out the private subject project.
+This repository is intentionally isolated from private investment state and never checks out the private subject project.
 
-## What the Engine is
+## Role
 
-A **non-intelligent executor** that:
+The Engine is a **non-intelligent executor**. It validates sealed public-only requests, fetches public market/company/rule evidence, performs deterministic research compute, renders charts, hashes artifacts and seals an `ExecutionResult`.
 
-- validates a sealed, public-data-only `ExecutionRequest`;
-- fetches public market/company/rule evidence;
-- performs deterministic calculations, replay, backtest and research-priority scans;
-- renders evidence such as K-line charts;
-- produces artifacts with SHA256 provenance;
-- seals an `ExecutionResult`.
+It does **not** receive real account holdings/cash/cost basis/transactions, make BUY/SELL/HOLD decisions, act as an LLM/agent, or execute broker orders. `decision_authority=false` is part of the contract.
 
-It does **not**:
+## Operations
 
-- receive account holdings, cash, cost basis or real transactions;
-- decide whether the user should buy, sell or hold;
-- act as an LLM/agent;
-- execute broker orders;
-- have decision authority.
+All 15 reserved kinds are implemented and dispatched:
 
-All contracts enforce `decision_authority=false`; external execution remains research-only.
+`MARKET_DATA`, `PRICE_ANALYTICS`, `KLINE_RENDER`, `COMPANY_EVENT_TIMELINE`, `FUNDAMENTAL_HISTORY`, `VALUATION_HISTORY`, `OWNERSHIP_FLOW`, `INDUSTRY_MACRO`, `OFFICIAL_SOURCE`, `PIT_REPLAY`, `FACTOR_COMPUTE`, `BACKTEST`, `OPPORTUNITY_SCAN`, `PORTFOLIO_MATH`, `TEST_SUITE`.
 
-## Implemented operations
-
-All reserved operation kinds are connected to the dispatcher:
-
-- `MARKET_DATA`
-- `PRICE_ANALYTICS`
-- `KLINE_RENDER`
-- `COMPANY_EVENT_TIMELINE`
-- `FUNDAMENTAL_HISTORY`
-- `VALUATION_HISTORY`
-- `OWNERSHIP_FLOW`
-- `INDUSTRY_MACRO`
-- `OFFICIAL_SOURCE`
-- `PIT_REPLAY`
-- `FACTOR_COMPUTE`
-- `BACKTEST`
-- `OPPORTUNITY_SCAN`
-- `PORTFOLIO_MATH`
-- `TEST_SUITE`
-
-Important semantics:
-
-- market acquisition supports resilient public upstreams and provider cross-checking;
-- historical fundamental/ownership availability limitations are surfaced rather than guessed;
-- `OPPORTUNITY_SCAN` means research-priority ranking, not return prediction or trade signal;
-- `PORTFOLIO_MATH` is generic/synthetic compute only, never a real private-account input path;
-- `TEST_SUITE` uses a command allowlist.
+`OPPORTUNITY_SCAN` is research-priority ranking, not a return forecast. `PORTFOLIO_MATH` accepts only generic/synthetic/public-model inputs.
 
 ## Workflows
 
-`.github/workflows/` contains:
+- `engine-regression.yml` — install/tests/Ruff;
+- `provider-health.yml` — public provider and official-source health;
+- `execute-request.yml` — committed request, manual dispatch, or `repository_dispatch: execute-evidence-request`.
 
-- regression testing;
-- provider-health probing;
-- request execution.
+Every request is revalidated for its SHA256, `private_data_included=false`, `public_data_only=true`, and `decision_authority=false` before execution.
 
-`execute-request.yml` accepts:
+## First independent Public acceptance
 
-- committed `requests/*.json`;
-- manual `workflow_dispatch`;
-- `repository_dispatch` event type `execute-evidence-request`.
+Completed on 2026-09-02:
 
-For `repository_dispatch`, the request is supplied as `client_payload.request`. The workflow reconstructs the JSON and revalidates:
+- Public regression run `33536018264`: **SUCCESS**;
+- Public provider-health run `33536018282`: **SUCCESS**, SSE/SZSE/CSRC official gate 3/3;
+- real `600519` execution run `33536165615`: **SUCCESS**;
+- executor commit `86887ff40fee3166629f6e14d7531fe9542cc266`;
+- artifact ID `9811857918`, 9 declared evidence artifacts;
+- independent observed-byte verification: **0 missing / 0 SHA mismatch**;
+- private `touzizhuanjia` production admission: execution/integrity verified, admissible for decision, **0 blockers**;
+- Commander structural binding verified with `DecisionMemo.conclusion=null`, `research_only=true`, `execution_allowed=false`.
 
-- request SHA256;
-- `private_data_included=false`;
-- every operation `public_data_only=true`;
-- request/operation `decision_authority=false`.
+The Engine result remained **WARN**, not fake PASS, because real upstream degradation was visible: AKShare used Sina fallback, historical PIT availability requires separate validation, some industry endpoints degraded, and official fallback routes were used. No BLOCK/ERROR remained in the accepted run.
 
-Treat every Public repository input/log/artifact as potentially public. Never put private portfolio or account state in the payload.
+See `docs/PUBLIC_RUNTIME_ACCEPTANCE_2026-09-02.md`, `PROJECT_STATE.md`, `PROJECT_ROADMAP.md`, and `NEXT_SESSION_PROMPT.md`.
 
-## Current validation status
+## Security / privacy rule
 
-The bootstrap has already passed a **pre-public** GitHub-hosted regression from the private subject repository:
+Treat every Public repository input, log and artifact as public. Never put private portfolio/account state in a request. The private project must independently re-hash downloaded artifact bytes before EvidenceAdmission; executor-declared hashes alone are insufficient.
 
-- code commit `98d0d4db7ffb0461797fd1deb376dd2279d68914`
-- workflow run `33530546493`
-- install / compile / 13 tests / Ruff: PASS.
+## Next workstream
 
-It also passed a real `600519` pre-public vertical slice:
-
-- commit `af7f9c349c3cb032b51ac127c29e708eddbc7809`
-- workflow run `33531002571`
-- real public evidence acquisition and rendering;
-- 9 declared artifacts re-hashed by the private consumer;
-- 0 missing, 0 mismatch;
-- EvidenceAdmission and EvidenceGraph verified;
-- CommanderEvidenceSession built without blockers;
-- structural DecisionMemo bound to the verified graph with `conclusion=null`.
-
-The executor result deliberately remained `WARN` where upstream degradation or PIT limitations existed. WARN is not rewritten as PASS.
-
-The independent Public repository now exists. Public runner acceptance is executed and recorded separately from the historical pre-public baseline; see `PROJECT_STATE.md` and `PROJECT_ROADMAP.md`.
-
-## Public acceptance
-
-Public activation requires:
-
-1. regression and provider health on the Public standard runner;
-2. a real-company vertical slice;
-3. private-project consumption that re-hashes actual Public artifact bytes;
-4. distinct subject and executor repository/commit provenance;
-5. a pinned release/tag after acceptance.
-
-Do not solve Public compute by giving a Public workflow credentials to clone the private `touzizhuanjia` repository.
+The first Public vertical slice is complete. The next major line is scale/governance: representative factor/backtest benchmarks, large-universe opportunity scanning, matrix/sharding decisions, provider schema-drift/backoff, data-license/artifact-retention policy, dependency/SBOM/security gates, and contract/version compatibility.
