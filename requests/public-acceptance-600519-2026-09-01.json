@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "job_id": "public-acceptance-600519-2026-09-01",
+  "trace_id": "public-acceptance-600519-2026-09-01",
+  "subject_repo": "riyuewuxing/touzizhuanjia",
+  "subject_commit": "ccfcc2896407cac052192391144bae2ddc9ca28a",
+  "as_of": "2026-09-01",
+  "operations": [
+    {"operation_id":"market","kind":"MARKET_DATA","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","history_days":450},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"price","kind":"PRICE_ANALYTICS","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","depends_on_operation_ids":["market"]},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"kline","kind":"KLINE_RENDER","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","depends_on_operation_ids":["market"]},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"events","kind":"COMPANY_EVENT_TIMELINE","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","lookback_days":365},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"fundamental","kind":"FUNDAMENTAL_HISTORY","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","pit_required":false},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"valuation","kind":"VALUATION_HISTORY","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01"},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"industry","kind":"INDUSTRY_MACRO","parameters":{"subject_ids":["600519"],"as_of":"2026-09-01","history_days":450},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false},
+    {"operation_id":"rules","kind":"OFFICIAL_SOURCE","parameters":{"as_of":"2026-09-01"},"expected_outputs":[],"evidence_domains":[],"public_data_only":true,"decision_authority":false}
+  ],
+  "input_refs": [],
+  "private_data_included": false,
+  "decision_authority": false,
+  "generated_at": "2026-09-01T17:09:20.623228Z",
+  "request_sha256": "a7993b6b05ea9d5e15580f5560962eb4d758462015b50c0cf7e8a3da713b5dd9"
+}
