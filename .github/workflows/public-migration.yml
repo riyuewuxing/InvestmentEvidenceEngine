@@ -1,0 +1,65 @@
+name: Activate canonical public engine
+
+on:
+  push:
+    paths:
+      - ".github/workflows/public-migration.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_ZIP_SHA256: "9137984b87211536afd4ae2ecca90225236ff151bb3386b8ce1c12e54a20aba3"
+      BLOB_SHAS: "ca709c8a1d0d3fa1deba77068d2759b79b46bbe5 7820931b32bb6023aa297b7a97afe6d977013cc3 f89b13b42fee5e7b75e1dc76811e5470dd082d1f 545b477758b85ba11bd767140ce2865f44391dce 5ffe9a13aba92ac11d232d362552e111dcb5017c"
+    steps:
+      - name: Checkout public repository
+        uses: actions/checkout@v6
+
+      - name: Reconstruct exact migration archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : > /tmp/bootstrap.b64
+          for sha in $BLOB_SHAS; do
+            curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/git/blobs/$sha" \
+              | jq -r '.content' \
+              | tr -d '\n' \
+              | base64 -d >> /tmp/bootstrap.b64
+          done
+          base64 -d /tmp/bootstrap.b64 > /tmp/bootstrap.zip
+          observed="$(sha256sum /tmp/bootstrap.zip | awk '{print $1}')"
+          test "$observed" = "$EXPECTED_ZIP_SHA256"
+          unzip -t /tmp/bootstrap.zip >/dev/null
+
+      - name: Promote bootstrap to repository root
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -oq /tmp/bootstrap.zip -d "$GITHUB_WORKSPACE"
+          rm -f .github/workflows/public-migration.yml
+          rm -rf src/investment_evidence_engine/__pycache__ tests/__pycache__
+          test -f pyproject.toml
+          test -f src/investment_evidence_engine/runner.py
+          test -f .github/workflows/engine-regression.yml
+          test -f .github/workflows/provider-health.yml
+          test -f .github/workflows/execute-request.yml
+
+      - name: Commit canonical public engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: activate canonical public InvestmentEvidenceEngine"
+          git push origin HEAD:main
