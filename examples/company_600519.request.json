@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "job_id": "example-company-600519",
+  "trace_id": "example-trace-600519",
+  "subject_repo": "riyuewuxing/touzizhuanjia",
+  "subject_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "as_of": "2026-08-24",
+  "operations": [
+    {
+      "operation_id": "market",
+      "kind": "MARKET_DATA",
+      "parameters": {"subject_ids": ["600519"], "as_of": "2026-08-24", "history_days": 450},
+      "expected_outputs": ["market.json"],
+      "evidence_domains": ["MARKET"],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {"subject_ids": ["600519"], "as_of": "2026-08-24", "depends_on_operation_ids": ["market"]},
+      "expected_outputs": ["price.json"],
+      "evidence_domains": ["PRICE_STRUCTURE"],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "kline",
+      "kind": "KLINE_RENDER",
+      "parameters": {"subject_ids": ["600519"], "as_of": "2026-08-24", "depends_on_operation_ids": ["price"]},
+      "expected_outputs": ["kline.png", "kline.json"],
+      "evidence_domains": ["PRICE_STRUCTURE"],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {"subject_ids": ["600519"], "as_of": "2026-08-24", "lookback_days": 365},
+      "expected_outputs": ["events.json"],
+      "evidence_domains": ["CORPORATE_EVENT"],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "valuation",
+      "kind": "VALUATION_HISTORY",
+      "parameters": {"subject_ids": ["600519"], "as_of": "2026-08-24"},
+      "expected_outputs": ["valuation.json"],
+      "evidence_domains": ["VALUATION"],
+      "public_data_only": true,
+      "decision_authority": false
+    }
+  ],
+  "input_refs": ["example-plan"],
+  "private_data_included": false,
+  "decision_authority": false,
+  "generated_at": "2026-08-24T00:00:00Z",
+  "request_sha256": "3929a688da2ebf99b614afe00b17caf5615b8c7d2d0ca2010824489eeb6de441"
+}

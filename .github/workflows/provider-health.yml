@@ -1,0 +1,91 @@
+name: Provider health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * 1-5"
+  push:
+    paths:
+      - "src/investment_evidence_engine/providers.py"
+      - "src/investment_evidence_engine/sources.py"
+      - ".github/workflows/provider-health.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  provider-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install engine
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[dev]"
+      - name: Probe public providers
+        shell: bash
+        run: |
+          python - <<'PY'
+          from datetime import date, timedelta
+          import json
+          from pathlib import Path
+
+          from investment_evidence_engine.providers import AKShareProvider, BaoStockProvider
+          from investment_evidence_engine.sources import (
+              DEFAULT_OFFICIAL_SOURCES,
+              fetch_official_spec,
+              normalized_document_text,
+          )
+
+          end = date.today()
+          start = end - timedelta(days=45)
+          report = {"market": [], "official": []}
+          for provider in (AKShareProvider(), BaoStockProvider()):
+              try:
+                  frame = provider.get_daily_bars("600519", start, end, "qfq")
+                  report["market"].append({"provider": provider.name, "status": "PASS", "rows": len(frame)})
+              except Exception as exc:
+                  report["market"].append({"provider": provider.name, "status": "BLOCK", "error": f"{type(exc).__name__}:{exc}"})
+
+          for source_id, spec in DEFAULT_OFFICIAL_SOURCES.items():
+              try:
+                  fetched, prior_failures = fetch_official_spec(spec)
+                  normalized = normalized_document_text(fetched.text)
+                  missing = [
+                      token for token in spec.expected_tokens
+                      if normalized_document_text(token) not in normalized
+                  ]
+                  report["official"].append({
+                      "source": source_id,
+                      "status": "PASS" if not missing else "BLOCK",
+                      "resolved_url": fetched.url,
+                      "fallback_failures": prior_failures,
+                      "missing": missing,
+                      "content_sha256": fetched.content_sha256,
+                  })
+              except Exception as exc:
+                  report["official"].append({"source": source_id, "status": "BLOCK", "error": f"{type(exc).__name__}:{exc}"})
+
+          Path("provider-health-report.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if not any(item["status"] == "PASS" for item in report["market"]):
+              raise SystemExit(2)
+          if any(item["status"] != "PASS" for item in report["official"]):
+              raise SystemExit(2)
+          PY
+      - name: Upload provider health report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-health-${{ github.run_id }}-${{ github.run_attempt }}
+          path: provider-health-report.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,116 @@
+name: Execute evidence request
+
+on:
+  push:
+    paths:
+      - "requests/*.json"
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: "Repository-relative request JSON path"
+        required: true
+        type: string
+  repository_dispatch:
+    types:
+      - execute-evidence-request
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install engine
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[dev]"
+
+      - name: Resolve sealed public request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_REQUEST_PATH: ${{ inputs.request_path }}
+          GITHUB_EVENT_FILE: ${{ github.event_path }}
+        run: |
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_FILE"]).read_text(encoding="utf-8"))
+          payload = event.get("client_payload") or {}
+          request = payload.get("request")
+          if not isinstance(request, dict):
+              raise SystemExit("repository_dispatch client_payload.request must be an object")
+          Path("dispatch-request.json").write_text(
+              json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+            request_path="dispatch-request.json"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            request_path="$MANUAL_REQUEST_PATH"
+          else
+            request_path="$(git show --pretty=format: --name-only "$GITHUB_SHA" | grep '^requests/.*\.json$' | tail -n 1)"
+          fi
+          if [ -z "$request_path" ] || [ ! -f "$request_path" ]; then
+            echo "No valid request JSON found" >&2
+            exit 2
+          fi
+          echo "path=$request_path" >> "$GITHUB_OUTPUT"
+
+      - name: Validate public-data firewall
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          from investment_evidence_engine.contracts import ExecutionRequest
+
+          path = Path(os.environ["REQUEST_PATH"])
+          request = ExecutionRequest.model_validate_json(path.read_text(encoding="utf-8"))
+          if not request.verify():
+              raise SystemExit("ExecutionRequest request_sha256 is missing or invalid")
+          assert request.private_data_included is False
+          assert request.decision_authority is False
+          assert all(operation.public_data_only is True for operation in request.operations)
+          assert all(operation.decision_authority is False for operation in request.operations)
+          PY
+        env:
+          REQUEST_PATH: ${{ steps.request.outputs.path }}
+
+      - name: Execute request
+        id: engine
+        shell: bash
+        run: |
+          set +e
+          investment-evidence-engine "${{ steps.request.outputs.path }}" \
+            --output-dir run-output \
+            --executor-repo "$GITHUB_REPOSITORY" \
+            --executor-commit "$GITHUB_SHA"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: evidence-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: run-output/
+          if-no-files-found: error
+          retention-days: 7
