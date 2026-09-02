@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
 from xml.etree import ElementTree
+
+from .resilience import RetryPolicy, retry_call
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ _ALLOWED_HOST_SUFFIXES = (
     "csrc.gov.cn",
     "cninfo.com.cn",
 )
+_OFFICIAL_RETRY_POLICY = RetryPolicy(attempts=3, base_delay_seconds=0.5, max_delay_seconds=2.0)
+_RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
 def validate_official_url(url: str) -> str:
@@ -138,11 +143,26 @@ def fetch_official_url(url: str, timeout: float = 20.0) -> FetchedOfficialSource
     )
 
 
-def fetch_official_spec(spec: OfficialSourceSpec, timeout: float = 20.0) -> tuple[FetchedOfficialSource, list[str]]:
+def _retryable_official_exception(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP_STATUS
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def fetch_official_spec(
+    spec: OfficialSourceSpec,
+    timeout: float = 20.0,
+) -> tuple[FetchedOfficialSource, list[str]]:
     failures: list[str] = []
     for url in (spec.url, *spec.fallback_urls):
         try:
-            return fetch_official_url(url, timeout=timeout), failures
+            fetched, retry_failures = retry_call(
+                lambda: fetch_official_url(url, timeout=timeout),
+                policy=_OFFICIAL_RETRY_POLICY,
+                retry_if=_retryable_official_exception,
+            )
+            failures.extend(f"{url}::RETRY_RECOVERED::{item}" for item in retry_failures)
+            return fetched, failures
         except Exception as exc:  # noqa: BLE001 - resilient official-source boundary
             failures.append(f"{url}::{type(exc).__name__}:{exc}")
     raise RuntimeError("all official source URLs failed: " + " | ".join(failures))
