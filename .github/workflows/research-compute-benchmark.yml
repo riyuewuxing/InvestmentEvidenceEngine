@@ -1,0 +1,83 @@
+name: Research compute benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/benchmark_compute.py"
+      - "src/investment_evidence_engine/research_compute.py"
+      - "src/investment_evidence_engine/runner.py"
+      - ".github/workflows/research-compute-benchmark.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: baseline
+            rows: 20000
+            universe: 6000
+            shard_index: 0
+            shard_count: 1
+          - profile: representative
+            rows: 50000
+            universe: 6000
+            shard_index: 0
+            shard_count: 1
+          - profile: shard-0
+            rows: 20000
+            universe: 12000
+            shard_index: 0
+            shard_count: 4
+          - profile: shard-1
+            rows: 20000
+            universe: 12000
+            shard_index: 1
+            shard_count: 4
+          - profile: shard-2
+            rows: 20000
+            universe: 12000
+            shard_index: 2
+            shard_count: 4
+          - profile: shard-3
+            rows: 20000
+            universe: 12000
+            shard_index: 3
+            shard_count: 4
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install engine
+        run: python -m pip install -e ".[dev]"
+      - name: Run formal request-path benchmark
+        run: |
+          python scripts/benchmark_compute.py \
+            --rows "${{ matrix.rows }}" \
+            --universe "${{ matrix.universe }}" \
+            --shard-index "${{ matrix.shard_index }}" \
+            --shard-count "${{ matrix.shard_count }}" \
+            --output-dir "benchmark-${{ matrix.profile }}"
+      - name: Keep compact benchmark evidence only
+        run: |
+          rm -f "benchmark-${{ matrix.profile }}/benchmark_request.json"
+          rm -f "benchmark-${{ matrix.profile }}/run/execution_request.json"
+          find "benchmark-${{ matrix.profile }}/run" -type f \
+            ! -name 'execution_result.json' \
+            ! -name 'run_manifest.json' \
+            -delete
+      - uses: actions/upload-artifact@v6
+        with:
+          name: research-compute-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: benchmark-${{ matrix.profile }}/
+          retention-days: 3
+          if-no-files-found: error
