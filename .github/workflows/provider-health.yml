@@ -8,6 +8,8 @@ on:
     paths:
       - "src/investment_evidence_engine/providers.py"
       - "src/investment_evidence_engine/sources.py"
+      - "src/investment_evidence_engine/schema_guard.py"
+      - "config/schema_baselines.yml"
       - ".github/workflows/provider-health.yml"
 
 permissions:
@@ -36,6 +38,7 @@ jobs:
           from pathlib import Path
 
           from investment_evidence_engine.providers import AKShareProvider, BaoStockProvider
+          from investment_evidence_engine.schema_guard import OHLCV_REQUIRED, inspect_frame_schema
           from investment_evidence_engine.sources import (
               DEFAULT_OFFICIAL_SOURCES,
               fetch_official_spec,
@@ -44,13 +47,23 @@ jobs:
 
           end = date.today()
           start = end - timedelta(days=45)
-          report = {"market": [], "official": []}
+          report = {"market": [], "official": [], "schema_policy_version": 1}
           for provider in (AKShareProvider(), BaoStockProvider()):
               try:
                   frame = provider.get_daily_bars("600519", start, end, "qfq")
-                  report["market"].append({"provider": provider.name, "status": "PASS", "rows": len(frame)})
+                  schema = inspect_frame_schema(frame, required_columns=OHLCV_REQUIRED).to_dict()
+                  report["market"].append({
+                      "provider": provider.name,
+                      "status": "PASS" if schema["status"] != "BLOCK" else "BLOCK",
+                      "rows": len(frame),
+                      "schema": schema,
+                  })
               except Exception as exc:
-                  report["market"].append({"provider": provider.name, "status": "BLOCK", "error": f"{type(exc).__name__}:{exc}"})
+                  report["market"].append({
+                      "provider": provider.name,
+                      "status": "BLOCK",
+                      "error": f"{type(exc).__name__}:{exc}",
+                  })
 
           for source_id, spec in DEFAULT_OFFICIAL_SOURCES.items():
               try:
@@ -69,7 +82,11 @@ jobs:
                       "content_sha256": fetched.content_sha256,
                   })
               except Exception as exc:
-                  report["official"].append({"source": source_id, "status": "BLOCK", "error": f"{type(exc).__name__}:{exc}"})
+                  report["official"].append({
+                      "source": source_id,
+                      "status": "BLOCK",
+                      "error": f"{type(exc).__name__}:{exc}",
+                  })
 
           Path("provider-health-report.json").write_text(
               json.dumps(report, ensure_ascii=False, indent=2),
