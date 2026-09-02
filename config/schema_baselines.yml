@@ -1,0 +1,16 @@
+version: 1
+updated_at: 2026-09-02
+
+normalized_contracts:
+  OHLCV:
+    required_columns: [date, open, high, low, close, volume]
+    allowed_columns: [date, open, high, low, close, volume, amount, turnover]
+    policy:
+      missing_required: BLOCK
+      added_normalized_column: WARN
+      dtype_fingerprint_change: WARN
+
+monitoring:
+  provider_health_emits_schema_fingerprint: true
+  baseline_promotion_requires_review: true
+  never_auto_accept_schema_drift: true
