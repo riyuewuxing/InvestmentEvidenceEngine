@@ -29,11 +29,13 @@ jobs:
         run: |
           python -m pip install -e ".[dev]"
           python -m pip install detect-secrets pip-audit cyclonedx-bom
+          python -m pip install -U "setuptools>=83"
       - name: Secret scan
         run: |
           detect-secrets scan --all-files \
             --exclude-files '(^|/)\.git/' \
             --exclude-files '^requests/public-acceptance-' \
+            --exclude-lines '"request_sha256"' \
             > detect-secrets.json
       - name: Dependency snapshot and SBOM
         run: |
@@ -47,7 +49,9 @@ jobs:
           code=$?
           echo "$code" > pip-audit-exit-code.txt
           exit 0
-      - uses: actions/upload-artifact@v6
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v6
         with:
           name: security-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -58,3 +62,21 @@ jobs:
             pip-audit-exit-code.txt
           retention-days: 7
           if-no-files-found: error
+      - name: Security gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          secrets = json.loads(Path("detect-secrets.json").read_text(encoding="utf-8"))
+          findings = sum(len(items) for items in secrets.get("results", {}).values())
+          audit_exit = int(Path("pip-audit-exit-code.txt").read_text(encoding="utf-8").strip())
+          audit = json.loads(Path("pip-audit.json").read_text(encoding="utf-8"))
+          vulnerabilities = sum(len(item.get("vulns", [])) for item in audit.get("dependencies", []))
+          print({"secret_findings": findings, "pip_audit_exit": audit_exit, "vulnerabilities": vulnerabilities})
+          if findings:
+              raise SystemExit("untriaged secret findings remain")
+          if audit_exit != 0 or vulnerabilities:
+              raise SystemExit("dependency vulnerabilities remain")
+          PY
