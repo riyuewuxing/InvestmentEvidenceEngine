@@ -53,7 +53,11 @@ def _request_path_status(filename: str, repo_root: Path) -> tuple[Path | None, s
     if relative is None:
         return None, "non_request_path"
     path = Path(relative)
-    if len(path.parts) != 2 or path.parts[0] != "requests" or path.suffix != ".json":
+    is_request = len(path.parts) == 2 and path.parts[0] == "requests" and path.suffix == ".json"
+    is_example_request = (
+        len(path.parts) == 2 and path.parts[0] == "examples" and path.name.endswith(".request.json")
+    )
+    if not is_request and not is_example_request:
         return None, "non_request_path"
     return repo_root / path, None
 

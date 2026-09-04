@@ -29,9 +29,13 @@ def _sealed_request() -> ExecutionRequest:
     return request
 
 
-def _write_request(tmp_path: Path, request: ExecutionRequest | None = None) -> tuple[Path, dict[str, int]]:
-    path = tmp_path / "requests" / "sealed.json"
-    path.parent.mkdir()
+def _write_request(
+    tmp_path: Path,
+    request: ExecutionRequest | None = None,
+    relative_path: str = "requests/sealed.json",
+) -> tuple[Path, dict[str, int]]:
+    path = tmp_path / relative_path
+    path.parent.mkdir(parents=True)
     path.write_text(
         (request or _sealed_request()).model_dump_json(indent=2, exclude_none=False), encoding="utf-8"
     )
@@ -95,6 +99,42 @@ def test_tampered_request_hash_is_not_ignored(tmp_path: Path) -> None:
     assert report["status"] == "BLOCK"
     assert report["ignored"] == []
     assert report["unexpected"][0]["reason"] == "request_not_sealed"
+
+
+def test_sealed_example_request_hash_is_ignored(tmp_path: Path) -> None:
+    request_path, lines = _write_request(tmp_path, relative_path="examples/company.request.json")
+    raw = request_path.read_text(encoding="utf-8")
+    request_hash = next(line.split('"')[3] for line in raw.splitlines() if '"request_sha256"' in line)
+    scan = _write_scan(tmp_path, [_finding(request_path, lines["request_sha256"], request_hash)])
+
+    report = triage_detect_secrets(scan, repo_root=tmp_path)
+
+    assert report["status"] == "PASS"
+    assert report["ignored"][0]["field"] == "request_sha256"
+
+
+def test_arbitrary_example_json_is_not_ignored(tmp_path: Path) -> None:
+    request_path, lines = _write_request(tmp_path, relative_path="examples/company.json")
+    raw = request_path.read_text(encoding="utf-8")
+    request_hash = next(line.split('"')[3] for line in raw.splitlines() if '"request_sha256"' in line)
+    scan = _write_scan(tmp_path, [_finding(request_path, lines["request_sha256"], request_hash)])
+
+    report = triage_detect_secrets(scan, repo_root=tmp_path)
+
+    assert report["status"] == "BLOCK"
+    assert report["unexpected"][0]["reason"] == "non_request_path"
+
+
+def test_nested_example_request_is_not_ignored(tmp_path: Path) -> None:
+    request_path, lines = _write_request(tmp_path, relative_path="examples/nested/company.request.json")
+    raw = request_path.read_text(encoding="utf-8")
+    request_hash = next(line.split('"')[3] for line in raw.splitlines() if '"request_sha256"' in line)
+    scan = _write_scan(tmp_path, [_finding(request_path, lines["request_sha256"], request_hash)])
+
+    report = triage_detect_secrets(scan, repo_root=tmp_path)
+
+    assert report["status"] == "BLOCK"
+    assert report["unexpected"][0]["reason"] == "non_request_path"
 
 
 def test_unrelated_hex_field_in_valid_request_is_not_ignored(tmp_path: Path) -> None:
