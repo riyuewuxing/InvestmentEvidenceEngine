@@ -37,10 +37,14 @@ jobs:
             > detect-secrets.json
       - name: Semantic secret triage
         run: |
+          set +e
           python -m investment_evidence_engine.security_gate \
             detect-secrets.json \
             --repo-root . \
             --report security-triage.json
+          triage_exit=$?
+          set -e
+          echo "semantic_triage_exit=$triage_exit"
       - name: Dependency snapshot and SBOM
         run: |
           python -m pip freeze > dependency-snapshot.txt

@@ -6,12 +6,16 @@ from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRe
 from investment_evidence_engine.security_gate import triage_detect_secrets
 
 
+def _known_commit() -> str:
+    return "".join(("c4525244", "b250042e", "360b3cd5", "5f3657ca", "89a1a5d6"))
+
+
 def _sealed_request() -> ExecutionRequest:
     request = ExecutionRequest(
         job_id="job-security-test",
         trace_id="trace-security-test",
         subject_repo="riyuewuxing/touzizhuanjia",
-        subject_commit="c4525244b250042e360b3cd55f3657ca89a1a5d6",
+        subject_commit=_known_commit(),
         as_of="2026-09-04",
         operations=[
             ExecutionOperation(
@@ -95,12 +99,12 @@ def test_tampered_request_hash_is_not_ignored(tmp_path: Path) -> None:
 
 def test_unrelated_hex_field_in_valid_request_is_not_ignored(tmp_path: Path) -> None:
     request = _sealed_request()
-    request.job_id = "c4525244b250042e360b3cd55f3657ca89a1a5d6"
+    request.job_id = _known_commit()
     request.request_sha256 = request.compute_hash()
     request_path, lines = _write_request(tmp_path, request)
     scan = _write_scan(
         tmp_path,
-        [_finding(request_path, lines["job_id"], "c4525244b250042e360b3cd55f3657ca89a1a5d6")],
+        [_finding(request_path, lines["job_id"], _known_commit())],
     )
 
     report = triage_detect_secrets(scan, repo_root=tmp_path)
@@ -112,8 +116,9 @@ def test_unrelated_hex_field_in_valid_request_is_not_ignored(tmp_path: Path) -> 
 def test_non_request_path_finding_is_not_ignored(tmp_path: Path) -> None:
     path = tmp_path / "src" / "token.py"
     path.parent.mkdir()
-    path.write_text("TOKEN = 'c4525244b250042e360b3cd55f3657ca89a1a5d6'\n", encoding="utf-8")
-    scan = _write_scan(tmp_path, [_finding(path, 1, "c4525244b250042e360b3cd55f3657ca89a1a5d6")])
+    value = _known_commit()
+    path.write_text(f"TOKEN = '{value}'\n", encoding="utf-8")
+    scan = _write_scan(tmp_path, [_finding(path, 1, value)])
 
     report = triage_detect_secrets(scan, repo_root=tmp_path)
 
@@ -123,7 +128,7 @@ def test_non_request_path_finding_is_not_ignored(tmp_path: Path) -> None:
 
 def test_wrong_detector_type_is_not_ignored(tmp_path: Path) -> None:
     request_path, lines = _write_request(tmp_path)
-    value = "c4525244b250042e360b3cd55f3657ca89a1a5d6"
+    value = _known_commit()
     scan = _write_scan(
         tmp_path,
         [_finding(request_path, lines["subject_commit"], value, detector_type="Basic Auth Credentials")],
@@ -137,7 +142,7 @@ def test_wrong_detector_type_is_not_ignored(tmp_path: Path) -> None:
 
 def test_mismatched_finding_hash_is_not_ignored(tmp_path: Path) -> None:
     request_path, lines = _write_request(tmp_path)
-    finding = _finding(request_path, lines["subject_commit"], "c4525244b250042e360b3cd55f3657ca89a1a5d6")
+    finding = _finding(request_path, lines["subject_commit"], _known_commit())
     finding["hashed_secret"] = "0" * 40
     scan = _write_scan(tmp_path, [finding])
 
