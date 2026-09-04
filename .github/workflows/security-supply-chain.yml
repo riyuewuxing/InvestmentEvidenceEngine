@@ -8,6 +8,7 @@ on:
     paths:
       - "pyproject.toml"
       - "src/**"
+      - "requests/v2-m5-live-discovery-*.json"
       - ".github/workflows/security-supply-chain.yml"
 
 permissions:
