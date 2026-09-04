@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "job_id": "job-24567a9ea0e53abff8c0",
-  "trace_id": "trace-4c7e041d7e7081630d74",
+  "job_id": "job-1ec9811d967eb68193bc",
+  "trace_id": "trace-bd323e9571c008a1ca42",
   "subject_repo": "riyuewuxing/touzizhuanjia",
   "subject_commit": "c4525244b250042e360b3cd55f3657ca89a1a5d6",
   "as_of": "2026-09-04",
@@ -62,10 +62,10 @@
     }
   ],
   "input_refs": [
-    "plan-4c7e041d7e7081630d74"
+    "plan-bd323e9571c008a1ca42"
   ],
   "private_data_included": false,
   "decision_authority": false,
-  "generated_at": "2026-09-04T07:57:51.678828Z",
-  "request_sha256": "d07f3c6f2e1a3c9585e1fd9d7f3f136929b5c506da18d460f109ac5889f75636"
+  "generated_at": "2026-09-04T08:08:03.553154Z",
+  "request_sha256": "dd883fc4fd56e3c726bd373e67bfe5d2c61574ebc115d6368c82ec996ca29bc2"
 }
