@@ -34,9 +34,13 @@ jobs:
         run: |
           detect-secrets scan --all-files \
             --exclude-files '(^|/)\.git/' \
-            --exclude-files '^requests/public-acceptance-' \
-            --exclude-lines '"request_sha256"' \
             > detect-secrets.json
+      - name: Semantic secret triage
+        run: |
+          python -m investment_evidence_engine.security_gate \
+            detect-secrets.json \
+            --repo-root . \
+            --report security-triage.json
       - name: Dependency snapshot and SBOM
         run: |
           python -m pip freeze > dependency-snapshot.txt
@@ -56,6 +60,7 @@ jobs:
           name: security-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             detect-secrets.json
+            security-triage.json
             dependency-snapshot.txt
             sbom.cdx.json
             pip-audit.json
@@ -69,13 +74,14 @@ jobs:
           import json
           from pathlib import Path
 
-          secrets = json.loads(Path("detect-secrets.json").read_text(encoding="utf-8"))
-          findings = sum(len(items) for items in secrets.get("results", {}).values())
+          triage = json.loads(Path("security-triage.json").read_text(encoding="utf-8"))
+          findings = int(triage.get("secret_findings", 0))
+          unexpected = len(triage.get("unexpected", []))
           audit_exit = int(Path("pip-audit-exit-code.txt").read_text(encoding="utf-8").strip())
           audit = json.loads(Path("pip-audit.json").read_text(encoding="utf-8"))
           vulnerabilities = sum(len(item.get("vulns", [])) for item in audit.get("dependencies", []))
-          print({"secret_findings": findings, "pip_audit_exit": audit_exit, "vulnerabilities": vulnerabilities})
-          if findings:
+          print({"secret_findings": findings, "unexpected_secret_findings": unexpected, "pip_audit_exit": audit_exit, "vulnerabilities": vulnerabilities})
+          if unexpected or triage.get("status") != "PASS":
               raise SystemExit("untriaged secret findings remain")
           if audit_exit != 0 or vulnerabilities:
               raise SystemExit("dependency vulnerabilities remain")

@@ -9,7 +9,9 @@ on:
       - "src/investment_evidence_engine/providers.py"
       - "src/investment_evidence_engine/sources.py"
       - "src/investment_evidence_engine/schema_guard.py"
+      - "src/investment_evidence_engine/market_universe_worker.py"
       - "config/schema_baselines.yml"
+      - "requests/v2-m5-live-discovery-*.json"
       - ".github/workflows/provider-health.yml"
 
 permissions:
