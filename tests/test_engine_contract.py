@@ -4,7 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
-from investment_evidence_engine.workers import WorkerContext, run_operation
+from investment_evidence_engine.dispatch import run_operation
+from investment_evidence_engine.workers import WorkerContext
 
 COMMIT = "a" * 40
 
@@ -16,6 +17,17 @@ def test_contract_rejects_private_account_parameters() -> None:
             kind="MARKET_DATA",
             parameters={"positions": [{"symbol": "600519", "weight": 0.8}]},
         )
+
+
+@pytest.mark.parametrize("operation_id", [".", "..", "../escape", "nested/id", r"nested\id"])
+def test_operation_id_is_safe_for_artifact_paths(operation_id: str) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionOperation(operation_id=operation_id, kind="MARKET_DATA")
+
+
+def test_operation_id_allows_normal_artifact_name() -> None:
+    operation = ExecutionOperation(operation_id="market.v2-test_1", kind="MARKET_DATA")
+    assert operation.operation_id == "market.v2-test_1"
 
 
 def test_request_hash_is_deterministically_verifiable() -> None:
@@ -67,7 +79,7 @@ def test_price_analytics_runs_without_network_when_public_ohlcv_is_supplied(tmp_
     assert result.metrics["rows"] == 45
 
 
-def test_unimplemented_worker_blocks_instead_of_guessing(tmp_path) -> None:
+def test_dispatcher_routes_factor_compute_without_input_to_structured_block(tmp_path) -> None:
     operation = ExecutionOperation(
         operation_id="factor",
         kind="FACTOR_COMPUTE",
@@ -75,4 +87,140 @@ def test_unimplemented_worker_blocks_instead_of_guessing(tmp_path) -> None:
     )
     result = run_operation(operation, WorkerContext(output_dir=tmp_path))
     assert result.status == "BLOCK"
-    assert result.errors == ["UNIMPLEMENTED_OPERATION:FACTOR_COMPUTE"]
+    assert result.errors == ["NO_FACTOR_INPUT_RECORDS"]
+
+
+def test_execution_request_rejects_scan_dependency_that_is_not_prior_market_universe() -> None:
+    universe = ExecutionOperation(
+        operation_id="universe",
+        kind="MARKET_DATA",
+        parameters={"as_of": "2026-09-02"},
+    )
+    scan = ExecutionOperation(
+        operation_id="scan",
+        kind="OPPORTUNITY_SCAN",
+        parameters={
+            "as_of": "2026-09-02",
+            "depends_on_operation_ids": ["universe"],
+            "rules": [{"field": "pct_change", "operator": "GE", "threshold": 0}],
+        },
+    )
+    with pytest.raises(ValidationError):
+        ExecutionRequest(
+            job_id="job-1",
+            trace_id="trace-1",
+            subject_repo="public/engine",
+            subject_commit=COMMIT,
+            as_of="2026-09-02",
+            operations=[universe, scan],
+        )
+
+
+@pytest.mark.parametrize(
+    "operations",
+    [
+        [
+            ExecutionOperation(
+                operation_id="scan",
+                kind="OPPORTUNITY_SCAN",
+                parameters={
+                    "as_of": "2026-09-02",
+                    "depends_on_operation_ids": ["missing"],
+                    "rules": [{"field": "pct_change", "operator": "GE", "threshold": 0}],
+                },
+            )
+        ],
+        [
+            ExecutionOperation(
+                operation_id="scan",
+                kind="OPPORTUNITY_SCAN",
+                parameters={
+                    "as_of": "2026-09-02",
+                    "depends_on_operation_ids": ["universe"],
+                    "rules": [{"field": "pct_change", "operator": "GE", "threshold": 0}],
+                },
+            ),
+            ExecutionOperation(
+                operation_id="universe",
+                kind="MARKET_UNIVERSE",
+                parameters={"as_of": "2026-09-02"},
+            ),
+        ],
+    ],
+)
+def test_execution_request_rejects_missing_or_late_scan_dependency(operations) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionRequest(
+            job_id="job-1",
+            trace_id="trace-1",
+            subject_repo="public/engine",
+            subject_commit=COMMIT,
+            as_of="2026-09-02",
+            operations=operations,
+        )
+
+
+def test_execution_request_rejects_scan_inline_and_dependency_conflict() -> None:
+    universe = ExecutionOperation(
+        operation_id="universe",
+        kind="MARKET_UNIVERSE",
+        parameters={"as_of": "2026-09-02"},
+    )
+    scan = ExecutionOperation(
+        operation_id="scan",
+        kind="OPPORTUNITY_SCAN",
+        parameters={
+            "as_of": "2026-09-02",
+            "depends_on_operation_ids": ["universe"],
+            "inline_records": [{"asset": "A", "pct_change": 1}],
+            "rules": [{"field": "pct_change", "operator": "GE", "threshold": 0}],
+        },
+    )
+    with pytest.raises(ValidationError):
+        ExecutionRequest(
+            job_id="job-1",
+            trace_id="trace-1",
+            subject_repo="public/engine",
+            subject_commit=COMMIT,
+            as_of="2026-09-02",
+            operations=[universe, scan],
+        )
+
+
+@pytest.mark.parametrize(
+    "kind, parameters",
+    [
+        ("MARKET_UNIVERSE", {"as_of": "2026-09-02", "unexpected": True}),
+        ("OPPORTUNITY_SCAN", {"inline_records": [], "rules": [], "unexpected": True}),
+    ],
+)
+def test_operation_specific_public_allowlists_reject_extra_parameters(kind, parameters) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionOperation(operation_id="guard", kind=kind, parameters=parameters)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"account_id": "abc"},
+        {"cash": 1},
+        {"cost": 1},
+        {"holding": 1},
+        {"position": 1},
+        {"transaction": 1},
+        {"nested": [{"ref": "private://account:abc"}]},
+        {"nested": [{"ref": "portfolio:abc"}]},
+    ],
+)
+def test_public_operation_rejects_private_keys_and_nested_references(parameters) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionOperation(operation_id="guard", kind="MARKET_DATA", parameters=parameters)
+
+
+def test_public_operation_does_not_misclassify_numeric_cost_bps() -> None:
+    operation = ExecutionOperation(
+        operation_id="guard",
+        kind="MARKET_DATA",
+        parameters={"cost_bps": 10},
+    )
+    assert operation.parameters["cost_bps"] == 10

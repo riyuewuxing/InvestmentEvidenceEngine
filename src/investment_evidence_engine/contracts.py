@@ -1,15 +1,17 @@
-"""Portable execution contract synchronized with touzizhuanjia execution_contract v1."""
+"""Portable 1.0 envelope; M5 operation extensions are additive and require consumer coordination."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 OperationKind = Literal[
+    "MARKET_UNIVERSE",
     "MARKET_DATA",
     "PRICE_ANALYTICS",
     "KLINE_RENDER",
@@ -30,11 +32,17 @@ ExecutionStatus = Literal["PASS", "WARN", "BLOCK", "ERROR", "PENDING"]
 
 _PRIVATE_PARAMETER_KEYS = {
     "account",
+    "account_id",
     "account_state",
+    "cash",
     "portfolio_id",
     "holdings",
+    "holding",
     "positions",
+    "position",
     "transactions",
+    "transaction",
+    "cost",
     "cost_basis",
     "average_cost",
     "average_cost_or_cost_range",
@@ -44,6 +52,21 @@ _PRIVATE_PARAMETER_KEYS = {
     "private_context",
 }
 _PRIVATE_REF_PREFIXES = ("private:", "account:", "portfolio:", "transaction:")
+_ARTIFACT_OPERATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_OPERATION_PARAMETER_ALLOWLIST = {
+    "MARKET_UNIVERSE": {"as_of", "min_universe_size", "market", "asset_type"},
+    "OPPORTUNITY_SCAN": {
+        "as_of",
+        "depends_on_operation_ids",
+        "inline_records",
+        "rules",
+        "top_n",
+        "ranking_semantics",
+        "rule_origin",
+        "market",
+        "asset_type",
+    },
+}
 
 
 def canonical_sha256(value: object) -> str:
@@ -75,6 +98,24 @@ def _find_private_parameter(value: object, path: str = "parameters") -> str | No
     return None
 
 
+def _find_private_reference(value: object, path: str = "parameters") -> str | None:
+    if isinstance(value, str):
+        lowered = value.casefold()
+        if any(marker in lowered for marker in _PRIVATE_REF_PREFIXES):
+            return path
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            found = _find_private_reference(child, f"{path}.{key}")
+            if found:
+                return found
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found = _find_private_reference(child, f"{path}[{index}]")
+            if found:
+                return found
+    return None
+
+
 class ExecutionOperation(BaseModel):
     operation_id: str
     kind: OperationKind
@@ -88,9 +129,19 @@ class ExecutionOperation(BaseModel):
     def validate_public_boundary(self) -> ExecutionOperation:
         if not self.operation_id.strip():
             raise ValueError("operation_id must not be empty")
+        if not _ARTIFACT_OPERATION_ID.fullmatch(self.operation_id):
+            raise ValueError("operation_id must be a safe artifact path segment")
+        allowed = _OPERATION_PARAMETER_ALLOWLIST.get(self.kind)
+        if allowed is not None:
+            extra = sorted(set(self.parameters) - allowed)
+            if extra:
+                raise ValueError(f"unsupported parameters for {self.kind}: {','.join(extra)}")
         private_path = _find_private_parameter(self.parameters)
         if private_path:
             raise ValueError(f"private-state boundary violation: {private_path}")
+        private_reference = _find_private_reference(self.parameters)
+        if private_reference:
+            raise ValueError(f"private-reference boundary violation: {private_reference}")
         return self
 
 
@@ -117,6 +168,26 @@ class ExecutionRequest(BaseModel):
             raise ValueError("duplicate operation_id")
         if any(ref.strip().lower().startswith(_PRIVATE_REF_PREFIXES) for ref in self.input_refs):
             raise ValueError("private input refs are forbidden")
+        positions = {operation.operation_id: index for index, operation in enumerate(self.operations)}
+        for index, operation in enumerate(self.operations):
+            if operation.kind != "OPPORTUNITY_SCAN":
+                continue
+            parameters = operation.parameters
+            if "depends_on_operation_ids" not in parameters:
+                continue
+            if "inline_records" in parameters:
+                raise ValueError("OPPORTUNITY_SCAN dependency and inline_records are mutually exclusive")
+            dependencies = parameters.get("depends_on_operation_ids")
+            if not isinstance(dependencies, list) or len(dependencies) != 1:
+                raise ValueError("OPPORTUNITY_SCAN requires exactly one dependency")
+            dependency_id = dependencies[0]
+            if not isinstance(dependency_id, str) or dependency_id not in positions:
+                raise ValueError("OPPORTUNITY_SCAN dependency must reference an existing operation")
+            dependency_index = positions[dependency_id]
+            if dependency_index >= index:
+                raise ValueError("OPPORTUNITY_SCAN dependency must precede the scan")
+            if self.operations[dependency_index].kind != "MARKET_UNIVERSE":
+                raise ValueError("OPPORTUNITY_SCAN dependency must be MARKET_UNIVERSE")
         return self
 
     def payload(self) -> dict[str, object]:

@@ -5,6 +5,8 @@ import json
 import math
 import subprocess
 import sys
+from datetime import date
+from numbers import Real
 from pathlib import Path
 from typing import Callable
 
@@ -300,60 +302,284 @@ _OPERATOR: dict[str, Callable[[pd.Series, float], pd.Series]] = {
 }
 
 
+_LIVE_SCAN_NUMERIC_FIELDS = {
+    "latest_price",
+    "pct_change",
+    "volume",
+    "amount",
+    "amplitude",
+    "turnover_rate",
+    "pe_dynamic",
+    "pb",
+    "total_market_cap",
+    "float_market_cap",
+    "change_60d",
+    "ytd_change",
+}
+_SCAN_RULE_KEYS = {"field", "operator", "threshold", "weight"}
+
+
+def _scan_block(error: str) -> OperationResult:
+    return OperationResult(
+        operation_id="",
+        status="BLOCK",
+        exit_code=2,
+        errors=[error],
+    )
+
+
+def _scan_as_of(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10]).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def _scan_scope(parameters: dict[str, object], key: str, default: str) -> str:
+    value = parameters.get(key)
+    return default if value is None or not str(value).strip() else str(value).strip().upper()
+
+
+def _scan_input(
+    operation: ExecutionOperation,
+    context: WorkerContext,
+) -> tuple[list[dict[str, object]], str, dict[str, object] | None, str | None] | OperationResult:
+    parameters = operation.parameters
+    has_dependency = "depends_on_operation_ids" in parameters
+    has_inline = "inline_records" in parameters
+    if has_dependency:
+        if has_inline:
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_INLINE_CONFLICT")
+        dependencies = parameters.get("depends_on_operation_ids")
+        if not isinstance(dependencies, list) or len(dependencies) != 1:
+            return _scan_block("OPPORTUNITY_SCAN_REQUIRES_SINGLE_DEPENDENCY")
+        dependency_id = dependencies[0]
+        if not isinstance(dependency_id, str):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_ID_INVALID")
+        provenance = context.completed_operations.get(dependency_id)
+        if provenance is None:
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_NOT_COMPLETED")
+        if provenance.get("kind") != "MARKET_UNIVERSE":
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_KIND_INVALID")
+        if provenance.get("status") not in {"PASS", "WARN"}:
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_STATUS_INVALID")
+        operation_as_of = _scan_as_of(parameters.get("as_of"))
+        request_as_of = _scan_as_of(context.request_as_of)
+        if (
+            operation_as_of is None
+            or request_as_of is None
+            or _scan_as_of(provenance.get("as_of")) != operation_as_of
+            or operation_as_of != request_as_of
+        ):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_AS_OF_INVALID")
+        payload = context.payloads.get(dependency_id)
+        if not isinstance(payload, dict):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_PAYLOAD_INVALID")
+        if (
+            payload.get("source") != "public_market_data"
+            or payload.get("public_data_only") is not True
+            or payload.get("decision_authority") is not False
+        ):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_PAYLOAD_INVALID")
+        if (
+            _scan_scope(parameters, "market", "CN_A") != provenance.get("market")
+            or _scan_scope(parameters, "asset_type", "STOCK") != provenance.get("asset_type")
+            or _scan_scope(parameters, "market", "CN_A") != payload.get("market")
+            or _scan_scope(parameters, "asset_type", "STOCK") != payload.get("asset_type")
+        ):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_SCOPE_INVALID")
+        payload_as_of = _scan_as_of(payload.get("as_of"))
+        if (
+            operation_as_of is None
+            or request_as_of is None
+            or payload_as_of is None
+            or operation_as_of != request_as_of
+            or operation_as_of != payload_as_of
+        ):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_AS_OF_INVALID")
+        records = payload.get("records")
+        if not isinstance(records, list) or not records or not all(isinstance(item, dict) for item in records):
+            return _scan_block("OPPORTUNITY_SCAN_DEPENDENCY_RECORDS_MISSING")
+        listing_crosscheck = payload.get("listing_crosscheck")
+        listing_status = listing_crosscheck.get("status") if isinstance(listing_crosscheck, dict) else None
+        dependency_evidence = {
+            "operation_id": dependency_id,
+            "kind": provenance.get("kind"),
+            "status": provenance.get("status"),
+            "as_of": operation_as_of,
+            "market": payload.get("market"),
+            "asset_type": payload.get("asset_type"),
+            "source": payload.get("source"),
+            "provider": payload.get("provider"),
+            "primary_provider": payload.get("primary_provider"),
+            "quote_trade_date_status": payload.get("quote_trade_date_status"),
+            "listing_crosscheck": {"status": listing_status},
+            "quality_flags": [
+                item for item in payload.get("quality_flags", [])[:16] if isinstance(item, str)
+            ],
+            "warnings": [item for item in payload.get("warnings", [])[:16] if isinstance(item, str)],
+        }
+        return [dict(item) for item in records], "LIVE_MARKET_UNIVERSE", dependency_evidence, str(
+            provenance.get("status")
+        )
+    if not has_inline:
+        return _scan_block("OPPORTUNITY_SCAN_REQUIRES_RECORDS")
+    records = parameters.get("inline_records")
+    if not isinstance(records, list) or not records or not all(isinstance(item, dict) for item in records):
+        return _scan_block("OPPORTUNITY_SCAN_INLINE_RECORDS_INVALID")
+    return [dict(item) for item in records], "INLINE_SYNTHETIC", None, None
+
+
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _is_missing_value(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(missing, (bool, np.bool_)) and bool(missing)
+
+
+def _validate_scan_semantics(parameters: dict[str, object]) -> str | None:
+    if (
+        "ranking_semantics" in parameters
+        and parameters["ranking_semantics"] != "RESEARCH_PRIORITY_NOT_RETURN_FORECAST"
+    ):
+        return "OPPORTUNITY_SCAN_SEMANTICS_INVALID"
+    if (
+        "rule_origin" in parameters
+        and parameters["rule_origin"] != "USER_PROVIDED_RESEARCH_FILTER"
+    ):
+        return "OPPORTUNITY_SCAN_SEMANTICS_INVALID"
+    return None
+
+
+def _validate_scan_rules(
+    parameters: dict[str, object],
+    frame: pd.DataFrame,
+    input_mode: str,
+) -> tuple[list[dict[str, object]], int] | str:
+    rules = parameters.get("rules")
+    if not isinstance(rules, list) or not 1 <= len(rules) <= 32:
+        return "OPPORTUNITY_SCAN_RULE_COUNT_INVALID"
+    applied_rules: list[dict[str, object]] = []
+    for index, raw_rule in enumerate(rules):
+        if not isinstance(raw_rule, dict):
+            return f"OPPORTUNITY_SCAN_RULE_NOT_OBJECT:{index}"
+        extra = sorted(set(raw_rule) - _SCAN_RULE_KEYS)
+        if extra:
+            return f"OPPORTUNITY_SCAN_RULE_KEYS_INVALID:{index}"
+        field = raw_rule.get("field")
+        if not isinstance(field, str) or not field.strip():
+            return f"OPPORTUNITY_SCAN_RULE_FIELD_INVALID:{index}"
+        field = field.strip()
+        if input_mode == "LIVE_MARKET_UNIVERSE" and field not in _LIVE_SCAN_NUMERIC_FIELDS:
+            return f"OPPORTUNITY_SCAN_LIVE_FIELD_INVALID:{field}"
+        if field not in frame.columns:
+            return f"OPPORTUNITY_SCAN_RULE_FIELD_MISSING:{field}"
+        values = frame[field].tolist()
+        if input_mode == "LIVE_MARKET_UNIVERSE":
+            present_values = [value for value in values if not _is_missing_value(value)]
+            if not present_values:
+                return f"OPPORTUNITY_SCAN_RULE_FIELD_NO_VALID_NUMERIC:{field}"
+            if not all(_is_finite_number(value) for value in present_values):
+                return f"OPPORTUNITY_SCAN_RULE_FIELD_NOT_NUMERIC:{field}"
+        elif not all(_is_finite_number(value) for value in values):
+            return f"OPPORTUNITY_SCAN_RULE_FIELD_NOT_NUMERIC:{field}"
+        operator = raw_rule.get("operator")
+        if not isinstance(operator, str) or operator not in _OPERATOR:
+            return f"OPPORTUNITY_SCAN_RULE_OPERATOR_INVALID:{index}"
+        if "threshold" not in raw_rule or not _is_finite_number(raw_rule["threshold"]):
+            return f"OPPORTUNITY_SCAN_RULE_THRESHOLD_INVALID:{index}"
+        threshold = float(raw_rule["threshold"])
+        if "weight" not in raw_rule:
+            weight = 1.0
+        elif not _is_finite_number(raw_rule["weight"]) or float(raw_rule["weight"]) < 0:
+            return f"OPPORTUNITY_SCAN_RULE_WEIGHT_INVALID:{index}"
+        else:
+            weight = float(raw_rule["weight"])
+        applied_rules.append(
+            {"field": field, "operator": operator, "threshold": threshold, "weight": weight}
+        )
+    top_n = parameters.get("top_n", 50)
+    if not isinstance(top_n, int) or isinstance(top_n, bool) or not 1 <= top_n <= 1000:
+        return "OPPORTUNITY_SCAN_TOP_N_INVALID"
+    return applied_rules, top_n
+
+
 def run_opportunity_scan(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    records = _records(operation, context)
-    rules = operation.parameters.get("rules")
-    if not records or not isinstance(rules, list) or not rules:
+    semantic_error = _validate_scan_semantics(operation.parameters)
+    if semantic_error is not None:
         return OperationResult(
             operation_id=operation.operation_id,
             status="BLOCK",
             exit_code=2,
-            errors=["OPPORTUNITY_SCAN_REQUIRES_RECORDS_AND_RULES"],
+            errors=[semantic_error],
         )
+    scan_input = _scan_input(operation, context)
+    if isinstance(scan_input, OperationResult):
+        return scan_input.model_copy(update={"operation_id": operation.operation_id})
+    records, input_mode, dependency_evidence, dependency_status = scan_input
     frame = pd.DataFrame(records)
+    validated = _validate_scan_rules(operation.parameters, frame, input_mode)
+    if isinstance(validated, str):
+        return OperationResult(
+            operation_id=operation.operation_id,
+            status="BLOCK",
+            exit_code=2,
+            errors=[validated],
+        )
+    applied_rules, top_n = validated
     score = pd.Series(0.0, index=frame.index)
     matched_count = pd.Series(0, index=frame.index)
-    applied_rules: list[dict[str, object]] = []
-    for raw_rule in rules:
-        if not isinstance(raw_rule, dict):
-            continue
-        field = str(raw_rule.get("field") or "")
-        operator = str(raw_rule.get("operator") or "GE").upper()
-        if field not in frame.columns or operator not in _OPERATOR:
-            return OperationResult(
-                operation_id=operation.operation_id,
-                status="BLOCK",
-                exit_code=2,
-                errors=[f"INVALID_SCAN_RULE:{field}:{operator}"],
-            )
-        threshold = float(raw_rule.get("threshold") or 0.0)
-        weight = float(raw_rule.get("weight") or 1.0)
+    for rule in applied_rules:
+        field = str(rule["field"])
+        operator = str(rule["operator"])
+        threshold = float(rule["threshold"])
+        weight = float(rule["weight"])
         matches = _OPERATOR[operator](_numeric(frame[field]), threshold).fillna(False)
         score = score + matches.astype(float) * weight
         matched_count = matched_count + matches.astype(int)
-        applied_rules.append({"field": field, "operator": operator, "threshold": threshold, "weight": weight})
     frame["research_priority_score"] = score
     frame["matched_rule_count"] = matched_count
     sort_fields = ["research_priority_score", "matched_rule_count"]
     frame = frame.sort_values(sort_fields, ascending=[False, False], kind="stable")
-    top_n = max(1, min(int(operation.parameters.get("top_n") or 50), 1000))
     output = json.loads(frame.head(top_n).to_json(orient="records", date_format="iso", force_ascii=False))
     payload = {
         "candidates": output,
         "rules": applied_rules,
         "candidate_count": len(output),
         "ranking_semantics": "RESEARCH_PRIORITY_NOT_RETURN_FORECAST",
+        "input_mode": input_mode,
         "decision_authority": False,
     }
+    if dependency_evidence is not None:
+        payload["dependency_evidence"] = dependency_evidence
+    warnings = (
+        ["OPPORTUNITY_SCAN_DEPENDENCY_WARN"]
+        if dependency_status == "WARN"
+        else []
+    )
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     context.payloads[operation.operation_id] = payload
     return OperationResult(
         operation_id=operation.operation_id,
-        status="PASS",
+        status="WARN" if warnings else "PASS",
         exit_code=0,
         artifacts=[_artifact(path)],
-        metrics={"candidate_count": len(output), "rule_count": len(applied_rules)},
+        warnings=warnings,
+        metrics={
+            "candidate_count": len(output),
+            "rule_count": len(applied_rules),
+            "input_mode": input_mode,
+        },
     )
 
 

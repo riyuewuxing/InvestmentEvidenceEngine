@@ -4,9 +4,10 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,12 @@ class WorkerContext:
     output_dir: Path
     frames: dict[str, pd.DataFrame] = field(default_factory=dict)
     payloads: dict[str, dict[str, object]] = field(default_factory=dict)
+    completed_operations: dict[str, dict[str, object]] = field(default_factory=dict)
+    providers: dict[str, object] = field(default_factory=dict)
+    request_as_of: str | None = None
+    clock: Callable[[], datetime] = field(
+        default_factory=lambda: lambda: datetime.now(ZoneInfo("Asia/Shanghai"))
+    )
 
 
 def _jsonable_records(frame: pd.DataFrame) -> list[dict[str, object]]:

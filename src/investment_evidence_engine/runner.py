@@ -59,7 +59,7 @@ def execute_request(
     output_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(request_path, output_dir / "execution_request.json")
     started = datetime.now(UTC)
-    context = WorkerContext(output_dir=output_dir)
+    context = WorkerContext(output_dir=output_dir, request_as_of=request.as_of)
     results = [run_operation(operation, context) for operation in request.operations]
     finished = datetime.now(UTC)
     result = ExecutionResult(

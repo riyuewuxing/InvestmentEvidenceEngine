@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "job_id": "job-d0d1b30c928551bf7c0e",
+  "trace_id": "trace-47596f3657975d483120",
+  "subject_repo": "riyuewuxing/touzizhuanjia",
+  "subject_commit": "c4525244b250042e360b3cd55f3657ca89a1a5d6",
+  "as_of": "2026-09-04",
+  "operations": [
+    {
+      "operation_id": "market-universe",
+      "kind": "MARKET_UNIVERSE",
+      "parameters": {
+        "as_of": "2026-09-04",
+        "min_universe_size": 1000,
+        "market": "CN_A",
+        "asset_type": "STOCK"
+      },
+      "expected_outputs": [
+        "market-universe.json"
+      ],
+      "evidence_domains": [
+        "MARKET",
+        "RULE_IDENTITY"
+      ],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "opportunity-scan",
+      "kind": "OPPORTUNITY_SCAN",
+      "parameters": {
+        "as_of": "2026-09-04",
+        "depends_on_operation_ids": [
+          "market-universe"
+        ],
+        "rules": [
+          {
+            "field": "amount",
+            "operator": "GE",
+            "threshold": 100000000.0
+          },
+          {
+            "field": "pct_change",
+            "operator": "GE",
+            "threshold": 0.0
+          }
+        ],
+        "top_n": 20,
+        "ranking_semantics": "RESEARCH_PRIORITY_NOT_RETURN_FORECAST",
+        "rule_origin": "USER_PROVIDED_RESEARCH_FILTER",
+        "market": "CN_A",
+        "asset_type": "STOCK"
+      },
+      "expected_outputs": [
+        "opportunity-scan.json"
+      ],
+      "evidence_domains": [
+        "MARKET"
+      ],
+      "public_data_only": true,
+      "decision_authority": false
+    }
+  ],
+  "input_refs": [
+    "plan-47596f3657975d483120"
+  ],
+  "private_data_included": false,
+  "decision_authority": false,
+  "generated_at": "2026-09-04T07:36:25.885870Z",
+  "request_sha256": "59c271f3af8b1daf8bb791c8ebe85e6da2372115a95878b7d6faa866d9b7a9d7"
+}
