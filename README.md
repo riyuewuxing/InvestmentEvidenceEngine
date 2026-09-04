@@ -14,11 +14,21 @@ It does **not** receive real account holdings/cash/cost basis/transactions, make
 
 ## Operations
 
-All 15 reserved kinds are implemented and dispatched:
+All 16 reserved kinds are implemented and dispatched by the accepted V2-M5 Gate1 executor pin:
 
-`MARKET_DATA`, `PRICE_ANALYTICS`, `KLINE_RENDER`, `COMPANY_EVENT_TIMELINE`, `FUNDAMENTAL_HISTORY`, `VALUATION_HISTORY`, `OWNERSHIP_FLOW`, `INDUSTRY_MACRO`, `OFFICIAL_SOURCE`, `PIT_REPLAY`, `FACTOR_COMPUTE`, `BACKTEST`, `OPPORTUNITY_SCAN`, `PORTFOLIO_MATH`, `TEST_SUITE`.
+`MARKET_UNIVERSE`, `MARKET_DATA`, `PRICE_ANALYTICS`, `KLINE_RENDER`, `COMPANY_EVENT_TIMELINE`, `FUNDAMENTAL_HISTORY`, `VALUATION_HISTORY`, `OWNERSHIP_FLOW`, `INDUSTRY_MACRO`, `OFFICIAL_SOURCE`, `PIT_REPLAY`, `FACTOR_COMPUTE`, `BACKTEST`, `OPPORTUNITY_SCAN`, `PORTFOLIO_MATH`, `TEST_SUITE`.
 
 `OPPORTUNITY_SCAN` is research-priority ranking, not a return forecast. `PORTFOLIO_MATH` accepts only generic/synthetic/public-model inputs.
+
+`MARKET_UNIVERSE` acquires and normalizes a public A-share candidate universe through AKShare's
+Eastmoney spot endpoint, with one bounded Sina fallback. It emits compact `records` for downstream
+`OPPORTUNITY_SCAN` dependencies; it never emits advice, forecasts, or portfolio weights. Gate1
+accepted executor `1161a8a91657b4d1e4719e513025956b1720938c` is `PASS_WITH_EXPLICIT_WARNINGS`;
+V2-M5 overall remains `ACCEPTANCE_PENDING`. The final remote run had an AKShare primary failure,
+successful paged Sina fallback, a 5555-row universe report with `WARN`, unavailable listing
+cross-check, and unknown quote date; downstream scan was `WARN` with 20 candidates and 2 rules.
+The preceding monolithic Sina `JSONDecodeError` was fixed by bounded paged retries. See
+`docs/V2_M5_GATE1_RUNTIME_ACCEPTANCE_2026-09-04.md` for immutable run and artifact evidence.
 
 ## Current accepted state
 
@@ -40,6 +50,17 @@ All 15 reserved kinds are implemented and dispatched:
 - provider/schema/retry run `33618698768`: SUCCESS, official sources 3/3;
 - final security hard gate run `33619173578`: SUCCESS;
 - final security evidence: 0 untriaged secrets, 0 pip-audit vulnerabilities, 94 audited dependencies, 94 CycloneDX components.
+
+### V2-M5 Gate1 runtime acceptance
+
+- accepted executor: `1161a8a91657b4d1e4719e513025956b1720938c`;
+- subject commit: `c4525244b250042e360b3cd55f3657ca89a1a5d6`;
+- Gate1: `PASS_WITH_EXPLICIT_WARNINGS`;
+- M5 overall: `ACCEPTANCE_PENDING`;
+- final Actions: Engine `33852576973`, Execute `33852576917`, Provider `33852576932`, Security `33852576906`, all SUCCESS;
+- the Research benchmark `33849724972` succeeded on earlier executor `1d3e09d` and is not a same-pin Gate1 result;
+- Private admission of the actual bytes: `WARN`, verified/integrity verified/admissible; tamper case `BLOCK`;
+- the later documentation commit is not the executor pin, and `main` remains `db41a018447977e2203aed61239892dfbefbe1ac`.
 
 Representative formal request-path benchmark:
 
@@ -76,8 +97,20 @@ Bulk upstream data remains transient by default. Ordinary evidence artifacts are
 
 ## Next product-facing work
 
-The Engine now supports private `touzizhuanjia` V2-M5 product acceptance. Highest-priority missing case is **live real-market DISCOVERY**:
+The Engine now supports the private `touzizhuanjia` V2-M5 Gate1 product case. Remaining acceptance work is **M5 product freeze and follow-up governance**:
 
 `real public universe -> public evidence/features -> OPPORTUNITY_SCAN -> compact artifacts -> private observed-byte EvidenceAdmission`.
 
 Private account state must remain private throughout this flow.
+
+## V2-M5 implementation status
+
+`MARKET_UNIVERSE` is `IMPLEMENTATION_COMPLETE / LOCAL_TESTS_PASS / LIVE_PROBE_PASS_WITH_EXPLICIT_WARNINGS`;
+Gate1 is `PASS_WITH_EXPLICIT_WARNINGS` and M5 overall is `ACCEPTANCE_PENDING`. The accepted executor
+is `1161a8a91657b4d1e4719e513025956b1720938c`; the subject is
+`c4525244b250042e360b3cd55f3657ca89a1a5d6`. The final remote run recorded AKShare primary failure,
+paged Sina fallback success, 5555 rows with universe `WARN`, listing unavailable, quote date
+UNKNOWN, and downstream scan `WARN` with 20 candidates and 2 rules. Private admission of actual
+artifact bytes was verified/integrity verified/admissible with WARN; the tamper case BLOCKed. The
+documentation follow-up commit is not the executor pin; `main` remains
+`db41a018447977e2203aed61239892dfbefbe1ac`.

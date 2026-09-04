@@ -1,6 +1,6 @@
 # PROJECT_ROADMAP.md｜InvestmentEvidenceEngine 路线图
 
-更新时间：2026-09-02
+更新时间：2026-09-04
 
 ## E0｜职责与合同
 - [x] 无 AI / 无投资判断权
@@ -103,14 +103,33 @@ Evidence:
 
 Engine 侧下一任务不再横向增加指标，而是支持 private `touzizhuanjia` 的 V2-M5 产品级验收：
 
-- [ ] real DISCOVERY case：真实市场 universe -> public evidence/scan -> private admission；
+- [x] Gate1 real DISCOVERY case：真实市场 universe -> public evidence/scan -> private admission（with explicit WARNs）；
+- [x] additive `MARKET_UNIVERSE` operation contract + offline worker/consumer tests;
+- [x] live `MARKET_UNIVERSE` provider/runtime Gate1 execution and private artifact admission（with explicit WARNs）;
+- [ ] M5 product freeze and follow-up full-market throughput evidence;
 - [ ] RESEARCH case：mechanism/factor/backtest evidence -> private graph；
 - [ ] PORTFOLIO case：仅主仓持有私人状态；Engine 只接公共/泛化计算请求；
 - [ ] LEARNING case：历史 Decision/Outcome 在 private graph 中回放，Engine 只提供 PIT-safe external evidence；
 - [ ] V1 legacy acceptance assumptions 与 V2 dual-provenance contract 最终对齐；
 - [ ] product freeze 时固定新的 accepted executor commit。
 
-状态：`NEXT`
+状态：`GATE1=PASS_WITH_EXPLICIT_WARNINGS / M5_OVERALL=ACCEPTANCE_PENDING`
+
+`MARKET_UNIVERSE` 的 Gate1 executor pin 为 `1161a8a91657b4d1e4719e513025956b1720938c`，subject
+为 `c4525244b250042e360b3cd55f3657ca89a1a5d6`；后续文档提交不是 executor，`main` 仍为
+`db41a018447977e2203aed61239892dfbefbe1ac`。同一 executor 的 Engine
+`33852576973`、Execute `33852576917`、Provider `33852576932`、Security `33852576906`
+全部 SUCCESS。远端 universe 报告 5555 rows、`WARN`；AKShare primary 失败、Sina fallback
+成功、listing unavailable、quote date UNKNOWN；下游 `OPPORTUNITY_SCAN` 为 `WARN`，含
+`OPPORTUNITY_SCAN_DEPENDENCY_WARN`（20 candidates、2 rules）。Private admission 为
+WARN/verified/integrity verified/admissible，tamper case 为 BLOCK；Provider health 总体
+SUCCESS 但 AKShare daily 为 BLOCK（RemoteDisconnected），BaoStock PASS 33 rows。Security
+triage PASS（5 sealed ignored、unexpected 0、vulnerabilities 0）。
+
+Gate1 request SHA256 为 `d54eedf22a26f9a03a4b9118b96e3dec51b41d7847206d265563113c30da94e6`，
+result SHA256 为 `76b168935dffef49eb12514c44dd65229e19ddd815631aaebf4aa020e9aefaae`。前一轮
+monolithic Sina `JSONDecodeError` 已由有界逐页重试修复。完整运行和 artifact 证据见
+`docs/V2_M5_GATE1_RUNTIME_ACCEPTANCE_2026-09-04.md`。
 
 ## 当前优先级
 

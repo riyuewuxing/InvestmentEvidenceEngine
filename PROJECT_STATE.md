@@ -1,11 +1,14 @@
 # PROJECT_STATE.md｜InvestmentEvidenceEngine 当前状态
 
-更新时间：2026-09-02
+更新时间：2026-09-04
 Canonical repository：Public `riyuewuxing/InvestmentEvidenceEngine`
 Canonical implementation activation：`c55fcf744aacd71fb40214d408d790b369dc25a1`
 First accepted real-company executor：`86887ff40fee3166629f6e14d7531fe9542cc266`
 E6 accepted code/security snapshot：`b67c485d6c37b8b6e92bd44509ec5cec117b4512`
 Subject acceptance snapshot：private `riyuewuxing/touzizhuanjia@ccfcc2896407cac052192391144bae2ddc9ca28a`
+Accepted V2-M5 Gate1 executor：`1161a8a91657b4d1e4719e513025956b1720938c`
+Accepted V2-M5 subject：private `riyuewuxing/touzizhuanjia@c4525244b250042e360b3cd55f3657ca89a1a5d6`
+Public `main` remains：`db41a018447977e2203aed61239892dfbefbe1ac`
 
 ## 当前结论
 
@@ -15,6 +18,11 @@ Subject acceptance snapshot：private `riyuewuxing/touzizhuanjia@ccfcc2896407cac
 `PRIVATE_CONSUMER_ADMISSION=PASS_WITH_EXPLICIT_WARNINGS`
 `E6_SCALE_GOVERNANCE=PASS_WITH_SCOPE_LIMITS`
 `NEXT_PRODUCT_MILESTONE=V2_M5_PRODUCT_GOVERNANCE_ACCEPTANCE`
+`V2_M5_GATE1=PASS_WITH_EXPLICIT_WARNINGS`
+`V2_M5_OVERALL=ACCEPTANCE_PENDING`
+
+V2-M5 Gate1 executor 已固定为 `1161a8a91657b4d1e4719e513025956b1720938c`。后续文档提交不是
+executor pin；branch 可继续承载文档，且 `main` 仍为 `db41a018447977e2203aed61239892dfbefbe1ac`。
 
 Public Engine 已真实独立运行，不依赖 private `touzizhuanjia` checkout，也不拥有 AI 决策权。
 
@@ -98,7 +106,7 @@ Final branch regression run `33619173573`: SUCCESS, 19 tests + Ruff PASS.
 
 ## Intentional remaining limits
 
-- [ ] real full-A-share public-data discovery/scanner throughput acceptance;
+- [ ] larger-scale real full-A-share public-data discovery/scanner throughput acceptance;
 - [ ] reviewed persistent schema baseline promotion/alerting across multiple live snapshots;
 - [ ] Git tag/release surface when a supported write tool exists.
 
@@ -109,6 +117,27 @@ These are not to be silently marked complete from synthetic benchmarks.
 This repo owns public evidence acquisition, deterministic compute, charts, research calculations, source validation, benchmark/security infrastructure and sealed artifacts.
 
 It owns no AI decision authority, private portfolio state or broker execution.
+
+## V2-M5 Gate1 runtime acceptance
+
+The additive `MARKET_UNIVERSE` operation uses AKShare `stock_zh_a_spot_em()` as primary and a
+bounded paged Sina fallback, emits compact public-only `records`, and preserves quote-date
+UNKNOWN rather than treating retrieval time as market effective time. Gate1 is
+`PASS_WITH_EXPLICIT_WARNINGS`; M5 overall remains `ACCEPTANCE_PENDING`.
+
+Final same-executor Actions were all successful: Engine regression `33852576973`, Execute
+`33852576917`, Provider health `33852576932`, and Security `33852576906`. The remote universe
+reported 5555 rows with `WARN`; AKShare primary failed, Sina fallback succeeded, listing
+cross-check was unavailable, quote date was UNKNOWN, and downstream scan was `WARN` with 20
+candidates and 2 rules. Private admission of actual bytes was WARN but verified/integrity
+verified/admissible; its tamper case BLOCKed. Provider health itself was successful but recorded
+AKShare daily BLOCK (`RemoteDisconnected`) and BaoStock PASS with 33 rows. Security triage was
+PASS with 5 sealed findings ignored, 0 unexpected findings, and 0 dependency vulnerabilities.
+
+Request SHA256: `d54eedf22a26f9a03a4b9118b96e3dec51b41d7847206d265563113c30da94e6`.
+Result SHA256: `76b168935dffef49eb12514c44dd65229e19ddd815631aaebf4aa020e9aefaae`.
+The preceding monolithic Sina fallback `JSONDecodeError` was fixed by bounded paged retries.
+Complete immutable evidence is in `docs/V2_M5_GATE1_RUNTIME_ACCEPTANCE_2026-09-04.md`.
 
 See:
 - `docs/PUBLIC_RUNTIME_ACCEPTANCE_2026-09-02.md`
