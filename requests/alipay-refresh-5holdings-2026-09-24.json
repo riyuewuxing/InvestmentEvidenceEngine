@@ -1,0 +1,250 @@
+{
+  "schema_version": "1.0",
+  "job_id": "alipay-refresh-5holdings-2026-09-24",
+  "trace_id": "alipay-refresh-5holdings-2026-09-24",
+  "subject_repo": "riyuewuxing/touzizhuanjia",
+  "subject_commit": "26b6b6f67dfce88dc05a443414fd22fa1e226c83",
+  "as_of": "2026-09-24",
+  "operations": [
+    {
+      "operation_id": "market-601138",
+      "kind": "MARKET_DATA",
+      "parameters": {
+        "subject_ids": [
+          "601138"
+        ],
+        "as_of": "2026-09-24",
+        "history_days": 450
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price-601138",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {
+        "subject_ids": [
+          "601138"
+        ],
+        "as_of": "2026-09-24",
+        "depends_on_operation_ids": [
+          "market-601138"
+        ]
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events-601138",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {
+        "subject_ids": [
+          "601138"
+        ],
+        "as_of": "2026-09-24",
+        "lookback_days": 45
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "market-300476",
+      "kind": "MARKET_DATA",
+      "parameters": {
+        "subject_ids": [
+          "300476"
+        ],
+        "as_of": "2026-09-24",
+        "history_days": 450
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price-300476",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {
+        "subject_ids": [
+          "300476"
+        ],
+        "as_of": "2026-09-24",
+        "depends_on_operation_ids": [
+          "market-300476"
+        ]
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events-300476",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {
+        "subject_ids": [
+          "300476"
+        ],
+        "as_of": "2026-09-24",
+        "lookback_days": 45
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "market-600887",
+      "kind": "MARKET_DATA",
+      "parameters": {
+        "subject_ids": [
+          "600887"
+        ],
+        "as_of": "2026-09-24",
+        "history_days": 450
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price-600887",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {
+        "subject_ids": [
+          "600887"
+        ],
+        "as_of": "2026-09-24",
+        "depends_on_operation_ids": [
+          "market-600887"
+        ]
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events-600887",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {
+        "subject_ids": [
+          "600887"
+        ],
+        "as_of": "2026-09-24",
+        "lookback_days": 45
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "market-601088",
+      "kind": "MARKET_DATA",
+      "parameters": {
+        "subject_ids": [
+          "601088"
+        ],
+        "as_of": "2026-09-24",
+        "history_days": 450
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price-601088",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {
+        "subject_ids": [
+          "601088"
+        ],
+        "as_of": "2026-09-24",
+        "depends_on_operation_ids": [
+          "market-601088"
+        ]
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events-601088",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {
+        "subject_ids": [
+          "601088"
+        ],
+        "as_of": "2026-09-24",
+        "lookback_days": 45
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "market-600900",
+      "kind": "MARKET_DATA",
+      "parameters": {
+        "subject_ids": [
+          "600900"
+        ],
+        "as_of": "2026-09-24",
+        "history_days": 450
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "price-600900",
+      "kind": "PRICE_ANALYTICS",
+      "parameters": {
+        "subject_ids": [
+          "600900"
+        ],
+        "as_of": "2026-09-24",
+        "depends_on_operation_ids": [
+          "market-600900"
+        ]
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    },
+    {
+      "operation_id": "events-600900",
+      "kind": "COMPANY_EVENT_TIMELINE",
+      "parameters": {
+        "subject_ids": [
+          "600900"
+        ],
+        "as_of": "2026-09-24",
+        "lookback_days": 45
+      },
+      "expected_outputs": [],
+      "evidence_domains": [],
+      "public_data_only": true,
+      "decision_authority": false
+    }
+  ],
+  "input_refs": [],
+  "private_data_included": false,
+  "decision_authority": false,
+  "generated_at": "2026-09-25T06:46:04.243523Z",
+  "request_sha256": "ea6765f4fdffbdd3ff6b4086534034b21b120523ae61c7418a461bc965a43714"
+}
