@@ -87,3 +87,9 @@
 - [ ] security / secret scan
 - [ ] SBOM/dependency policy
 状态：`NEXT_MAJOR_WORKSTREAM`
+
+## E6 supporting infrastructure — visual QA
+- [x] Synthetic public browser/native capture implementation and bounded log return
+- [ ] Actual public runner + independently decoded and viewed PNGs
+- [ ] Product-specific test integration only after public-safe source authorization or private/local execution
+Status: `IMPLEMENTED_NOT_RUNTIME_VALIDATED`

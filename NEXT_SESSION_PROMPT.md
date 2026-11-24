@@ -34,3 +34,7 @@ Public regression、provider health、真实 `600519` execution、Public artifac
 7. 若工具支持，再创建 `v0.1.0` tag/release；否则继续以 accepted executor commit SHA pin。
 
 任何施工结束仍必须更新 STATE / ROADMAP / NEXT，并保留 WARN/BLOCK 原始语义。
+
+## 2026-11-24 visual QA checkpoint
+
+Read `docs/PUBLIC_VISUAL_QA.md`. Verify public `Public visual QA` run, recover bounded PNG records from job logs, independently hash and actually view screenshots; record native capture separately from browser. Do not claim private product screenshots or checkout private repo. Existing E6 tasks remain.

@@ -58,3 +58,7 @@ There were no BLOCK/ERROR operations. WARN must remain visible in downstream rea
 This repo owns public evidence acquisition, deterministic compute, charts, research calculations, source validation and sealed artifacts. It owns no AI decision authority, private portfolio state or broker execution.
 
 See `docs/PUBLIC_RUNTIME_ACCEPTANCE_2026-09-02.md` for the acceptance record.
+
+## 2026-11-24 — public visual QA infrastructure
+
+Independent synthetic browser + native Windows screen capture and bounded log transport implemented under `visual_qa/`. Status `IMPLEMENTED_NOT_RUNTIME_VALIDATED`. No private code/data checkout, no new investment worker, no change to accepted executor snapshot. See `docs/PUBLIC_VISUAL_QA.md`.

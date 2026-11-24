@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Synthetic visual QA</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101923;color:#ecf1f6;font:16px system-ui,sans-serif}header{padding:18px 24px;border-bottom:1px solid #344558;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}header strong{font-size:22px}header span{color:#96b0c8;font-size:13px}main{max-width:1200px;margin:auto;padding:24px}h1{font-size:27px;margin:0 0 8px}p{color:#adc0d1;margin:0 0 20px;line-height:1.55}.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}.panel{border:1px solid #344558;background:#172431;border-radius:12px;padding:18px;min-width:0}h2{font-size:17px;margin:0 0 12px}.metric{font-size:32px;font-weight:650;color:#7ee2bc;margin:10px 0}.chart{display:block;width:100%;height:auto;max-height:250px}.axis{stroke:#42556a;stroke-width:1;fill:none}.line{fill:none;stroke:#7ee2bc;stroke-width:4;stroke-linejoin:round}button{background:#244760;border:1px solid #5c8aaa;color:white;border-radius:8px;padding:10px 14px;font:inherit;cursor:pointer}button:focus-visible{outline:3px solid #ffcc77;outline-offset:2px}#status{margin:12px 0 0;min-height:24px;color:#ffcc77}.note{font-size:13px;color:#96b0c8;margin:20px 0 0}@media(max-width:620px){main{padding:16px}.grid{grid-template-columns:1fr}header{padding:14px 16px}h1{font-size:22px}.metric{font-size:28px}}
+</style>
+</head>
+<body>
+<header><strong>Visual QA fixture</strong><span>PUBLIC / SYNTHETIC ONLY</span></header>
+<main>
+<h1>Rendering and interaction check</h1>
+<p>Independent synthetic fixture. Not the investment workstation and not market evidence.</p>
+<div class="grid"><section class="panel" aria-label="Synthetic chart"><h2>Sample series</h2><svg class="chart" viewBox="0 0 600 220" role="img" aria-label="Synthetic line chart"><path class="axis" d="M25 20V195H580 M25 60H580 M25 110H580 M25 155H580"/><path class="line" d="M25 170 L95 135 L165 147 L235 91 L305 121 L375 64 L445 81 L515 39 L580 55"/><circle cx="580" cy="55" r="6" fill="#7ee2bc"/></svg><p class="note">Fixed invented observations; no external data.</p></section>
+<section class="panel"><h2>Interaction probe</h2><div class="metric">128.40</div><p>Sample display value</p><button id="probe" type="button">Run UI check</button><p id="status" role="status">Ready</p></section></div>
+<p class="note">Browser rendering QA only · No decision authority · No execution</p>
+</main>
+<script>document.getElementById('probe').addEventListener('click',()=>{document.getElementById('status').textContent='Interaction passed';});</script>
+</body>
+</html>

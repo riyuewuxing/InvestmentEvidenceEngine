@@ -1,0 +1,57 @@
+name: Public visual QA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'visual_qa/**'
+      - '.github/workflows/visual-qa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-visual-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install pinned browser tooling
+        working-directory: visual_qa
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Render synthetic desktop and mobile
+        run: node visual_qa/capture_browser.cjs "$RUNNER_TEMP/visual-qa"
+      - name: Return bounded screenshot bytes
+        run: python visual_qa/emit_png.py --commit "$GITHUB_SHA" --run "$GITHUB_RUN_ID" "$RUNNER_TEMP/visual-qa/browser-desktop.png" "$RUNNER_TEMP/visual-qa/browser-mobile.png"
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Start real native GUI and capture screen pixels
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File visual_qa/capture_native.ps1 -OutputDir "$env:RUNNER_TEMP/visual-qa"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Return bounded screenshot bytes
+        shell: pwsh
+        run: python visual_qa/emit_png.py --commit "$env:GITHUB_SHA" --run "$env:GITHUB_RUN_ID" "$env:RUNNER_TEMP/visual-qa/windows-native.png"

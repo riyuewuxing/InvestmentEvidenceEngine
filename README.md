@@ -53,3 +53,7 @@ Treat every Public repository input, log and artifact as public. Never put priva
 ## Next workstream
 
 The first Public vertical slice is complete. The next major line is scale/governance: representative factor/backtest benchmarks, large-universe opportunity scanning, matrix/sharding decisions, provider schema-drift/backoff, data-license/artifact-retention policy, dependency/SBOM/security gates, and contract/version compatibility.
+
+## Public visual QA
+
+`visual_qa/` and `.github/workflows/visual-qa.yml` provide independently authored synthetic browser and Windows native capture probes, with bounded screenshot return via logs (no artifact upload). See `docs/PUBLIC_VISUAL_QA.md`; not a private product build or an admission worker.
