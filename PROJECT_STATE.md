@@ -61,4 +61,4 @@ See `docs/PUBLIC_RUNTIME_ACCEPTANCE_2026-09-02.md` for the acceptance record.
 
 ## 2026-11-24 — public visual QA infrastructure
 
-Independent synthetic browser + native Windows screen capture and bounded log transport implemented under `visual_qa/`. Status `IMPLEMENTED_NOT_RUNTIME_VALIDATED`. No private code/data checkout, no new investment worker, no change to accepted executor snapshot. See `docs/PUBLIC_VISUAL_QA.md`.
+Independent synthetic browser + native Windows screen capture and bounded log transport implemented under `visual_qa/`. Status `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e7714d97ca7ce76d`, public run `45369573507`: browser desktop, browser mobile, native Windows actual screen capture, all three decoded/rehashed/viewed. Current follow-up lint/receiver regression is separate; no private product validation. No private code/data checkout, no new investment worker, no change to accepted executor snapshot. See `docs/PUBLIC_VISUAL_QA.md`.

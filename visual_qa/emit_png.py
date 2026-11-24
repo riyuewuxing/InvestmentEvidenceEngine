@@ -9,8 +9,8 @@ import argparse
 import base64
 import hashlib
 import json
-from pathlib import Path
 import struct
+from pathlib import Path
 
 NAMES = {"browser-desktop.png", "browser-mobile.png", "windows-native.png"}
 MAX_BYTES = 240_000

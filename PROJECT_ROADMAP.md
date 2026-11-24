@@ -90,6 +90,6 @@
 
 ## E6 supporting infrastructure — visual QA
 - [x] Synthetic public browser/native capture implementation and bounded log return
-- [ ] Actual public runner + independently decoded and viewed PNGs
+- [x] Actual public runner + independently decoded and viewed all three PNGs (run `45369573507`)
 - [ ] Product-specific test integration only after public-safe source authorization or private/local execution
-Status: `IMPLEMENTED_NOT_RUNTIME_VALIDATED`
+Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e7714d97ca7ce76d`; follow-up lint/receiver tests separately verified. Private product not validated.
