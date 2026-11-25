@@ -1,0 +1,92 @@
+name: Bounded public valuation provider smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/valuation-provider-smoke.yml'
+      - 'src/investment_evidence_engine/workers.py'
+      - 'src/investment_evidence_engine/providers.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: valuation-provider-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  valuation-observation:
+    if: ${{ github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Observe public control symbol without uploading provider records
+        timeout-minutes: 2
+        run: |
+          timeout --signal=TERM --kill-after=10s 90s python - <<'PY'
+          import hashlib
+          import json
+          from datetime import datetime, timedelta
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from zoneinfo import ZoneInfo
+
+          from investment_evidence_engine.contracts import ExecutionOperation
+          from investment_evidence_engine.dispatch import run_operation
+          from investment_evidence_engine.workers import WorkerContext
+
+          # This fixed control symbol is unrelated to private account state.
+          cutoff = (datetime.now(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1)).isoformat()
+          op = ExecutionOperation(
+              operation_id="valuation_control",
+              kind="VALUATION_HISTORY",
+              parameters={"subject_ids": ["600519"], "as_of": cutoff},
+              evidence_domains=["VALUATION"],
+          )
+          with TemporaryDirectory() as temp:
+              ctx = WorkerContext(output_dir=Path(temp))
+              result = run_operation(op, ctx)
+              # Report only bounded schema/cutoff diagnostics, no raw vendor records,
+              # secret values, provider exception text or private identifiers.
+              summary = {
+                  "operation_status": result.status,
+                  "cutoff": cutoff,
+                  "metrics": result.metrics,
+                  "warnings": result.warnings,
+              }
+              if result.status != "WARN":
+                  print(json.dumps(summary, ensure_ascii=False))
+                  raise SystemExit("Real provider observation unavailable or rejected; not validated")
+              payload = ctx.payloads[op.operation_id]
+              assert payload["symbol"] == "600519"
+              assert payload["as_of"] == cutoff
+              assert payload["rows"] > 0
+              assert payload["latest_data_date"] <= cutoff
+              assert all(row[payload["date_column"]] <= cutoff for row in payload["records"])
+              assert payload["pit_safe"] is False
+              assert payload["historical_vintage_verified"] is False
+              assert result.decision_authority is False
+              art = result.artifacts[0]
+              assert hashlib.sha256((Path(temp) / art.path).read_bytes()).hexdigest() == art.sha256
+              summary.update({
+                  "date_column": payload["date_column"],
+                  "latest_data_date": payload["latest_data_date"],
+                  "observed_at": payload["observed_at"],
+                  "local_artifact_rehash": "MATCH",
+                  "historical_vintage_verified": False,
+                  "decision_authority": False,
+              })
+              print(json.dumps(summary, ensure_ascii=False))
+          PY
