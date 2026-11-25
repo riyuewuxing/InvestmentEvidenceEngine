@@ -93,3 +93,10 @@
 - [x] Actual public runner + independently decoded and viewed all three PNGs (run `45369573507`)
 - [ ] Product-specific test integration only after public-safe source authorization or private/local execution
 Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e7714d97ca7ce76d`; follow-up lint/receiver tests separately verified. Private product not validated.
+
+
+## E1 corrective maintenance — valuation history
+- [x] Implement strict date-bounded valuation observation; no automatic PIT/decision promotion.
+- [x] Add synthetic cutoff/schema/identity/duplicate regression cases.
+- [ ] Verify same-SHA public regression and separately bounded real-provider schema.
+- [ ] Private consumer compatibility and exact-version admission; do not auto-advance accepted executor pin.

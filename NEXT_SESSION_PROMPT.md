@@ -38,3 +38,8 @@ Public regression、provider health、真实 `600519` execution、Public artifac
 ## 2026-11-24 visual QA checkpoint
 
 Read `docs/PUBLIC_VISUAL_QA.md`. Public run `45369573507` proved desktop/mobile Chromium and native Windows actual screen capture; all PNGs independently hashed and viewed. Verify latest regression and use `visual_qa/verify_log.py` for subsequent log recovery. Product-specific integration requires approved public source/bundle or private/local runner. Do not claim private product screenshots or checkout private repo. Existing E6 tasks remain.
+
+
+## 2026-11-26 valuation cutoff checkpoint
+
+First check public engine-regression for the latest correction. Never relabel a date-filtered valuation series as PIT-safe; no known publication/revision vintage, no independent crosscheck. Existing accepted executor pin is not silently advanced. Only public independent Actions resources; never private checkout or runner. Do not transfer private opportunity-cost/admission logic or holdings into this repository.

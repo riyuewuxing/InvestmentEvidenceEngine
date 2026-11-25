@@ -4,9 +4,10 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -463,26 +464,94 @@ def run_fundamental_history(operation: ExecutionOperation, context: WorkerContex
     )
 
 
+def _valuation_date(value: object) -> date:
+    """Accept only an unambiguous day from the provider's daily valuation table."""
+    if pd.isna(value):
+        raise ValueError("missing valuation date")
+    if isinstance(value, datetime):
+        if value.tzinfo is not None or any((value.hour, value.minute, value.second, value.microsecond)):
+            raise ValueError("valuation date is not a plain day")
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("unsupported valuation date type")
+    parsed = date.fromisoformat(value)
+    if value != parsed.isoformat():
+        raise ValueError("valuation date must be YYYY-MM-DD")
+    return parsed
+
+
 def run_valuation_history(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    symbol = _subject(operation.parameters)
+    """Return a date-bounded provider observation, never attest historical vintage."""
+    def blocked(reason: str) -> OperationResult:
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                               exit_code=2, errors=[reason])
+
+    subjects = operation.parameters.get("subject_ids")
+    if (not isinstance(subjects, list) or len(subjects) != 1
+            or not isinstance(subjects[0], str)
+            or len(subjects[0]) != 6 or not subjects[0].isascii() or not subjects[0].isdigit()):
+        return blocked("VALUATION_REQUIRES_ONE_EXACT_SIX_DIGIT_SYMBOL")
+    symbol = subjects[0]
+    try:
+        cutoff = _valuation_date(operation.parameters.get("as_of"))
+    except (ValueError, TypeError):
+        return blocked("VALUATION_REQUIRES_EXACT_CALENDAR_DATE")
+    if cutoff > datetime.now(ZoneInfo("Asia/Shanghai")).date():
+        return blocked("VALUATION_FUTURE_CUTOFF")
     provider = AKShareResearchProvider()
     frame = provider.get_valuation_history(symbol)
+    observed_at = datetime.now(UTC)
+    if frame.empty or not frame.columns.is_unique:
+        return blocked("VALUATION_EMPTY_OR_AMBIGUOUS_SCHEMA")
+    columns = [name for name in ("数据日期", "date") if name in frame.columns]
+    if len(columns) != 1:
+        return blocked("VALUATION_DATE_COLUMN_MISSING_OR_AMBIGUOUS")
+    date_column = columns[0]
+    try:
+        dates = [_valuation_date(value) for value in frame[date_column]]
+    except (ValueError, TypeError, OverflowError):
+        return blocked("VALUATION_INVALID_PROVIDER_DATE")
+    # A duplicate day can represent conflicting revisions. Do not guess which
+    # retained record is the version available at the requested cutoff.
+    eligible = [(day, index) for index, day in enumerate(dates) if day <= cutoff]
+    if not eligible:
+        return blocked("VALUATION_NO_ROWS_AT_OR_BEFORE_CUTOFF")
+    if len({day for day, _ in eligible}) != len(eligible):
+        return blocked("VALUATION_DUPLICATE_ELIGIBLE_DATES")
+    eligible.sort()
+    bounded = frame.iloc[[index for _, index in eligible]].copy()
+    bounded[date_column] = [day.isoformat() for day, _ in eligible]
+    warnings = ["VALUATION_HISTORICAL_AVAILABILITY_UNVERIFIED",
+                "VALUATION_SINGLE_PROVIDER_NOT_INDEPENDENTLY_CROSSCHECKED"]
+    if len(eligible) < len(frame):
+        warnings.append("VALUATION_ROWS_AFTER_CUTOFF_EXCLUDED")
     payload = {
         "symbol": symbol,
-        "as_of": _as_of(operation.parameters).isoformat(),
-        "records": _jsonable_records(frame),
-        "rows": len(frame),
+        "as_of": cutoff.isoformat(),
+        "observed_at": observed_at.isoformat(),
+        "provider": "AKShare.stock_value_em (Eastmoney)",
+        "date_column": date_column,
+        "latest_data_date": eligible[-1][0].isoformat(),
+        "records": _jsonable_records(bounded),
+        "rows": len(bounded),
+        "excluded_after_cutoff": len(frame) - len(bounded),
+        "pit_safe": False,
+        "historical_vintage_verified": False,
         "decision_authority": False,
+        "warnings": warnings,
     }
     context.payloads[operation.operation_id] = payload
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     return OperationResult(
         operation_id=operation.operation_id,
-        status="PASS",
+        status="WARN",
         exit_code=0,
         artifacts=[_artifact(path, media_type="application/json")],
-        metrics={"rows": len(frame)},
+        metrics={"rows": len(bounded), "excluded_after_cutoff": len(frame) - len(bounded)},
+        warnings=warnings,
     )
 
 
