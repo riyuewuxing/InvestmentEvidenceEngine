@@ -1,0 +1,30 @@
+name: Public merger consideration control
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-merger-consideration-control.yml"
+permissions:
+  contents: read
+concurrency:
+  group: public-merger-consideration-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Two fixed notices and two routes per endpoint, no retry
+        timeout-minutes: 4
+        run: timeout --signal=TERM --kill-after=5s 210s python -m investment_evidence_engine.merger_consideration_control
