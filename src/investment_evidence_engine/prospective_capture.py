@@ -13,7 +13,6 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
-from .historical_capture import SH
 from .market_calendar import scheduled_days
 from .prospective_assessment import (
     THRESHOLD,
