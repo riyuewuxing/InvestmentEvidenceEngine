@@ -17,6 +17,7 @@ from .supplemental_workers import run_ownership_flow, run_portfolio_math
 from .workers import WORKERS as BASE_WORKERS
 from .workers import WorkerContext
 
+
 def run_research(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
     """Fail closed until actual point-in-time source vintage and research profile exist."""
     return OperationResult(

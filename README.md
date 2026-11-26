@@ -57,3 +57,7 @@ The first Public vertical slice is complete. The next major line is scale/govern
 ## Public visual QA
 
 `visual_qa/` and `.github/workflows/visual-qa.yml` provide independently authored synthetic browser and Windows native capture probes, with bounded screenshot return via logs (no artifact upload). See `docs/PUBLIC_VISUAL_QA.md`; not a private product build or an admission worker.
+
+### 2026-11-26 scope note
+
+`MARKET_UNIVERSE` is research-only; the live scan may remain WARN when listing/quote-date coverage is unknown. `MARKET_DATA` provides bounded retrospective observations, not verified historical vintages. `RESEARCH` is currently a fail-closed contract boundary: exact public scan attachment verification does not establish historical source or profile admission. See PROJECT_STATE and current Actions evidence; historical accepted pins are not advanced automatically.

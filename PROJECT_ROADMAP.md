@@ -100,3 +100,11 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Add synthetic cutoff/schema/identity/duplicate regression cases.
 - [ ] Verify same-SHA public regression and separately bounded real-provider schema.
 - [ ] Private consumer compatibility and exact-version admission; do not auto-advance accepted executor pin.
+
+## 2026-11-26 targeted evidence maintenance
+- [x] Real public date-bounded market observation (run 45809117132; WARN, single source, no vintage proof).
+- [x] Bounded independent listing diagnostic (run 45808245082 BLOCK; do not treat a timeout as verification).
+- [x] Public scan attachment byte/selector binding and fail-closed RESEARCH boundary implemented; final exact SHA regression must be read from Actions.
+- [ ] Obtain actual admissible public candidate bytes and original-source receipts with publication/retrieval provenance; independent listing/price checks remain open.
+- [ ] Implement and validate genuine PIT research profile with chronological splits/cost stress; do not invent available_at from bar dates.
+- [ ] Private consumer complete same-SHA dual gates under public-only boundary. Historical pins remain frozen.
