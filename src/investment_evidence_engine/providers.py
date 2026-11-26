@@ -4,6 +4,8 @@ from datetime import date
 
 import pandas as pd
 
+from .sina_statement_adapter import call_sina_statement
+
 
 class ProviderError(RuntimeError):
     pass
@@ -189,7 +191,7 @@ class AKShareResearchProvider:
             ("cashflow", "现金流量表"),
         ):
             try:
-                raw = ak.stock_financial_report_sina(stock=stock, symbol=statement_name)
+                raw = call_sina_statement(ak.stock_financial_report_sina, stock, statement_name)
                 if raw is not None and not raw.empty:
                     result[key] = raw.copy()
                 else:
