@@ -42,3 +42,29 @@ def test_exact_source_policy_mapping():
 def test_reject_unapproved_route_or_ambiguous_path(url):
     with pytest.raises(ValueError):
         official_pdf_route(url)
+
+
+MANAGER = "https://www.chinaamc.com/upload/resources/file/2026/04/22/0123456789abcdef0123456789abcdef.pdf"
+
+
+def test_manager_exact_route():
+    r = official_pdf_route(MANAGER)
+    assert (r.url, r.source_id, r.root_host, r.domain, r.market_scope) == (
+        MANAGER, "chinaamc_fund_disclosure", "www.chinaamc.com", "FUND_DISCLOSURE", "CN_ETF")
+
+
+@pytest.mark.parametrize("url", [
+    MANAGER.replace("https:", "http:"),
+    MANAGER.replace("www.chinaamc.com", "www.chinaamc.com.evil.example"),
+    MANAGER.replace("www.chinaamc.com", "fund.chinaamc.com"),
+    MANAGER.replace("www.chinaamc.com", "www.chinaamc.com:8443"),
+    MANAGER.replace("2026/04/22", "2026/02/30"),
+    MANAGER.replace("2026/04/22", "2026/04/../22"),
+    MANAGER.replace("0123456789abcdef0123456789abcdef", "not-a-hash"),
+    MANAGER + "?download=1",
+    MANAGER + "#page=3",
+    "https://www.chinaamc.com/front/front/file/preview/abc/report.pdf",
+])
+def test_manager_route_rejects_other_paths(url):
+    with pytest.raises(ValueError):
+        official_pdf_route(url)

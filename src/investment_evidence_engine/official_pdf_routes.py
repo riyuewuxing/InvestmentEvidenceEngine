@@ -10,6 +10,8 @@ _OFFICIAL_HOST = "static.cninfo.com.cn"
 _DETAIL_HOST = "www.cninfo.com.cn"
 _SZSE_HOST = "disc.static.szse.cn"
 _SSE_HOST = "www.sse.com.cn"
+_MANAGER_HOST = "www.chinaamc.com"
+_MANAGER_PATH = re.compile(r"/upload/resources/file/([0-9]{4})/([0-9]{2})/([0-9]{2})/[0-9a-f]{32}\.pdf")
 _SZSE_PATH = re.compile(r"/disc/disk[0-9]{2}/finalpage/([0-9]{4}-[0-9]{2}-[0-9]{2})/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf", re.IGNORECASE)
 _SSE_PATH = re.compile(r"/disclosure/fund/announcement/c/new/([0-9]{4}-[0-9]{2}-[0-9]{2})/[0-9]{6}_([0-9]{8})_[A-Za-z0-9]{1,32}\.pdf", re.IGNORECASE)
 _PDF_PATH = re.compile(r"/finalpage/\d{4}-\d{2}-\d{2}/[0-9]+\.pdf", re.IGNORECASE)
@@ -43,6 +45,12 @@ def canonical_official_pdf_url(url: str) -> str:
             raise ValueError("Invalid CNINFO orgId")
         date.fromisoformat(ann_date)
         return urlunsplit(("https", _OFFICIAL_HOST, f"/finalpage/{ann_date}/{ann_id}.PDF", "", ""))
+    if p.hostname == _MANAGER_HOST:
+        match = _MANAGER_PATH.fullmatch(p.path)
+        if p.scheme != "https" or p.port not in {None, 443} or p.query or not match:
+            raise ValueError("Invalid manager static PDF route")
+        date(*map(int, match.groups()))
+        return urlunsplit(("https", _MANAGER_HOST, p.path, "", ""))
     if p.hostname in {_SZSE_HOST, _SSE_HOST}:
         if p.scheme != "https" or p.port not in {None, 443} or p.query:
             raise ValueError("Invalid official exchange PDF URL")
@@ -77,6 +85,9 @@ class OfficialPdfRoute:
 def official_pdf_route(url: str) -> OfficialPdfRoute:
     canonical = canonical_official_pdf_url(url)
     host = urlsplit(canonical).hostname
+    if host == _MANAGER_HOST:
+        return OfficialPdfRoute(canonical, "chinaamc_fund_disclosure", _MANAGER_HOST,
+                                "FUND_DISCLOSURE", "CN_ETF")
     if host == _SSE_HOST:
         return OfficialPdfRoute(canonical, "cn_exchange_fund_official", "sse.com.cn",
                                 "FUND_DISCLOSURE", "CN_ETF")
