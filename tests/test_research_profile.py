@@ -6,7 +6,7 @@ import pytest
 from test_input_binding import fixture
 
 from investment_evidence_engine.market_calendar import scheduled_days
-from investment_evidence_engine.research_profile import (
+from investment_evidence_engine.research_profile_evidence import (
     COST,
     FACTOR,
     PROFILE,
@@ -133,3 +133,23 @@ def test_sealed_chain_retains_diagnostic_but_formal_admission_blocks(tmp_path, m
         assert report["candidate_attachment_sha256"] == ref.source_artifact_sha256
         assert report["status"] == "BLOCK" and report["decision_authority"] is False
         assert "features" not in report and "pit" not in report
+
+
+def test_portable_math_matches_existing_retrospective_wrapper():
+    import pandas as pd
+
+    from investment_evidence_engine.retrospective_control import retrospective_momentum
+
+    p = payload()
+    old = retrospective_momentum(pd.DataFrame(p["bars"]), date.fromisoformat(p["start"]),
+                                 date.fromisoformat(p["end"]))
+    report = evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+    assert report["raw_price_diagnostic"] == old
+
+
+@pytest.mark.parametrize("field,value", [("open", 0), ("low", -1), ("high", 1), ("volume", 0)])
+def test_portable_math_rejects_invalid_ohlcv(field, value):
+    p = payload()
+    p["bars"][10][field] = value
+    with pytest.raises(ValueError, match="RESEARCH_MARKET_ROW_OHLCV"):
+        evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])

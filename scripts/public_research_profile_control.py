@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
-from investment_evidence_engine.research_profile import evaluate_market_profile
+from investment_evidence_engine.research_profile_evidence import evaluate_market_profile
 from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.snapshot_integrity import strict_json_loads
 from investment_evidence_engine.transport_integrity import read_verified_artifact

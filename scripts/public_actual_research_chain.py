@@ -22,7 +22,7 @@ from investment_evidence_engine.contracts import (
     canonical_sha256,
 )
 from investment_evidence_engine.public_scan_packet import verify_public_scan_packet
-from investment_evidence_engine.research_profile import COST, FACTOR, PROFILE, SPLIT
+from investment_evidence_engine.research_profile_evidence import COST, FACTOR, PROFILE, SPLIT
 from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.snapshot_integrity import strict_json_loads
 from investment_evidence_engine.transport_integrity import read_verified_artifact
