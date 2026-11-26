@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from .contracts import ArtifactRef, ExecutionOperation, InputArtifactRef, OperationResult
+from .contracts import ArtifactRef, ExecutionOperation, InputArtifactRef, OperationResult, canonical_sha256
 from .providers import AKShareProvider, AKShareResearchProvider, BaoStockProvider, ProviderError, normalize_ohlcv
 from .sources import DEFAULT_OFFICIAL_SOURCES, fetch_text
 
@@ -210,6 +210,7 @@ def _price_input(operation: ExecutionOperation, context: WorkerContext
             raise ValueError("PRICE_INLINE_INPUT_INVALID")
         frame = _bounded_frame(pd.DataFrame(inline), first, end)
         return frame, {"kind": "INLINE_CALLER_DATA", "source_operation_id": None,
+                       "input_bars_sha256": canonical_sha256(_jsonable_records(frame)),
                        "adjust": params.get("adjust"), "pit_safe": False,
                        "historical_vintage_verified": False}, []
 
@@ -246,13 +247,12 @@ def _price_input(operation: ExecutionOperation, context: WorkerContext
         if not isinstance(records, list) or len(records) != len(frame):
             raise ValueError("PRICE_MARKET_DEPENDENCY_RECORDS_MISMATCH")
         observed = _bounded_frame(pd.DataFrame(records), start_source, end_source)
-        cols = ["date", "open", "high", "low", "close", "volume"]
-        if not frame[cols].equals(observed[cols]) and not (
-                frame["date"].equals(observed["date"])
-                and np.array_equal(frame[cols[1:]].to_numpy(dtype=float),
-                                   observed[cols[1:]].to_numpy(dtype=float))):
+        if _jsonable_records(frame) != records:
             raise ValueError("PRICE_MARKET_DEPENDENCY_RECORDS_MISMATCH")
-        return frame, {"kind": "MARKET_DATA_DEPENDENCY", "source_operation_id": dep,
+        # Compute from the serialized upstream rows that are actually delivered,
+        # not extra floating-point precision absent from the upstream artifact.
+        return observed, {"kind": "MARKET_DATA_DEPENDENCY", "source_operation_id": dep,
+                       "input_bars_sha256": canonical_sha256(records),
                        "adjust": source_adjust, "source_window_end": end_source.isoformat(),
                        "pit_safe": False, "historical_vintage_verified": False}, [
                            "PRICE_MARKET_HISTORICAL_VINTAGE_UNVERIFIED"]
@@ -271,9 +271,15 @@ def _price_input(operation: ExecutionOperation, context: WorkerContext
             raise ValueError("PRICE_IMPLICIT_MARKET_BLOCKED:" + ",".join(result.errors))
         frame = temp.frames["implicit-market"]
         payload = temp.payloads["implicit-market"]
-        return frame.copy(), {"kind": "BOUNDED_IMPLICIT_MARKET", "source_operation_id": None,
+        records = payload["bars"]
+        if _jsonable_records(frame) != records:
+            raise ValueError("PRICE_IMPLICIT_MARKET_RECORDS_MISMATCH")
+        observed = _bounded_frame(pd.DataFrame(records), date.fromisoformat(payload["start"]),
+                                  date.fromisoformat(payload["end"]))
+        return observed, {"kind": "BOUNDED_IMPLICIT_MARKET", "source_operation_id": None,
+                              "input_bars_sha256": canonical_sha256(records),
                               "adjust": payload["adjust"], "source_window_end": payload["end"],
-                              "market_observation": {k: v for k, v in payload.items() if k != "bars"},
+                              "market_observation": payload,
                               "pit_safe": False, "historical_vintage_verified": False}, [
                                   "IMPLICIT_MARKET_FETCH_BOUNDED", *result.warnings]
 
@@ -305,9 +311,10 @@ def _price_metrics(frame: pd.DataFrame) -> dict[str, object]:
     rolling_peak = close.cummax()
     drawdowns = close / rolling_peak - 1.0
     last_252 = close.tail(252)
-    low_52 = float(last_252.min())
-    high_52 = float(last_252.max())
-    position_52w = None if math.isclose(high_52, low_52) else float((close.iloc[-1] - low_52) / (high_52 - low_52))
+    low_52 = float(last_252.min()) if len(last_252) == 252 else None
+    high_52 = float(last_252.max()) if len(last_252) == 252 else None
+    position_52w = (float((close.iloc[-1] - low_52) / (high_52 - low_52))
+                    if high_52 is not None and low_52 is not None and high_52 > low_52 else None)
 
     high = frame["high"].astype(float)
     low = frame["low"].astype(float)
@@ -316,8 +323,9 @@ def _price_metrics(frame: pd.DataFrame) -> dict[str, object]:
         [(high - low).abs(), (high - prior_close).abs(), (low - prior_close).abs()],
         axis=1,
     ).max(axis=1)
-    downside = returns[returns < 0]
-    volume_avg20 = float(volume.tail(20).mean()) if len(volume) >= 1 else 0.0
+    last_20_returns = returns.dropna().tail(20)
+    downside = last_20_returns[last_20_returns < 0]
+    volume_avg20 = float(volume.tail(20).mean()) if len(volume) >= 20 else None
     return {
         "close": float(close.iloc[-1]),
         "return_5d": horizon_return(5),
@@ -327,16 +335,16 @@ def _price_metrics(frame: pd.DataFrame) -> dict[str, object]:
         "return_250d": horizon_return(250),
         "moving_average": {f"ma{window}": ma(window) for window in (5, 10, 20, 60, 120, 250)},
         "realized_vol_20d": (
-            float(returns.tail(20).std(ddof=1) * math.sqrt(252)) if returns.tail(20).count() >= 2 else None
+            float(last_20_returns.std(ddof=1) * math.sqrt(252)) if len(last_20_returns) == 20 else None
         ),
         "downside_vol_20d": (
-            float(downside.tail(20).std(ddof=1) * math.sqrt(252)) if downside.tail(20).count() >= 2 else None
+            float(downside.std(ddof=1) * math.sqrt(252)) if len(last_20_returns) == 20 and len(downside) >= 2 else None
         ),
-        "atr14": float(true_range.tail(14).mean()) if not true_range.empty else None,
+        "atr14": float(true_range.tail(14).mean()) if len(frame) >= 15 else None,
         "max_drawdown": float(drawdowns.min()),
         "drawdown_now": float(drawdowns.iloc[-1]),
         "position_52w": position_52w,
-        "distance_to_52w_high": float(close.iloc[-1] / high_52 - 1.0) if high_52 else None,
+        "distance_to_52w_high": float(close.iloc[-1] / high_52 - 1.0) if high_52 is not None else None,
         "volume_ratio_20d": float(volume.iloc[-1] / volume_avg20) if volume_avg20 else None,
         "rows": len(frame),
         "first_date": str(frame["date"].iloc[0].date()),
@@ -353,8 +361,14 @@ def run_price_analytics(operation: ExecutionOperation, context: WorkerContext) -
     metrics = _price_metrics(frame)
     payload = {
         "symbol": _subject(operation.parameters),
-        "as_of": _as_of(operation.parameters).isoformat(),
+        "as_of": operation.parameters["as_of"],
         "metrics": metrics,
+        "metric_basis": {"lookbacks": "OBSERVED_ROWS_NOT_VERIFIED_TRADING_SESSIONS",
+                         "annualization_assumption": 252,
+                         "downside_vol_20d": "SAMPLE_SD_OF_NEGATIVE_RETURNS_WITHIN_LAST_20_RETURNS",
+                         "position_52w": "252_OBSERVED_CLOSES_REQUIRED",
+                         "atr14": "SIMPLE_MEAN_OF_14_TRUE_RANGES_WITH_PRIOR_CLOSE",
+                         "volume_ratio_20d": "LATEST_OVER_MEAN_OF_LAST_20_ROWS_INCLUDING_LATEST"},
         "price_input": source,
         "pit_safe": False,
         "historical_vintage_verified": False,
@@ -420,7 +434,7 @@ def run_kline_render(operation: ExecutionOperation, context: WorkerContext) -> O
 
     sidecar = {
         "symbol": _subject(operation.parameters),
-        "as_of": _as_of(operation.parameters).isoformat(),
+        "as_of": operation.parameters["as_of"],
         "renderer": renderer,
         "price_input": source,
         "pit_safe": False,

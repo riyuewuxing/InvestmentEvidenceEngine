@@ -1,0 +1,30 @@
+name: Public price chain actual control
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-price-chain-control.yml"
+permissions:
+  contents: read
+concurrency:
+  group: public-price-chain-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Actual one-symbol market, price and K-line sealed request
+        timeout-minutes: 4
+        run: timeout --signal=TERM --kill-after=5s 210s python scripts/public_price_chain_control.py

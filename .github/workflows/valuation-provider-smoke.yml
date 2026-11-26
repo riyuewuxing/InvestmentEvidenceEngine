@@ -1,12 +1,6 @@
 name: Bounded public valuation provider smoke
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/valuation-provider-smoke.yml'
-      - 'src/investment_evidence_engine/workers.py'
-      - 'src/investment_evidence_engine/providers.py'
   workflow_dispatch:
 
 permissions:

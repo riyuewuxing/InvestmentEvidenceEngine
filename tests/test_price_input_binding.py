@@ -111,3 +111,36 @@ def test_standalone_uses_bounded_market_adapter(tmp_path, monkeypatch):
     assert calls == [("eastmoney", "600519", date(2026, 11, 25), ""),
                      ("tencent", "600519", date(2026, 11, 25), "")]
     assert ctx.payloads["price"]["price_input"]["kind"] == "BOUNDED_IMPLICIT_MARKET"
+
+
+def test_full_lookback_required_and_downside_does_not_reach_older_rows():
+    from investment_evidence_engine.workers import _price_metrics
+
+    days = pd.date_range("2025-01-01", periods=45)
+    close = [100.0 * 0.98**i for i in range(25)]
+    close += [close[-1] * 1.01**i for i in range(1, 21)]
+    f = pd.DataFrame({"date": days, "open": close, "high": close, "low": close,
+                      "close": close, "volume": 100})
+    result = _price_metrics(f)
+    assert result["downside_vol_20d"] is None
+    assert result["realized_vol_20d"] is not None
+    assert result["position_52w"] is None
+    assert result["distance_to_52w_high"] is None
+    short = _price_metrics(f.head(10))
+    assert all(short[k] is None for k in ("realized_vol_20d", "atr14", "volume_ratio_20d"))
+
+
+def test_consumed_rows_are_delivered_values(tmp_path):
+    from investment_evidence_engine.contracts import canonical_sha256
+
+    ctx = context(tmp_path)
+    attach(ctx)
+    frame = ctx.frames["market"]
+    frame["close"] = 10.123456789012345
+    ctx.payloads["market"]["bars"] = _jsonable_records(frame)
+    expected = ctx.payloads["market"]["bars"]
+    result = run_operation(op("PRICE_ANALYTICS", depends_on_operation_ids=["market"]), ctx)
+    assert result.status == "WARN"
+    assert result.metrics["close"] == expected[-1]["close"]
+    assert ctx.payloads["price"]["price_input"]["input_bars_sha256"] == canonical_sha256(expected)
+    assert ctx.payloads["price"]["as_of"] == STAMP
