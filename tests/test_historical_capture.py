@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -8,6 +8,7 @@ from investment_evidence_engine.historical_capture import (
     _from_rows,
     observe_pair,
     sources_agree,
+    summarize_observed_pair,
     validate_window,
 )
 
@@ -30,8 +31,8 @@ def test_asset_type_routing_and_window():
     with pytest.raises(ValueError):
         PublicSecurity(symbol="510050", asset_type="STOCK").prefixed
     with pytest.raises(ValueError):
-        validate_window(START, END, datetime(2026,11,25,6,tzinfo=timezone.utc))
-    validate_window(START, END, datetime(2026,11,25,8,tzinfo=timezone.utc))
+        validate_window(START, END, datetime(2026,11,25,6,tzinfo=UTC))
+    validate_window(START, END, datetime(2026,11,25,8,tzinfo=UTC))
 
 
 @pytest.mark.parametrize("fault", ["duplicate", "future", "nonfinite", "bool", "missing_end"])
@@ -57,17 +58,42 @@ def test_source_conflict_retained_and_failed_asset_reported(monkeypatch):
             raise ValueError("WATCHDOG_TIMEOUT")
         return series(subject, source, 1.02 if source == "sina" else 1)
     monkeypatch.setattr(capture, "acquire_series", fetch)
-    summary, found = observe_pair(A, B, START, END)
-    assert len(found) == 2 and summary["crosscheck"] == "CONFLICT"
+    summary, found = observe_pair(A, B, START, END, providers=("sina", "tencent"))
+    assert len(found) == 3 and summary["crosscheck"] == "CONFLICT"
     assert {"provider": "tencent", "asset_type": "ETF", "error_code": "WATCHDOG_TIMEOUT"} in summary["failures"]
+    assert summary["status"] == "BLOCKED" and "reference" not in summary
+    assert not sources_agree(found[0], found[2])
+
+
+def test_mixed_source_observation_is_not_dual_source_verification(monkeypatch):
+    def fetch(source, subject, start, end):
+        if (source == "sina" and subject == A) or source == "tencent":
+            raise ValueError("WATCHDOG_TIMEOUT")
+        return series(subject, source)
+    monkeypatch.setattr(capture, "acquire_series", fetch)
+    summary, found = observe_pair(A, B, START, END, providers=("sina", "baostock", "tencent"))
+    assert len(found) == 2
+    assert summary["status"] == "OBSERVED_REFERENCE_ONLY"
+    assert summary["crosscheck"] == "SINGLE_SOURCE_PER_ASSET"
+    assert summary["candidate_providers"] == ["baostock"]
+    assert summary["alternative_providers"] == ["sina"]
     assert not summary["reference"]["decision_authority"]
-    assert not sources_agree(found[0][1], found[1][1])
+    assert not summary["reference"]["historical_vintage_verified"]
+
+
+def test_conflicting_or_wrong_date_source_not_silently_dropped():
+    left = series(A, "baostock")
+    right = series(B, "sina")
+    shifted = _from_rows([[d.isoformat(), 100.] for d in DAYS[1:]], B, "tencent", START, END)
+    assert summarize_observed_pair(A, B, (left, right, shifted), START, END)["error_code"] == "SOURCE_CONFLICT"
+    with pytest.raises(ValueError):
+        summarize_observed_pair(A, B, (left, right, right), START, END)
 
 
 def test_all_provider_failures_do_not_emit_prices(monkeypatch):
     def fail(*args):
         raise ValueError("WATCHDOG_TIMEOUT")
     monkeypatch.setattr(capture, "acquire_series", fail)
-    summary, found = observe_pair(A,B,START,END)
+    summary, found = observe_pair(A, B, START, END)
     assert summary["status"] == "BLOCKED" and found == ()
-    assert len(summary["failures"]) == 6 and "reference" not in summary
+    assert len(summary["failures"]) == 7 and "reference" not in summary
