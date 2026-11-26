@@ -2,7 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from investment_evidence_engine.akshare_daily_adapter import call_akshare_daily, call_sina_stock_daily
+from investment_evidence_engine.akshare_daily_adapter import (
+    call_akshare_daily,
+    call_sina_stock_daily,
+)
 
 
 def test_current_endpoint_preferred_and_legacy_only_when_absent():
