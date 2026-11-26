@@ -7,12 +7,13 @@ public issuer notices manually read; the event list is NOT exhaustive.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from zoneinfo import ZoneInfo
 
+from investment_evidence_engine.cash_fees import CommissionScenario
 from investment_evidence_engine.historical_capture import PublicSecurity, observe_pair
 from investment_evidence_engine.historical_receipt import (
     HistoricalCaptureFailure,
@@ -21,6 +22,24 @@ from investment_evidence_engine.historical_receipt import (
     persist_receipt,
 )
 from investment_evidence_engine.holding_risk import CashDistribution, CashDistributionInputs
+from investment_evidence_engine.joint_portfolio_scenarios import (
+    ExistingHoldingsState,
+    PortfolioScenarioInputs,
+    conditional_portfolio_stress,
+)
+from investment_evidence_engine.joint_scenario_receipt import (
+    JointScenarioReceipt,
+    load_joint_receipt,
+    load_pair_anchor,
+    persist_joint_receipt,
+)
+from investment_evidence_engine.joint_scenarios import (
+    ETFTerminal,
+    FrictionScenario,
+    JointAssumptions,
+    JointState,
+    StockTerminal,
+)
 from investment_evidence_engine.market_calendar import acquire_calendar
 from investment_evidence_engine.portfolio_stress import (
     PortfolioStressInputs,
@@ -92,6 +111,42 @@ def main() -> int:
             selected,cal,first=START,last=END,cutoff=receipt.observed_at)
         assert stress["windows"][-1]["status"]=="DESCRIPTIVE_ONLY"
         assert not stress["decision_authority"]
+        # The prices are observed; every future outcome is a fixed synthetic
+        # sensitivity. No private cases, account identifiers or forecasts.
+        clock=datetime.now(SH)
+        anchor=load_pair_anchor(Path(temp),candidate,alternative,END,now=clock)
+        friction=FrictionScenario(commission=CommissionScenario(inclusive_rate_bps=3.,
+            minimum_per_order_cny=5.,note="synthetic public terms"),entry_adverse_bps=5.,
+            exit_adverse_bps=5.,basis_note="synthetic adverse fill, not an observed spread or impact")
+        assumptions=JointAssumptions(stock=candidate,etf=alternative,reference_session=END,
+            horizon_calendar_days=365,budget_cny=500000.,basis_note="fixed synthetic cash envelope",
+            etf_scope_note="public domestic equity ETF control",stock_cost=friction,etf_cost=friction,
+            states=tuple(JointState(state_id=key,rationale="synthetic price sensitivity",
+                invalidator="not a forecast or actual investment thesis",
+                stock=StockTerminal(explicit_terminal_price_cny=anchor.stock_raw_close_cny*(1+s_pct/100),
+                    after_tax_cash_per_initial_share_cny=0.,basis_note="synthetic terminal price multiplier"),
+                etf=ETFTerminal(market_price_return_pct=e_pct,after_tax_cash_per_initial_unit_cny=0.,
+                    basis_note="synthetic ex-distribution market price return"),
+                cash_net_return_pct=0.,cash_basis_note="synthetic nominal cash, not risk-free")
+                for key,s_pct,e_pct in (("down",-20.,-10.),("up",15.,10.))))
+        frozen=JointScenarioReceipt(anchor=anchor,assumptions=assumptions,recorded_at=clock,
+                                    expires_at=clock+timedelta(hours=1))
+        scenario_dir=Path(temp)/"scenario"
+        joint_sha,expected=persist_joint_receipt(scenario_dir,frozen)
+        joint=load_joint_receipt(scenario_dir,anchor,now=datetime.now(SH))
+        assert joint["scenario_receipt_sha256"]==joint_sha and joint["scenario_receipt_rehashed"]
+        assert joint["states"]==expected["states"]
+        assert all(row["stock"]["status"]=="CONDITIONAL_TERMINAL_WEALTH_ONLY" and
+                   row["etf"]["status"]=="CONDITIONAL_TERMINAL_WEALTH_ONLY" for row in joint["states"])
+        assert not joint["formal_comparison_eligible"] and not joint["expected_return_estimated"]
+        future_portfolio=conditional_portfolio_stress(anchor,assumptions,
+            PortfolioScenarioInputs(initial_equity_cny=1000000.,cash_cny=600000.,
+                positions=(StressPosition(subject_id=candidate.symbol,market_value_cny=400000.),),
+                state_assumptions=tuple(ExistingHoldingsState(state_id=x.state_id,other_holdings=())
+                                        for x in assumptions.states)),evaluated_at=clock)
+        assert future_portfolio["status"]=="CONDITIONAL_PORTFOLIO_STRESS_ONLY"
+        assert not future_portfolio["formal_marginal_portfolio_risk_estimated"]
+        print(json.dumps({"joint_scenario_control":joint,"synthetic_forward_portfolio_stress":future_portfolio}))
         print(json.dumps({"status":"OBSERVED_REFERENCE_ONLY","crosscheck":loaded["crosscheck"],
             "normalized_receipt_sha256":digest,"normalized_receipt_rehash":"MATCH",
             "observed_at":loaded["observed_at"],"candidate_providers":loaded["candidate_providers"],

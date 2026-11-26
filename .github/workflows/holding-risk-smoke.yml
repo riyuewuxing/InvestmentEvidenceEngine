@@ -10,6 +10,9 @@ on:
       - 'src/investment_evidence_engine/portfolio_stress.py'
       - 'src/investment_evidence_engine/market_calendar.py'
       - 'src/investment_evidence_engine/historical_receipt.py'
+      - 'src/investment_evidence_engine/joint_scenarios.py'
+      - 'src/investment_evidence_engine/joint_scenario_receipt.py'
+      - 'src/investment_evidence_engine/joint_portfolio_scenarios.py'
   workflow_dispatch:
 
 permissions:

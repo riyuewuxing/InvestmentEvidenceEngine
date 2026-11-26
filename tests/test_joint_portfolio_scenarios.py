@@ -1,4 +1,5 @@
 import pytest
+from test_joint_scenarios import ANCHOR, NOW, STOCK, inputs
 
 from investment_evidence_engine.joint_portfolio_scenarios import (
     ExistingHoldingsState,
@@ -8,7 +9,6 @@ from investment_evidence_engine.joint_portfolio_scenarios import (
 )
 from investment_evidence_engine.portfolio_stress import StressPosition
 
-from test_joint_scenarios import ANCHOR, NOW, STOCK, inputs
 
 
 def portfolio():
