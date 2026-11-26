@@ -26,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: One bounded public observation and artifact rehash
+      - name: One documented Sina-only observation (no Eastmoney retry)
         timeout-minutes: 3
         run: timeout --signal=TERM --kill-after=5s 170s python scripts/public_universe_control.py

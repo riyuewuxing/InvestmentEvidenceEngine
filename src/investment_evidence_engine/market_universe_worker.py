@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import math
 import re
@@ -358,7 +359,7 @@ def _sina_request_with_retry(
         except Exception as exc:  # noqa: BLE001 - bounded provider boundary.
             last_error = exc
             status = getattr(getattr(exc, "response", None), "status_code", None)
-            if isinstance(status, int) and 400 <= status < 500 and status not in {408, 429}:
+            if isinstance(status, int) and 400 <= status < 500 and status != 408:
                 break
     raise RuntimeError(f"Sina {description} failed after {attempt} attempts") from last_error
 
@@ -505,10 +506,28 @@ def _provider_child(endpoint: str, output: Path) -> int:
 
     try:
         if endpoint == "stock_zh_a_spot":
-            adapter = _sina_adapter()
-            frame = _fetch_sina_pages(adapter=adapter)
-            provenance = {"adapter_contract": adapter["adapter_contract"],
-                          "adapter_version": adapter["adapter_version"]}
+            # AKShare 1.20.70 documents stock_zh_a_spot_sina. Prefer the supported
+            # public function; no second request to the same upstream on failure.
+            public_fn = getattr(ak, "stock_zh_a_spot_sina", None)
+            if callable(public_fn):
+                module = inspect.getmodule(public_fn)
+                required = ("requests", "demjson", "zh_sina_a_stock_count_url",
+                            "zh_sina_a_stock_url", "zh_sina_a_stock_payload")
+                missing = [name for name in required if not hasattr(module, name)]
+                source = inspect.getsource(public_fn).encode("utf-8")
+                provenance = {"adapter_contract": "akshare.stock_zh_a_spot_sina",
+                              "adapter_version": str(ak.__version__),
+                              "callable_module": public_fn.__module__,
+                              "callable_source_sha256": hashlib.sha256(source).hexdigest(),
+                              "old_internal_adapter_missing_fields": missing,
+                              "pagination_completeness_verified": False}
+                frame = public_fn()
+            else:
+                adapter = _sina_adapter()
+                frame = _fetch_sina_pages(adapter=adapter)
+                provenance = {"adapter_contract": adapter["adapter_contract"],
+                              "adapter_version": adapter["adapter_version"],
+                              "pagination_completeness_verified": True}
         elif endpoint in {"stock_zh_a_spot_em", "stock_info_a_code_name"}:
             frame = getattr(ak, endpoint)()
             provenance = {}
@@ -518,7 +537,8 @@ def _provider_child(endpoint: str, output: Path) -> int:
                                      "provenance": provenance, "error_type": None})
     except Exception as exc:
         write_worker_result(output, {"endpoint": endpoint, "table": None,
-                                     "provenance": {}, "error_type": type(exc).__name__})
+                                     "provenance": locals().get("provenance", {}),
+                                     "error_type": type(exc).__name__})
     return 0
 
 
@@ -533,7 +553,8 @@ def _bounded_snapshot(endpoint: str) -> tuple[pd.DataFrame, dict]:
     payload = result.payload
     if (set(payload) != {"endpoint", "table", "provenance", "error_type"}
             or payload["endpoint"] != endpoint or payload["error_type"] is not None):
-        raise RuntimeError("UNIVERSE_PROVIDER_FETCH_FAILED:" + str(payload.get("error_type")))
+        raise RuntimeError("UNIVERSE_PROVIDER_FETCH_FAILED:" + str(payload.get("error_type"))
+                           + ":" + str(payload.get("provenance", {}))[:200])
     frame = unpack_frame(payload["table"])
     if frame is None or frame.empty:
         raise ValueError("empty provider snapshot")
@@ -654,10 +675,16 @@ def run_market_universe(operation: ExecutionOperation, context: WorkerContext) -
     stats = {"raw_row_count": 0, "invalid_row_count": 0, "duplicate_row_count": 0}
     quote_trade_date: str | None = None
     primary_provider: str | None = None
-    fallback_used = False
+    provider_scope = parameters.get("provider_scope", "AUTO")
+    if provider_scope not in {"AUTO", "SINA_ONLY"}:
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+                               errors=["UNIVERSE_PROVIDER_SCOPE_INVALID"])
+    fallback_used = provider_scope == "SINA_ONLY"
     adapter_provenance: dict[str, object] = {}
 
-    for endpoint in ("stock_zh_a_spot_em", "stock_zh_a_spot"):
+    endpoints = ("stock_zh_a_spot",) if provider_scope == "SINA_ONLY" else (
+        "stock_zh_a_spot_em", "stock_zh_a_spot")
+    for endpoint in endpoints:
         if endpoint == "stock_zh_a_spot" and not fallback_used:
             break
         if endpoint == "stock_zh_a_spot_em" and primary_provider is not None:
@@ -704,6 +731,8 @@ def run_market_universe(operation: ExecutionOperation, context: WorkerContext) -
     errors: list[str] = []
     if primary_provider is None:
         errors.append("MARKET_UNIVERSE_NO_SNAPSHOT")
+    elif provider_scope == "SINA_ONLY":
+        warnings.append("MARKET_UNIVERSE_EXPLICIT_SINA_ONLY_OBSERVATION")
     elif fallback_used:
         warnings.append("MARKET_UNIVERSE_PRIMARY_FAILED_SINA_FALLBACK")
 
@@ -724,6 +753,9 @@ def run_market_universe(operation: ExecutionOperation, context: WorkerContext) -
             warnings.append("MARKET_UNIVERSE_LISTING_CROSSCHECK_UNAVAILABLE")
 
     quality_flags: list[str] = []
+    if primary_provider == "akshare_sina" and adapter_provenance.get("pagination_completeness_verified") is False:
+        quality_flags.append("MARKET_UNIVERSE_PAGINATION_COVERAGE_UNVERIFIED")
+        warnings.append("MARKET_UNIVERSE_PAGINATION_COVERAGE_UNVERIFIED")
     if quote_trade_date is None:
         quality_flags.append("MARKET_UNIVERSE_QUOTE_DATE_UNVERIFIED")
         warnings.append("MARKET_UNIVERSE_QUOTE_DATE_UNVERIFIED")
@@ -755,6 +787,7 @@ def run_market_universe(operation: ExecutionOperation, context: WorkerContext) -
         "asset_type": asset_type,
         "public_data_only": True,
         "primary_provider": primary_provider,
+        "provider_scope": provider_scope,
         "as_of": as_of.isoformat(),
         "capture_started_at": started_at,
         "retrieved_at": retrieved_at,

@@ -27,7 +27,7 @@ def main():
     operations = [
         ExecutionOperation(operation_id="market-universe", kind="MARKET_UNIVERSE",
                            parameters={"as_of": day, "market": "CN_A", "asset_type": "STOCK",
-                                       "min_universe_size": 5000}),
+                                       "min_universe_size": 5000, "provider_scope": "SINA_ONLY"}),
         ExecutionOperation(operation_id="opportunity-scan", kind="OPPORTUNITY_SCAN",
                            parameters={"as_of": day, "market": "CN_A", "asset_type": "STOCK",
                                        "depends_on_operation_ids": ["market-universe"], "top_n": 20,
