@@ -6,7 +6,12 @@ import math
 import re
 from pathlib import Path
 
-from .contracts import InputArtifactRef, ObservedInputArtifact, _find_private_parameter, canonical_sha256
+from .contracts import (
+    InputArtifactRef,
+    ObservedInputArtifact,
+    _find_private_parameter,
+    canonical_sha256,
+)
 from .snapshot_integrity import strict_json_loads
 from .transport_integrity import observe_artifact_file, read_contract_bytes
 
@@ -37,9 +42,22 @@ def observe_scan_input(root: Path, ref: InputArtifactRef) -> tuple[ObservedInput
             or data.get("research_only") is not True or data.get("decision_authority") is not False
             or data.get("pit_safe") is not False or data.get("input_mode") != "LIVE_MARKET_UNIVERSE"):
         raise ValueError("INPUT_ARTIFACT_NOT_PUBLIC_SCAN_RESEARCH")
+    rules = data.get("rules")
+    if (data.get("rule_origin") != "SYSTEM_RESEARCH_FILTER"
+            or not isinstance(rules, list) or not 1 <= len(rules) <= 32):
+        raise ValueError("INPUT_ARTIFACT_PUBLIC_RULES_REQUIRED")
+    fields = _RECORD_KEYS - {"asset", "code", "name", "research_priority_score", "matched_rule_count"}
+    for rule in rules:
+        if (not isinstance(rule, dict) or set(rule) != {"field", "operator", "threshold", "weight"}
+                or rule["field"] not in fields or rule["operator"] not in {"GT", "GE", "LT", "LE"}
+                or any(type(rule[key]) not in {int, float} or not math.isfinite(rule[key])
+                       for key in ("threshold", "weight")) or rule["weight"] < 0):
+            raise ValueError("INPUT_ARTIFACT_PUBLIC_RULE_INVALID")
     dep = data.get("dependency_evidence")
     if (not isinstance(dep, dict) or dep.get("as_of") != ref.as_of
-            or dep.get("market") != "CN_A" or dep.get("asset_type") != "STOCK"):
+            or dep.get("market") != "CN_A" or dep.get("asset_type") != "STOCK"
+            or dep.get("source") != "public_market_data"
+            or dep.get("status") not in {"PASS", "WARN"}):
         raise ValueError("INPUT_ARTIFACT_DEPENDENCY_SCOPE_MISMATCH")
     rows = data.get("candidates")
     if (not isinstance(rows, list) or not 1 <= len(rows) <= 1000

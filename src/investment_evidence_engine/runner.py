@@ -67,6 +67,8 @@ def execute_request(
     observed = []
     retained = []
     for ref in request.input_artifacts:
+        if ref.source_executor_repo != executor_repo:
+            raise ValueError("INPUT_ARTIFACT_SOURCE_EXECUTOR_MISMATCH")
         receipt, raw = observe_scan_input(input_root or Path.cwd(), ref)
         observed.append(receipt)
         retained.append((ref.materialized_path, raw))
@@ -114,9 +116,20 @@ def execute_request(
         raise ValueError("EXECUTION_TRANSPORT_INVALID:" + ";".join(transport_errors))
     for item in results:
         for artifact in item.artifacts:
+            artifact_path = artifact.path.lower()
+            if any(artifact_path == relative.lower()
+                   or artifact_path.startswith(relative.lower() + "/")
+                   or relative.lower().startswith(artifact_path + "/") for relative, _ in retained):
+                raise ValueError("OUTPUT_ARTIFACT_ALIASES_INPUT")
             artifact_digest, _ = observe_artifact_file(output_dir, artifact.path, artifact.size_bytes)
             if artifact_digest != artifact.sha256:
                 raise ValueError("EXECUTION_ARTIFACT_HASH_MISMATCH:" + artifact.path)
+    for receipt in observed:
+        digest, size = observe_artifact_file(
+            output_dir, receipt.materialized_path, receipt.observed_size_bytes,
+            max_bytes=4 * 1024 * 1024)
+        if (digest, size) != (receipt.observed_sha256, receipt.observed_size_bytes):
+            raise ValueError("RETAINED_INPUT_ARTIFACT_CHANGED")
     finished = datetime.now(UTC)
     result = ExecutionResult(
         job_id=request.job_id,

@@ -5,6 +5,7 @@ import pytest
 
 from investment_evidence_engine.contracts import (
     ArtifactRecordSelector,
+    ArtifactRef,
     ExecutionOperation,
     ExecutionRequest,
     InputArtifactRef,
@@ -19,7 +20,10 @@ SCAN = {"candidates": [ROW], "candidate_count": 1,
         "ranking_semantics": "RESEARCH_PRIORITY_NOT_RETURN_FORECAST",
         "input_mode": "LIVE_MARKET_UNIVERSE", "research_only": True, "pit_safe": False,
         "decision_authority": False,
-        "dependency_evidence": {"as_of": DAY, "market": "CN_A", "asset_type": "STOCK"}}
+        "rule_origin": "SYSTEM_RESEARCH_FILTER",
+        "rules": [{"field": "latest_price", "operator": "GE", "threshold": 1, "weight": 1.0}],
+        "dependency_evidence": {"as_of": DAY, "market": "CN_A", "asset_type": "STOCK",
+                                "source": "public_market_data", "status": "WARN"}}
 
 
 def fixture(tmp_path, *, data=None, selected=None):
@@ -62,7 +66,11 @@ def test_exact_bytes_retained_but_research_blocked(tmp_path, monkeypatch):
 
     def market(op, context):
         assert context.input_artifacts[ref.input_id] == ref
-        return OperationResult(operation_id=op.operation_id, status="WARN")
+        body = b"synthetic output, not a real quote"
+        (context.output_dir / "market.json").write_bytes(body)
+        return OperationResult(operation_id=op.operation_id, status="WARN",
+                               artifacts=[ArtifactRef(path="market.json", sha256=sha256(body).hexdigest(),
+                                                      size_bytes=len(body))])
 
     monkeypatch.setitem(EXTRA_WORKERS, "MARKET_DATA", market)
     out = tmp_path / "out"
@@ -75,7 +83,7 @@ def test_exact_bytes_retained_but_research_blocked(tmp_path, monkeypatch):
     assert result.as_of == DAY and result.result_sha256 == result.compute_hash()
 
 
-@pytest.mark.parametrize("mode", ["tamper", "missing", "selector", "private", "future", "duplicate"])
+@pytest.mark.parametrize("mode", ["tamper", "missing", "selector", "private", "future", "duplicate", "private_rule"])
 def test_bad_input_rejected_before_dispatch(tmp_path, monkeypatch, mode):
     data = None
     if mode == "private":
@@ -84,6 +92,8 @@ def test_bad_input_rejected_before_dispatch(tmp_path, monkeypatch, mode):
         data = {**SCAN, "dependency_evidence": {**SCAN["dependency_evidence"], "as_of": "2026-11-26"}}
     elif mode == "duplicate":
         data = {**SCAN, "candidates": [ROW, ROW], "candidate_count": 2}
+    elif mode == "private_rule":
+        data = {**SCAN, "rule_origin": "USER_PROVIDED"}
     reqfile, path, _ = fixture(tmp_path, data=data, selected="000001" if mode == "selector" else None)
     if mode == "tamper":
         raw = path.read_bytes()
@@ -102,3 +112,45 @@ def test_legacy_hash_payload_omits_empty_input_fields():
         subject_commit="d" * 40, as_of=DAY,
         operations=[ExecutionOperation(operation_id="market", kind="MARKET_DATA")])
     assert "input_artifacts" not in req.payload()
+
+
+def test_retained_input_cannot_be_changed_by_worker(tmp_path, monkeypatch):
+    from investment_evidence_engine.dispatch import EXTRA_WORKERS
+
+    reqfile, _, ref = fixture(tmp_path)
+
+    def tamper(op, context):
+        target = context.output_dir / ref.materialized_path
+        target.write_bytes(target.read_bytes().replace(b"10.0", b"11.0"))
+        return OperationResult(operation_id=op.operation_id, status="WARN")
+
+    monkeypatch.setitem(EXTRA_WORKERS, "MARKET_DATA", tamper)
+    with pytest.raises(ValueError, match="RETAINED_INPUT_ARTIFACT_CHANGED"):
+        execute_request(reqfile, output_dir=tmp_path / "out", executor_repo="public/example",
+                        executor_commit="e" * 40, input_root=tmp_path)
+
+
+def test_observe_actual_scan_worker_output_on_synthetic_fixture(tmp_path):
+    from investment_evidence_engine.input_binding import observe_scan_input
+    from investment_evidence_engine.research_compute import run_opportunity_scan
+    from investment_evidence_engine.workers import WorkerContext
+
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of=DAY)
+    ctx.completed_operations["universe"] = {"kind": "MARKET_UNIVERSE", "status": "WARN",
+        "market": "CN_A", "asset_type": "STOCK", "as_of": DAY}
+    ctx.payloads["universe"] = {"source": "public_market_data", "public_data_only": True,
+        "decision_authority": False, "market": "CN_A", "asset_type": "STOCK",
+        "as_of": DAY, "records": [ROW]}
+    op = ExecutionOperation(operation_id="opportunity-scan", kind="OPPORTUNITY_SCAN",
+        parameters={"as_of": DAY, "depends_on_operation_ids": ["universe"], "market": "CN_A",
+                    "asset_type": "STOCK", "rule_origin": "SYSTEM_RESEARCH_FILTER",
+                    "ranking_semantics": "RESEARCH_PRIORITY_NOT_RETURN_FORECAST",
+                    "rules": [{"field": "latest_price", "operator": "GE", "threshold": 1}]})
+    result = run_opportunity_scan(op, ctx)
+    assert result.status == "WARN"
+    scan = ctx.payloads["opportunity-scan"]
+    _, path, ref = fixture(tmp_path, data=scan)
+    ref = ref.model_copy(update={"selector": ref.selector.model_copy(
+        update={"record_sha256": canonical_sha256(scan["candidates"][0])})})
+    receipt, raw = observe_scan_input(tmp_path, ref)
+    assert receipt.status == "MATCH" and raw == path.read_bytes()
