@@ -17,7 +17,10 @@ from investment_evidence_engine.disclosure_directory import observe_directory
 from investment_evidence_engine.listing_comparison import compare_code_sets, stock_code
 from investment_evidence_engine.public_scan_packet import verify_public_scan_packet
 from investment_evidence_engine.runner import execute_request
-from investment_evidence_engine.selected_price_diagnostic import SCOPE, run_selected_price_diagnostic
+from investment_evidence_engine.selected_price_diagnostic import (
+    SCOPE,
+    run_selected_price_diagnostic,
+)
 
 
 def main() -> int:

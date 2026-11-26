@@ -1,10 +1,6 @@
 name: Public disclosure-directory and actual scan packet
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-disclosure-scan-packet.yml'
-      - 'scripts/public_disclosure_scan_packet.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
