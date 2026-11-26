@@ -185,17 +185,105 @@ def run_market_data(operation: ExecutionOperation, context: WorkerContext) -> Op
     )
 
 
-def _dependency_frame(operation: ExecutionOperation, context: WorkerContext) -> pd.DataFrame | None:
-    dependencies = operation.parameters.get("depends_on_operation_ids") or []
-    if isinstance(dependencies, list):
-        for dependency in dependencies:
-            frame = context.frames.get(str(dependency))
-            if frame is not None:
-                return frame.copy()
-    inline = operation.parameters.get("inline_ohlcv")
-    if isinstance(inline, list) and inline:
-        return normalize_ohlcv(pd.DataFrame(inline))
-    return None
+def _price_input(operation: ExecutionOperation, context: WorkerContext
+                 ) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
+    """Bind one explicit market input to the requested identity and closed-day scope.
+
+    Inline data are arithmetic fixtures, not proof of a historical market vintage.
+    An absent explicit dependency is never permission to fetch a replacement.
+    """
+    from tempfile import TemporaryDirectory
+
+    from .market_worker import _bounded_frame, _symbol, _window, run_market_data_resilient
+
+    params = operation.parameters
+    symbol = _symbol(params)
+    first, end, _ = _window(params, context)
+    has_dep = "depends_on_operation_ids" in params
+    has_inline = "inline_ohlcv" in params
+    if has_dep and has_inline:
+        raise ValueError("PRICE_INPUT_DEPENDENCY_INLINE_CONFLICT")
+    if has_inline:
+        inline = params["inline_ohlcv"]
+        if not isinstance(inline, list) or not 0 < len(inline) <= 4000 or not all(
+                isinstance(row, dict) for row in inline):
+            raise ValueError("PRICE_INLINE_INPUT_INVALID")
+        frame = _bounded_frame(pd.DataFrame(inline), first, end)
+        return frame, {"kind": "INLINE_CALLER_DATA", "source_operation_id": None,
+                       "adjust": params.get("adjust"), "pit_safe": False,
+                       "historical_vintage_verified": False}, []
+
+    if has_dep:
+        deps = params["depends_on_operation_ids"]
+        if not isinstance(deps, list) or len(deps) != 1 or not isinstance(deps[0], str):
+            raise ValueError("PRICE_EXACTLY_ONE_MARKET_DEPENDENCY_REQUIRED")
+        dep = deps[0]
+        provenance = context.completed_operations.get(dep)
+        payload = context.payloads.get(dep)
+        frame = context.frames.get(dep)
+        if (not isinstance(provenance, dict) or provenance.get("kind") != "MARKET_DATA"
+                or provenance.get("status") not in {"PASS", "WARN"}
+                or not isinstance(payload, dict) or frame is None):
+            raise ValueError("PRICE_MARKET_DEPENDENCY_NOT_USABLE")
+        if (provenance.get("as_of") != params["as_of"] or payload.get("as_of") != params["as_of"]
+                or payload.get("symbol") != symbol):
+            raise ValueError("PRICE_MARKET_DEPENDENCY_IDENTITY_OR_CUTOFF_MISMATCH")
+        start_source = date.fromisoformat(payload["start"])
+        end_source = date.fromisoformat(payload["end"])
+        if start_source > end_source or end_source > end:
+            raise ValueError("PRICE_MARKET_DEPENDENCY_WINDOW_MISMATCH")
+        if "history_days" in params and first > start_source:
+            raise ValueError("PRICE_MARKET_DEPENDENCY_WINDOW_MISMATCH")
+        source_adjust = payload.get("adjust")
+        if source_adjust not in ("", "qfq", "hfq"):
+            raise ValueError("PRICE_MARKET_DEPENDENCY_BASIS_UNKNOWN")
+        if "adjust" in params and ("" if params["adjust"] == "none" else params["adjust"]) != source_adjust:
+            raise ValueError("PRICE_MARKET_DEPENDENCY_BASIS_MISMATCH")
+        frame = _bounded_frame(frame, start_source, end_source)
+        # Verify the exact consumed OHLCV values against the sealed upstream
+        # payload, rather than accepting an unrelated in-memory frame.
+        records = payload.get("bars")
+        if not isinstance(records, list) or len(records) != len(frame):
+            raise ValueError("PRICE_MARKET_DEPENDENCY_RECORDS_MISMATCH")
+        observed = _bounded_frame(pd.DataFrame(records), start_source, end_source)
+        cols = ["date", "open", "high", "low", "close", "volume"]
+        if not frame[cols].equals(observed[cols]) and not (
+                frame["date"].equals(observed["date"])
+                and np.array_equal(frame[cols[1:]].to_numpy(dtype=float),
+                                   observed[cols[1:]].to_numpy(dtype=float))):
+            raise ValueError("PRICE_MARKET_DEPENDENCY_RECORDS_MISMATCH")
+        return frame, {"kind": "MARKET_DATA_DEPENDENCY", "source_operation_id": dep,
+                       "adjust": source_adjust, "source_window_end": end_source.isoformat(),
+                       "pit_safe": False, "historical_vintage_verified": False}, [
+                           "PRICE_MARKET_HISTORICAL_VINTAGE_UNVERIFIED"]
+
+    # Keep standalone price operations available, but use the same bounded
+    # market adapter as MARKET_DATA. No old in-process implicit network calls.
+    market_params = {k: params[k] for k in ("subject_ids", "as_of", "history_days",
+                     "history_end_offset_days", "adjust", "price_tolerance") if k in params}
+    with TemporaryDirectory(prefix="price-market-") as folder:
+        temp = WorkerContext(output_dir=Path(folder), request_as_of=context.request_as_of,
+                             clock=context.clock)
+        source = ExecutionOperation(operation_id="implicit-market", kind="MARKET_DATA",
+                                    parameters=market_params)
+        result = run_market_data_resilient(source, temp)
+        if result.status not in {"PASS", "WARN"}:
+            raise ValueError("PRICE_IMPLICIT_MARKET_BLOCKED:" + ",".join(result.errors))
+        frame = temp.frames["implicit-market"]
+        payload = temp.payloads["implicit-market"]
+        return frame.copy(), {"kind": "BOUNDED_IMPLICIT_MARKET", "source_operation_id": None,
+                              "adjust": payload["adjust"], "source_window_end": payload["end"],
+                              "market_observation": {k: v for k, v in payload.items() if k != "bars"},
+                              "pit_safe": False, "historical_vintage_verified": False}, [
+                                  "IMPLICIT_MARKET_FETCH_BOUNDED", *result.warnings]
+
+
+def _price_input_block(operation: ExecutionOperation, exc: Exception) -> OperationResult:
+    code = str(exc)
+    if not code.startswith(("PRICE_", "MARKET_", "EVENT_")):
+        code = "PRICE_INPUT_INVALID:" + type(exc).__name__
+    return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                           exit_code=2, errors=[code])
 
 
 def _price_metrics(frame: pd.DataFrame) -> dict[str, object]:
@@ -257,19 +345,19 @@ def _price_metrics(frame: pd.DataFrame) -> dict[str, object]:
 
 
 def run_price_analytics(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    frame = _dependency_frame(operation, context)
-    warnings: list[str] = []
-    if frame is None:
-        frame, market_details, market_status = _fetch_market(operation.parameters)
-        if market_status != "PASS":
-            warnings.append(f"UPSTREAM_MARKET_{market_status}")
-        warnings.append(f"IMPLICIT_MARKET_FETCH:{market_details['primary_provider']}")
+    try:
+        frame, source, warnings = _price_input(operation, context)
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, ProviderError) as exc:
+        return _price_input_block(operation, exc)
     context.frames[operation.operation_id] = frame
     metrics = _price_metrics(frame)
     payload = {
         "symbol": _subject(operation.parameters),
         "as_of": _as_of(operation.parameters).isoformat(),
         "metrics": metrics,
+        "price_input": source,
+        "pit_safe": False,
+        "historical_vintage_verified": False,
         "warnings": warnings,
         "decision_authority": False,
     }
@@ -287,14 +375,10 @@ def run_price_analytics(operation: ExecutionOperation, context: WorkerContext) -
 
 
 def run_kline_render(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    frame = _dependency_frame(operation, context)
-    warnings: list[str] = []
-    if frame is None:
-        frame, details, status = _fetch_market(operation.parameters)
-        warnings.append(f"IMPLICIT_MARKET_FETCH:{details['primary_provider']}")
-        if status != "PASS":
-            warnings.append(f"UPSTREAM_MARKET_{status}")
-    frame = normalize_ohlcv(frame)
+    try:
+        frame, source, warnings = _price_input(operation, context)
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, ProviderError) as exc:
+        return _price_input_block(operation, exc)
     context.frames[operation.operation_id] = frame
     png_path = context.output_dir / f"{operation.operation_id}.png"
     json_path = context.output_dir / f"{operation.operation_id}.json"
@@ -305,7 +389,7 @@ def run_kline_render(operation: ExecutionOperation, context: WorkerContext) -> O
         plot = frame[["date", "open", "high", "low", "close", "volume"]].copy()
         plot = plot.set_index("date")
         plot.columns = ["Open", "High", "Low", "Close", "Volume"]
-        mav = tuple(window for window in (20, 60, 120) if len(plot) >= window)
+        mav = tuple(window for window in (20, 60, 120) if min(len(plot), 260) >= window)
         mpf.plot(
             plot.tail(260),
             type="candle",
@@ -338,6 +422,11 @@ def run_kline_render(operation: ExecutionOperation, context: WorkerContext) -> O
         "symbol": _subject(operation.parameters),
         "as_of": _as_of(operation.parameters).isoformat(),
         "renderer": renderer,
+        "price_input": source,
+        "pit_safe": False,
+        "historical_vintage_verified": False,
+        "first_rendered_date": frame["date"].tail(260).iloc[0].date().isoformat(),
+        "last_rendered_date": frame["date"].iloc[-1].date().isoformat(),
         "rows_rendered": min(260, len(frame)),
         "include_volume": True,
         "moving_averages": [window for window in (20, 60, 120) if len(frame) >= window],
