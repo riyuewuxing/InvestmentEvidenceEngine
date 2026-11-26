@@ -5,7 +5,12 @@ from datetime import date
 import openpyxl
 import pytest
 
-from investment_evidence_engine.exchange_listing import endpoint, parse_listing
+from investment_evidence_engine.exchange_listing import (
+    _date_shape_summary,
+    _listing_day,
+    endpoint,
+    parse_listing,
+)
 
 DAY = date(2026, 11, 26)
 
@@ -48,3 +53,23 @@ def test_szse_numeric_cells_have_explicit_exchange_identity():
     codes, meta = parse_listing(buffer.getvalue(), "szse_a", DAY)
     assert len(codes) == 1000 and codes[1] == "sz.000001"
     assert not meta["declared_total_match"]
+
+
+@pytest.mark.parametrize("value", ["20260102", "2026-01-02", "2026-01-02 00:00:00",
+                                  "2026-01-02T00:00:00.000"])
+def test_only_explicit_calendar_date_formats(value):
+    assert _listing_day(value) == date(2026, 1, 2)
+
+
+@pytest.mark.parametrize("value", ["202601", "2026-01-02 12:30:00", "", None, 20260102])
+def test_no_guessing_missing_or_ambiguous_listing_date(value):
+    with pytest.raises(ValueError):
+        _listing_day(value)
+
+
+def test_schema_diagnostic_does_not_echo_listing_values():
+    body = sse([{"LIST_DATE": "20260102"}, {"LIST_DATE": "2026-01-03"},
+                {"LIST_DATE": "2026-01-03 00:00:00"}, {"LIST_DATE": None}, {"LIST_DATE": "unknown"}])
+    result = _date_shape_summary(body, "sse_main")
+    assert set(result["listing_date_shapes"].values()) == {1}
+    assert "unknown" not in json.dumps(result)

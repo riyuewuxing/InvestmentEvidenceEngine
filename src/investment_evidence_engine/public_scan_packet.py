@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -24,12 +25,29 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
             or (result.subject_repo, result.subject_commit) != (repo, commit)
             or (result.executor.repo, result.executor.commit) != (repo, commit)
             or (request.job_id, request.trace_id) != (result.job_id, result.trace_id)
-            or request.input_artifacts or result.observed_input_artifacts
+            or request.input_refs or request.input_artifacts or result.observed_input_artifacts
+            or result.as_of not in {None, request.as_of}
             or result.status not in {"PASS", "WARN"}):
         raise ValueError("PUBLIC_SCAN_PACKET_IDENTITY_OR_HASH")
+    stamps = (request.generated_at, result.executor.started_at, result.executor.finished_at,
+              result.generated_at, datetime.now(UTC))
+    if (any(stamp is None or stamp.utcoffset() is None for stamp in stamps)
+            or tuple(sorted(stamps)) != stamps):
+        raise ValueError("PUBLIC_SCAN_PACKET_TIME_ORDER")
+    if date.fromisoformat(request.as_of).isoformat() != request.as_of:
+        raise ValueError("PUBLIC_SCAN_PACKET_DATE_SCOPE")
     if [(op.operation_id, op.kind) for op in request.operations] != [
             ("market-universe", "MARKET_UNIVERSE"), ("opportunity-scan", "OPPORTUNITY_SCAN")]:
         raise ValueError("PUBLIC_SCAN_PACKET_CHAIN")
+    for operation in request.operations:
+        params = operation.parameters
+        if (params.get("as_of"), params.get("market"), params.get("asset_type")) != (
+                request.as_of, "CN_A", "STOCK"):
+            raise ValueError("PUBLIC_SCAN_PACKET_SCOPE")
+    if (request.operations[0].parameters.get("depends_on_operation_ids", []) != []
+            or request.operations[1].parameters.get("depends_on_operation_ids") != ["market-universe"]
+            or request.operations[1].parameters.get("rule_origin") != "SYSTEM_RESEARCH_FILTER"):
+        raise ValueError("PUBLIC_SCAN_PACKET_DEPENDENCIES")
     if result_transport_errors([op.model_dump(mode="json") for op in request.operations],
                                [op.model_dump(mode="json") for op in result.operations], result.status):
         raise ValueError("PUBLIC_SCAN_PACKET_TRANSPORT")
@@ -45,6 +63,10 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
     if [tuple(ref.path for ref in op.artifacts) for op in result.operations] != [
             ("market-universe.json",), ("opportunity-scan.json",)]:
         raise ValueError("PUBLIC_SCAN_ARTIFACT_SET_MISMATCH")
+    expected_files = {"execution_request.json", "execution_result.json", "run_manifest.json",
+                      "market-universe.json", "opportunity-scan.json"}
+    if {path.name for path in root.iterdir()} != expected_files:
+        raise ValueError("PUBLIC_SCAN_PACKET_UNDECLARED_FILES")
     artifact_digests = {}
     for op in result.operations:
         for ref in op.artifacts:

@@ -6,6 +6,7 @@ import hashlib
 import io
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -45,9 +46,42 @@ def _listing_day(value: object) -> date:
         return value.date()
     if type(value) is date:
         return value
-    if isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
-        return date.fromisoformat(value)
+    if isinstance(value, str):
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            return date.fromisoformat(value)
+        if re.fullmatch(r"[0-9]{8}", value):
+            return datetime.strptime(value, "%Y%m%d").date()
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:\\.0+)?", value):
+            return datetime.fromisoformat(value).date()
     raise ValueError("LISTING_DATE_INVALID")
+
+
+def _date_shape_summary(raw: bytes, scope: str) -> dict:
+    """Only schema counts; never print company/date values."""
+    if not scope.startswith("sse_"):
+        return {}
+    try:
+        body = strict_json_loads(raw)
+        records = body.get("result") if isinstance(body, dict) else None
+        if not isinstance(records, list):
+            return {}
+        counts = {"iso_date": 0, "compact_date": 0, "iso_midnight": 0,
+                  "missing_or_blank": 0, "other": 0}
+        for row in records:
+            value = row.get("LIST_DATE") if isinstance(row, dict) else None
+            if value is None or value == "":
+                counts["missing_or_blank"] += 1
+            elif isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                counts["iso_date"] += 1
+            elif isinstance(value, str) and re.fullmatch(r"[0-9]{8}", value):
+                counts["compact_date"] += 1
+            elif isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:\\.0+)?", value):
+                counts["iso_midnight"] += 1
+            else:
+                counts["other"] += 1
+        return {"listing_date_shapes": counts, "raw_result_count": len(records)}
+    except (ValueError, TypeError, UnicodeError):
+        return {}
 
 
 def _code(value: object, scope: str) -> str:
@@ -145,12 +179,21 @@ def _child(scope: str, day: str, path: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": referer,
                                                    "Accept-Encoding": "identity"})
     opener = urllib.request.build_opener(_NoRedirect)
-    with opener.open(request, timeout=12) as response:
-        if response.status != 200 or response.geturl() != url:
-            raise ValueError("OFFICIAL_LISTING_HTTP_IDENTITY")
-        raw = response.read(MAX_BODY + 1)
-    if not 0 < len(raw) <= MAX_BODY:
-        raise ValueError("OFFICIAL_LISTING_BODY_SIZE")
+    try:
+        with opener.open(request, timeout=12) as response:
+            if response.status != 200 or response.geturl() != url:
+                raise ValueError("OFFICIAL_LISTING_HTTP_IDENTITY")
+            raw = response.read(MAX_BODY + 1)
+        if not 0 < len(raw) <= MAX_BODY:
+            raise ValueError("OFFICIAL_LISTING_BODY_SIZE")
+    except urllib.error.HTTPError as exc:
+        write_worker_result(path, {"scope": scope, "day": day, "url": url,
+                                  "error_type": "HTTPError", "http_status": exc.code})
+        return
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        write_worker_result(path, {"scope": scope, "day": day, "url": url,
+                                  "error_type": type(exc).__name__})
+        return
     write_worker_result(path, {"scope": scope, "day": day, "url": url,
                                "started_at": started.isoformat(), "observed_at": datetime.now(UTC).isoformat(),
                                "sha256": hashlib.sha256(raw).hexdigest(),
@@ -170,6 +213,9 @@ def observe_listing(scope: str, day: date) -> tuple[list[str] | None, dict]:
     try:
         if (p["scope"], p["day"], p["url"]) != (scope, day.isoformat(), url):
             raise ValueError("OFFICIAL_LISTING_RECEIPT_SCOPE")
+        if p.get("error_type"):
+            return None, info | {"worker_status": "HTTP_OR_TRANSPORT_BLOCK",
+                                 "error_type": p["error_type"], "http_status": p.get("http_status")}
         start, end = datetime.fromisoformat(p["started_at"]), datetime.fromisoformat(p["observed_at"])
         if start.utcoffset() is None or end.utcoffset() is None or not start <= end <= datetime.now(UTC):
             raise ValueError("OFFICIAL_LISTING_RECEIPT_TIME")
@@ -177,14 +223,15 @@ def observe_listing(scope: str, day: date) -> tuple[list[str] | None, dict]:
         digest = hashlib.sha256(raw).hexdigest()
         if digest != p["sha256"]:
             raise ValueError("OFFICIAL_LISTING_BODY_HASH")
+        info |= {"started_at": start.isoformat(), "observed_at": end.isoformat(),
+                 "raw_body_sha256": digest, "raw_body_bytes": len(raw),
+                 "raw_body_parent_rehash": "MATCH", **_date_shape_summary(raw, scope)}
         codes, meta = parse_listing(raw, scope, day)
-    except (ValueError, RuntimeError, OSError, KeyError, TypeError, StopIteration, zipfile.BadZipFile) as exc:
+    except Exception as exc:  # noqa: BLE001 - external document/parser boundary, sanitized error.
         code = str(exc)
         return None, info | {"worker_status": "PAYLOAD_INVALID",
                              "error_code": code if re.fullmatch(r"[A-Z0-9_]{3,80}", code) else type(exc).__name__}
-    return codes, info | {"status": "OBSERVED", "started_at": start.isoformat(), "observed_at": end.isoformat(),
-                          "raw_body_sha256": digest, "raw_body_bytes": len(raw),
-                          "raw_body_parent_rehash": "MATCH", **meta}
+    return codes, info | {"status": "OBSERVED", **meta}
 
 
 if __name__ == "__main__":

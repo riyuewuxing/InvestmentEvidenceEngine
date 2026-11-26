@@ -31,7 +31,8 @@ def main() -> int:
         if codes is not None:
             reference.extend(codes)
     report = {"executor_commit": commit, "as_of": day.isoformat(), "references": info,
-              "status": "BLOCK", "raw_provider_bytes_retained": False, "decision_authority": False,
+              "status": "BLOCK", "followup": "EXPLICIT_DATE_FORMATS_AND_HTTP_ERROR_DIAGNOSTIC",
+              "raw_provider_bytes_retained": False, "decision_authority": False,
               "execution_allowed": False, "source_independence_verified": False}
     if all(item["status"] == "OBSERVED" for item in info) and len(reference) == len(set(reference)):
         # New live acquisition is conditional on real official reference.
