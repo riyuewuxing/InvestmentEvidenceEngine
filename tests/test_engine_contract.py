@@ -1,6 +1,10 @@
+import shutil
+import subprocess
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
@@ -136,3 +140,53 @@ def test_runner_propagates_dependency_status(tmp_path, monkeypatch, upstream_sta
     assert "independent" in called
     if expected == "WARN":
         assert "UPSTREAM_WARN:first" in result.operations[1].warnings
+
+
+def test_execute_workflow_shells_are_bounded_and_parse(tmp_path) -> None:
+    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/execute-request.yml"
+    job = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["execute"]
+    assert "visibility == 'public'" in job["if"]
+    steps = {step.get("name"): step for step in job["steps"] if "name" in step}
+    execute = steps["Execute request"]
+    assert execute["env"]["REQUEST_PATH"] == '${{ steps.request.outputs.path }}'
+    assert 'investment-evidence-engine "$REQUEST_PATH"' in execute["run"]
+    assert '${{' not in execute["run"]
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash syntax check is performed on the public Linux runner")
+    for index, step in enumerate(steps.values()):
+        if "run" in step:
+            assert step["timeout-minutes"] > 0
+            path = tmp_path / f"step-{index}.sh"
+            path.write_text(step["run"], encoding="utf-8")
+            subprocess.run([bash, "-n", str(path)], check=True, timeout=3, capture_output=True)
+
+
+def test_real_pit_block_is_not_factor_input(tmp_path) -> None:
+    cutoff = "2026-08-24T08:00:00+08:00"
+    operations = [
+        ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+            "as_of": cutoff,
+            "inline_records": [
+                {"available_at": "2026-08-24T07:00:00+08:00",
+                 "retrieved_at": "2026-08-24T07:01:00+08:00", "value": 1},
+                {"available_at": "2026-08-24T07:00:00+08:00",
+                 "retrieved_at": "2026-08-24T09:00:00+08:00", "value": 2},
+            ],
+        }),
+        ExecutionOperation(operation_id="factor", kind="FACTOR_COMPUTE", parameters={
+            "depends_on_operation_ids": ["pit"],
+            "factor_spec": {"field": "value", "transform": "IDENTITY"},
+        }),
+    ]
+    request = _request(operations)
+    request.request_sha256 = request.compute_hash()
+    path = tmp_path / "request.json"
+    path.write_text(request.model_dump_json(), encoding="utf-8")
+    out = tmp_path / "out"
+    result = execute_request(path, output_dir=out, executor_repo="example/public", executor_commit=COMMIT)
+    assert result.status == "BLOCK"
+    assert result.operations[0].metrics["eligible_count"] == 1
+    assert result.operations[1].errors == ["UPSTREAM_NOT_USABLE:pit"]
+    assert (out / "pit.json").is_file()
+    assert not (out / "factor.json").exists()
