@@ -1,9 +1,5 @@
 name: Public transfer-event control
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-transfer-control.yml'
   workflow_dispatch:
 permissions:
   contents: read
