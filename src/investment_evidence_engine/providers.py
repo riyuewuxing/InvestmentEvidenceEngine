@@ -4,6 +4,7 @@ from datetime import date
 
 import pandas as pd
 
+from .akshare_daily_adapter import call_akshare_daily
 from .sina_statement_adapter import call_sina_statement
 
 
@@ -47,7 +48,7 @@ class AKShareProvider:
             import akshare as ak
         except ImportError as exc:
             raise ProviderError("akshare is not installed") from exc
-        raw = ak.stock_zh_a_hist(
+        raw = call_akshare_daily(ak,
             symbol=symbol,
             period="daily",
             start_date=start.strftime("%Y%m%d"),
