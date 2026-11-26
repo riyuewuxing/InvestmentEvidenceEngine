@@ -1,9 +1,6 @@
 name: Public TWSE revenue control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-twse-revenue-control.yml"
 permissions:
   contents: read
 concurrency:

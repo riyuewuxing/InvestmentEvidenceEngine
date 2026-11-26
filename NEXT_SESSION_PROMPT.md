@@ -68,3 +68,6 @@ Read STATE and latest handoff. SZSE aggregate actual 2908/1411 companies Oct2026
 
 ## Latest continuation — cash and identity
 Read STATE and exact final regression. Cash #45828673907 and BSE #45829363865 completed; do not repeat unchanged. Cash is a one-known-event gross ex-close scenario, not total return or PIT. BSE direct bytes BLOCK 302; fixed identity mapping and complete official lists remain open. No speculative suffix mapping. Prioritize actual independent historical availability / genuine admissible research inputs. Preserve accepted historical pin, private dual gate BLOCK, public-only compute, and frozen prospective receipt until due.
+
+## Latest continuation — macro vintage / TWSE
+Read STATE and final exact-SHA regression. ALFRED four timeouts, TWSE 1091-row official response and one verified target #45833274854 (overall comparison BLOCK, issuer PDF/table both 403), Philly workbook hash observed but exact target scope BLOCK #45833834493. All three workflows manual-only, no blind retry, no latest fallback or historical clock invention. Use genuinely new evidence or a verified source-specific schema/target if further work is warranted; no repeated diagnostics just to raise test count. Preserve accepted historical pin, private runner prohibition, formal RESEARCH gate and prospective freeze until due.

@@ -146,3 +146,9 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Factor cutoff and adjustment ambiguity guards; verify final same-SHA regression.
 - [x] BSE official routes attempted, BLOCK 302; no active list obtained.
 - [ ] Actual historical first availability, verified complete corporate actions and listing, formal RESEARCH and private dual gates.
+
+## 2026-11-26 macro-vintage / TWSE increment
+- [x] ALFRED four fixed vintages attempted, timeout BLOCK (no fallback).
+- [x] Actual TWSE exchange numeric receipt, precision correction and independent amount/rate checks, scope limited to one target row. Issuer cross-check BLOCK in runner, no PIT proof.
+- [x] Philadelphia Fed workbook actual bytes observed, exact August row BLOCK; manual-only, do not retry unchanged.
+- [ ] Genuine source vintage and historical first availability, full official listing/corporate actions, real RESEARCH profile, private same-SHA gates.
