@@ -1,0 +1,47 @@
+name: Public native PDF fixture runtime control
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/investment_evidence_engine/docling_adapter.py'
+      - 'tests/test_docling_adapter_contract.py'
+      - 'fixtures/docling_native/**'
+      - 'scripts/public_docling_native_control.py'
+      - 'scripts/public_docling_dependency_inventory.py'
+      - '.github/workflows/public-docling-control.yml'
+permissions:
+  contents: read
+jobs:
+  native-pdf:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: src
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install isolated exact native parser
+        id: install
+        timeout-minutes: 5
+        run: |
+          python -m venv .docling-control-venv
+          .docling-control-venv/bin/python -m pip install 'docling-slim[format-pdf,convert-core]==2.150.1' 'pip-audit==2.10.1' pytest
+      - name: Run synthetic adapter tests and parser fixture
+        timeout-minutes: 3
+        run: |
+          .docling-control-venv/bin/python -m pytest -q tests/test_docling_adapter_contract.py
+          timeout --signal=TERM --kill-after=5s 120s .docling-control-venv/bin/python scripts/public_docling_native_control.py
+      - name: Check exact isolated dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 3
+        run: |
+          .docling-control-venv/bin/python -m pip check
+          .docling-control-venv/bin/python scripts/public_docling_dependency_inventory.py
+          timeout --signal=TERM --kill-after=5s 135s .docling-control-venv/bin/python -m pip_audit --strict --no-deps --progress-spinner off --format json --requirement public_docling_requirements.txt
