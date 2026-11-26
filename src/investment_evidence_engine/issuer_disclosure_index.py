@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -146,13 +146,17 @@ def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
         local = stamp.astimezone(SHANGHAI)
         if not Q3_WINDOW[0] <= local.date().isoformat() <= Q3_WINDOW[1] or stamp > observed_at:
             raise ValueError("INDEX_TIME_SCOPE")
+        path_day = date.fromisoformat(url.split("/")[1])
+        if path_day > observed_at.astimezone(SHANGHAI).date():
+            raise ValueError("INDEX_ATTACHMENT_FUTURE_DAY")
         # Path day and platform time remain separate; don't infer a first disclosure clock.
         candidates.append({"announcement_id": aid, "title": title[:160], "attachment": url,
                            "platform_time_shanghai": local.isoformat(), "announcement_time_ms": millis,
                            "first_availability_verified": False})
     return {"returned_count": total, "candidates": candidates, "candidate_count": len(candidates),
             "body_observed": False, "revision_universe_complete": False,
-            "query_window": list(Q3_WINDOW)}
+            "query_window": list(Q3_WINDOW),
+            "discovery_status": "CANDIDATES_FOUND" if candidates else "NO_MATCH_IN_OBSERVED_WINDOW"}
 
 
 def _child(mode: str, org: str, path: Path) -> None:

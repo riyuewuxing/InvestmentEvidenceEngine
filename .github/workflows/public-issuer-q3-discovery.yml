@@ -1,10 +1,6 @@
 name: Public issuer Q3 discovery
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-q3-discovery.yml'
-      - 'scripts/public_issuer_q3_discovery.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

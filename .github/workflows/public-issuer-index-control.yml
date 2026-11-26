@@ -1,10 +1,6 @@
 name: Public issuer index metadata
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-index-control.yml'
-      - 'scripts/public_issuer_index_control.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

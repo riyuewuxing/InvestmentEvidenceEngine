@@ -1,10 +1,6 @@
 name: Public issuer Q1 revision counterexample
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-q1-counterexample.yml'
-      - 'scripts/public_issuer_q1_counterexample.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

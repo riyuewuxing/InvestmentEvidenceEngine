@@ -122,3 +122,10 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Shared strict candidate selection schema and fail-closed crosscheck receipt checks; verify final regression.
 - [ ] Official SZSE active-list coverage, independent price and vintage provenance, retention permission and independently verified original attachments.
 - [ ] Real historical PIT fundamental/research profile and private same-SHA formal admission; no freeze settlement before due time.
+
+
+## 2026-11-26 — issuer revision and source chronology
+- [x] Actual dated original issuer PDF observations and exact cross-host matching, consolidated cashflow and Q1 opening adjustment reconciliation (WARN).
+- [x] Actual CNINFO metadata ID/attachment/timestamp check, PIT replay sealed-cutoff / dependency guard.
+- [ ] Latest Q3 actual report, complete revision universe, captured historical vintages, durable permitted source bytes and formal PIT RESEARCH.
+- [ ] Official full SZSE active listing / private dual gates; keep frozen prospective control until its existing due time.
