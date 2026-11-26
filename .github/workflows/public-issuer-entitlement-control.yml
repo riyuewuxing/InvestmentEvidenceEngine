@@ -1,9 +1,5 @@
 name: Public issuer entitlement control
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-entitlement-control.yml'
   workflow_dispatch:
 permissions:
   contents: read

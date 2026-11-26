@@ -19,6 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat
 
+from .cash_entitlement import CashEntitlementTerms
 from .historical_capture import SH, PublicSecurity, validate_window
 from .historical_reference import HistoricalCloseSeries
 from .holding_risk import CashDistributionInputs
@@ -57,7 +58,8 @@ def _money(value: Decimal) -> Decimal:
 
 
 def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSeries,
-                       calendar: CalendarObservation, events: CashDistributionInputs, *, now: datetime) -> dict:
+                       calendar: CalendarObservation, events: CashDistributionInputs, *, now: datetime,
+                       reference_terms: tuple[CashEntitlementTerms, ...] = ()) -> dict:
     obs=ActionObservation.model_validate(obs.model_dump())
     other_close=HistoricalCloseSeries.model_validate(other_close.model_dump())
     events=CashDistributionInputs.model_validate(events.model_dump())
@@ -88,6 +90,25 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
         if event.ex_date not in sessions:
             raise ValueError("ACTION_CASH_EVENT_NON_SESSION")
         included[event.ex_date]=event
+    # Shareholder cash and the disclosed ex-reference deduction are distinct
+    # for a distribution excluding treasury shares. A legacy caller can only
+    # obtain a conditional equal-deduction comparison, not source verification.
+    if not isinstance(reference_terms, tuple):
+        raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
+    explicit = {}
+    for terms in reference_terms:
+        if type(terms) is not CashEntitlementTerms:
+            raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
+        receipt = terms.checked()
+        event = included.get(terms.ex_date)
+        if (event is None or terms.ex_date in explicit
+                or terms.symbol != obs.subject.symbol or terms.symbol != event.subject_id
+                or terms.disclosed_date != event.disclosed_date
+                or terms.source_locator != event.source_locator
+                or terms.gross_per_share != Decimal(str(event.gross_cash_per_unit_cny))
+                or terms.record_date != sessions[sessions.index(terms.ex_date)-1]):
+            raise ValueError("ACTION_REFERENCE_TERMS_SCOPE_OR_CASH_MISMATCH")
+        explicit[terms.ex_date] = (terms.declared_reference_deduction, receipt)
     factors=set(factor_dates)-{sessions[0]}
     audit=[]
     errors=[]
@@ -100,15 +121,21 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
         if event is None and not change and not factor:
             continue
         cash=Decimal(str(event.gross_cash_per_unit_cny)) if event else Decimal(0)
-        expected=_money(prev-cash)
-        # Exact cent-rounded cash-only theoretical reference. A rights issue,
-        # split, other event or incompatible convention must not be coerced.
+        terms = explicit.get(current.session)
+        deduction = terms[0] if terms else cash
+        expected=_money(prev-deduction)
+        # Exact cent-rounded theoretical reference for the selected convention.
+        # A rights issue, split, or incompatible convention is not coerced.
         matched=bool(event and factor and expected>0 and ref==expected)
         if not matched:
             errors.append("UNRECONCILED_ACTION_OR_REFERENCE")
         audit.append({"session":current.session.isoformat(),"prior_raw_close":float(prev),
             "observed_previous_reference":float(ref),"cash_event_gross_cny":float(cash) if event else None,
             "expected_cash_only_reference":float(expected),"vendor_factor_date_present":factor,
+            "reference_deduction_cny":str(deduction) if event else None,
+            "reference_deduction_basis":("EXPLICIT_DISCLOSED_TERMS_RECONCILED" if terms
+                else "ASSUMED_EQUAL_TO_GROSS_ENTITLEMENT" if event else "NO_EXPLICIT_CASH_EVENT"),
+            "reference_terms":terms[1] if terms else None,
             "issuer_locator":event.source_locator if event else None,
             "status":"CASH_ONLY_REFERENCE_MATCH" if matched else "BLOCKED"})
     return {"status":"BLOCKED" if errors else "OBSERVED_ACTION_INTERVAL_RECONCILED",
@@ -119,6 +146,8 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
         "first_session_factor_excluded":sessions[0] in factor_dates,
         "event_audit":audit,"excluded_explicit_events":excluded,"error_codes":sorted(set(errors)),
         "normalized_observation_sha256":hashlib.sha256(obs.model_dump_json().encode()).hexdigest(),
+        "explicit_reference_terms_count":len(explicit),
+        "all_included_cash_reference_terms_explicit":bool(included) and len(explicit)==len(included),
         "official_issuer_event_universe_verified":False,"factor_numeric_semantics_verified":False,
         "corporate_action_coverage_verified":False,"historical_vintage_verified":False,
         "raw_provider_bytes_retained":False,"decision_authority":False,"research_only":True,

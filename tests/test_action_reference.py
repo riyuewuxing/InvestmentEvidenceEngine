@@ -1,4 +1,6 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -8,6 +10,7 @@ from investment_evidence_engine.action_reference import (
     PreviousCloseRow,
     audit_cash_actions,
 )
+from investment_evidence_engine.cash_entitlement import CashEntitlementTerms
 from investment_evidence_engine.historical_capture import PublicSecurity
 from investment_evidence_engine.historical_reference import DailyClose, HistoricalCloseSeries
 from investment_evidence_engine.holding_risk import CashDistribution, CashDistributionInputs
@@ -71,3 +74,56 @@ def test_mismatched_close_and_session_rejected():
                            CAL,events,now=NOW)
     with pytest.raises(ValueError,match="SESSION"):
         audit_cash_actions(obs,series.model_copy(update={"closes":series.closes[1:]}),CAL,events,now=NOW)
+
+
+def reference_fixture():
+    obs, series, _ = fixture()
+    # Synthetic close at 5.00; cent rounding separates 0.0352 from 0.0336129.
+    rows = tuple(PreviousCloseRow(session=d, close=5.0 if d<ACTION else 4.97,
+                    previous_reference=5.0 if d<ACTION else 4.97) for d in DAYS)
+    obs = obs.model_copy(update={"raw_rows": rows})
+    series = series.model_copy(update={"closes":tuple(DailyClose(session=r.session,close=r.close)
+                                                     for r in rows)})
+    locator = "https://example.invalid/cash"
+    terms = CashEntitlementTerms(symbol=SUB.symbol, disclosed_date=DAYS[6], record_date=DAYS[6],
+        ex_date=ACTION, source_locator=locator, total_shares=2500783182, excluded_shares=112750413,
+        gross_per_share=Decimal("0.0352"), declared_total_cash=Decimal("84058753.47"),
+        declared_reference_deduction=Decimal("0.0336129"))
+    events = CashDistributionInputs(events=(CashDistribution(subject_id=SUB.symbol,
+        disclosed_date=DAYS[6], ex_date=ACTION, gross_cash_per_unit_cny=0.0352,
+        source_locator=locator),))
+    return obs, series, events, terms
+
+
+def test_explicit_reference_deduction_does_not_replace_gross_cash():
+    obs, series, events, terms = reference_fixture()
+    legacy = audit_cash_actions(obs, series, CAL, events, now=NOW)
+    assert legacy["status"] == "BLOCKED"
+    assert legacy["event_audit"][0]["expected_cash_only_reference"] == 4.96
+    assert legacy["event_audit"][0]["reference_deduction_basis"] == "ASSUMED_EQUAL_TO_GROSS_ENTITLEMENT"
+    result = audit_cash_actions(obs, series, CAL, events, now=NOW, reference_terms=(terms,))
+    assert result["status"] == "OBSERVED_ACTION_INTERVAL_RECONCILED"
+    row = result["event_audit"][0]
+    assert row["expected_cash_only_reference"] == 4.97
+    assert row["cash_event_gross_cny"] == 0.0352
+    assert row["reference_deduction_cny"] == "0.0336129"
+    assert result["all_included_cash_reference_terms_explicit"]
+    assert not result["historical_vintage_verified"] and not result["decision_authority"]
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "symbol", "locator", "record", "missing_event"])
+def test_explicit_reference_terms_bind_exact_cash_event(fault):
+    obs, series, events, terms = reference_fixture()
+    supplied = (terms,)
+    if fault == "duplicate":
+        supplied = (terms, terms)
+    elif fault == "symbol":
+        supplied = (replace(terms, symbol="000035"),)
+    elif fault == "locator":
+        supplied = (replace(terms, source_locator="https://example.invalid/other"),)
+    elif fault == "record":
+        supplied = (replace(terms, disclosed_date=DAYS[5], record_date=DAYS[5]),)
+    else:
+        events = CashDistributionInputs(events=())
+    with pytest.raises(ValueError, match="ACTION_REFERENCE_TERMS_SCOPE"):
+        audit_cash_actions(obs, series, CAL, events, now=NOW, reference_terms=supplied)
