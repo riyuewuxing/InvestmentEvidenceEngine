@@ -63,7 +63,7 @@ def amount(value: str) -> int:
 
 
 def percent(value: str) -> Decimal:
-    if not re.fullmatch(r"-?[0-9]{1,5}(?:\.[0-9]{1,6})?", value):
+    if not re.fullmatch(r"-?[0-9]{1,5}(?:\.[0-9]{1,18})?", value):
         raise ValueError("TWSE_PERCENT_SCHEMA")
     return Decimal(value)
 
@@ -317,7 +317,7 @@ def observe(kind: str) -> dict:
             # entire exchange response. Preserve spaces/signs for schema triage.
             out["source_rows_observed"] = count
             out["numeric_schema_samples"] = {
-                key: row[key] if re.fullmatch(r"[0-9.,%+\\-\\s]{1,40}", row[key])
+                key: row[key] if re.fullmatch(r"[-0-9.,%+\s]{1,40}", row[key])
                 else {"format_unrecognized": True, "characters": len(row[key])}
                 for key in (*AMOUNTS, *PERCENTS)
             }
@@ -340,10 +340,11 @@ def main() -> int:
     if os.environ["GITHUB_REPOSITORY"] != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
     # The original PDF already returned 403. Do not rerun that failed route.
-    receipts = [observe(kind) for kind in ("exchange", "issuer_table")]
-    comparison = (compare_issuer_table(receipts[0]["fields"], receipts[1]["fields"])
-                  if all(r["status"] == "OBSERVED" for r in receipts)
-                  else {"status": "BLOCK", "comparison": "INCOMPLETE"})
+    # Both issuer routes returned 403. Only revalidate the corrected exchange parser.
+    receipts = [observe("exchange")]
+    comparison = {"status": "BLOCK", "comparison": "INCOMPLETE",
+                  "exchange_parse_verified": receipts[0]["status"] == "OBSERVED",
+                  "issuer_routes_retried": False, "issuer_table_prior_http_status": 403}
     comparison["original_pdf_prior_http_status"] = 403
     report = comparison | {"executor_commit": os.environ["GITHUB_SHA"], "receipts": receipts,
         "dataset": "https://data.gov.tw/dataset/18420",
@@ -354,7 +355,7 @@ def main() -> int:
         "research_only": True, "raw_body_retained": False}
     print("PUBLIC_TWSE_REVENUE_CONTROL " + json.dumps(report, sort_keys=True, ensure_ascii=False,
                                                      allow_nan=False), flush=True)
-    return 0 if report["status"] == "WARN" else 2
+    return 0 if report["exchange_parse_verified"] else 2
 
 
 if __name__ == "__main__":

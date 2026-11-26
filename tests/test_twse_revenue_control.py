@@ -83,3 +83,14 @@ def test_current_issuer_table_matches_limited_subset_not_original_pdf():
     assert not result["pit_safe"]
     with pytest.raises(ValueError, match="TSMC_TABLE_ROWS_MISSING"):
         parse_issuer_table(html.replace("Oct.", "Nov.").encode())
+
+def test_observed_exchange_rate_precision_regression():
+    # Bounded numeric fields from public run 45832825328, not a retained raw CSV.
+    observed_amounts = ("586890319", "511857399", "367473051", "4485617293", "3130436902")
+    observed_rates = ("14.658949962741477", "59.709757600700904", "43.29045540365918")
+    row = parse_exchange(body(**dict(zip(AMOUNTS + PERCENTS, observed_amounts + observed_rates, strict=True))), NOW)
+    assert row["reported_rates_pct"] == list(observed_rates)
+    assert compare(row, issuer())["comparison"] == "MATCH_WITH_DECLARED_ROUNDING"
+    assert not row["historical_vintage_verified"]
+    with pytest.raises(ValueError, match="PERCENT_SCHEMA"):
+        parse_exchange(body(**{PERCENTS[0]: "14." + "1" * 19}), NOW)
