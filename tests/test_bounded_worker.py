@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import time
+
 import pytest
 
 from investment_evidence_engine.bounded_worker import run_json_worker, write_worker_result

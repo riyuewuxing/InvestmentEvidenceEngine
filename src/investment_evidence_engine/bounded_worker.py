@@ -97,6 +97,8 @@ def run_json_worker(command: tuple[str, ...], *, timeout_seconds: float,
                 proc.kill()
                 proc.wait(timeout=CLEANUP_SECONDS)
             raise
+        if time.monotonic() - start > timeout_seconds:
+            return result("WATCHDOG_TIMEOUT", code=code)
         if code != 0:
             return result("WORKER_FAILED", code=code)
         try:
