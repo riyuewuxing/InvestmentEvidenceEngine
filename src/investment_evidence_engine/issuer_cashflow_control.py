@@ -35,6 +35,7 @@ MIRRORS = {
 }
 FULL_PATH = "download/disc/disk03/finalpage/2026-04-29/dd3d13e3-e035-4249-9d96-121b4121b417.PDF"
 PATHS = {k: v["path"] for k, v in MIRRORS.items()} | {"full_2025": FULL_PATH}
+Q1_PATH = "disc/disk03/finalpage/2026-04-29/e507872d-c0c2-407d-bc0e-828738560953.PDF"
 # Visually checked consolidated statement pages 108-109 (not parent-only).
 ROWS = {
     "ocf": (108, "经营活动产生的现金流量净额", ("653,089,056.43", "655,318,988.92")),
@@ -84,9 +85,47 @@ def checked_cashflow(page108: str, page109: str) -> dict:
             "actual_debt_balance_verified": False}
 
 
+# Q1 is a same-declared-date counterexample to August-first revision inference.
+Q1_ROWS = {
+    "assets": (12, "资产总计", ("32,084,341,383.18", "32,067,826,798.82", "-16,514,584.36")),
+    "liabilities": (14, "负债合计", ("20,996,249,839.64", "21,114,168,247.40", "117,918,407.76")),
+    "parent_equity": (14, "归属于母公司所有者权益合计",
+                      ("10,892,968,839.23", "10,758,535,847.11", "-134,432,992.12")),
+    "total_equity": (14, "所有者权益合计", ("11,088,091,543.54", "10,953,658,551.42", "-134,432,992.12")),
+}
+
+
+def checked_q1_adjustments(page11: str, page12: str, page14: str) -> dict:
+    pages = {11: normalize_text(page11), 12: normalize_text(page12), 14: normalize_text(page14)}
+    if (any("中国天楹股份有限公司2026年第一季度报告" not in page for page in pages.values())
+            or not all(mark in pages[11] for mark in ("2026年起首次执行新会计准则",
+                "2025年12月31日", "2026年1月1日", "经审计", "未经审计", "调整数"))):
+        raise ValueError("CASHFLOW_Q1_ADJUSTMENT_SCOPE")
+    rows = {}
+    for key, (page, label, expected) in Q1_ROWS.items():
+        # "所有者权益合计" also occurs inside the preceding parent-equity label.
+        prefix = r"(?<!归属于母公司)" if key == "total_equity" else ""
+        cells = re.findall(prefix + re.escape(label) + "(" + AMOUNT + ")(" + AMOUNT + ")(" + AMOUNT + ")",
+                           pages[page])
+        if len(cells) != 1 or cells[0] != expected:
+            raise ValueError("CASHFLOW_Q1_ROW_OR_ORDER")
+        values = tuple(Decimal(v.replace(",", "")) for v in cells[0])
+        if values[1] - values[0] != values[2]:
+            raise ValueError("CASHFLOW_Q1_ADJUSTMENT_ARITHMETIC")
+        rows[key] = values
+    for index in range(3):
+        if rows["assets"][index] != rows["liabilities"][index] + rows["total_equity"][index]:
+            raise ValueError("CASHFLOW_Q1_BALANCE_NOT_RECONCILED")
+    return {"rows_cny": {k: [str(v) for v in row] for k, row in rows.items()},
+            "columns": ["2025-12-31_AUDITED", "2026-01-01_UNAUDITED", "ADJUSTMENT"],
+            "balance_reconciled": True, "same_adjusted_values_as_half_2026": True,
+            "declared_document_day": "2026-04-29", "same_day_order_verified": False,
+            "first_availability_verified": False, "historical_vintage_verified": False}
+
+
 def _child(kind: str, path: Path) -> None:
     started = datetime.now(UTC)
-    doc = retrieve_pdf_bytes(EXCHANGE_ROOT + PATHS[kind])
+    doc = retrieve_pdf_bytes(EXCHANGE_ROOT + (Q1_PATH if kind == "q1_2026" else PATHS[kind]))
     write_worker_result(path, {"kind": kind, "url": doc.source_url, "sha256": doc.sha256,
                                "retrieved_at": doc.retrieved_at, "started_at": started.isoformat(),
                                "body": base64.b64encode(doc.data).decode("ascii")})
@@ -133,7 +172,14 @@ def observe(kind: str, folder: Path) -> dict:
         result["page_count"] = len(reader.pages)
         if "中国天楹股份有限公司" not in first:
             raise ValueError("CASHFLOW_DOCUMENT_IDENTITY")
-        if kind == "full_2025":
+        if kind == "q1_2026":
+            if "2026年第一季度报告" not in first or "000035" not in first or len(reader.pages) != 14:
+                raise ValueError("CASHFLOW_Q1_IDENTITY")
+            texts = [normalize_text(reader.pages[i].extract_text() or "") for i in (10, 11, 13)]
+            result["page_sha256"] = {str(i): hashlib.sha256(t.encode()).hexdigest()
+                                     for i, t in zip((11, 12, 14), texts, strict=True)}
+            result["q1_opening_adjustments"] = checked_q1_adjustments(*texts)
+        elif kind == "full_2025":
             if "2025" not in first or "年度报告" not in first or len(reader.pages) < 109:
                 raise ValueError("CASHFLOW_FULL_DOCUMENT_IDENTITY")
             texts = [normalize_text(reader.pages[i].extract_text() or "") for i in (107, 108)]
