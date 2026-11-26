@@ -13,6 +13,7 @@ from .transport_integrity import request_chain_errors, safe_operation_id
 
 OperationKind = Literal[
     "MARKET_DATA",
+    "MARKET_UNIVERSE",
     "PRICE_ANALYTICS",
     "KLINE_RENDER",
     "COMPANY_EVENT_TIMELINE",

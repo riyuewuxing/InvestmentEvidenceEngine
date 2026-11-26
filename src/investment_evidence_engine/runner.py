@@ -63,7 +63,7 @@ def execute_request(
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "execution_request.json").write_bytes(request_bytes)
     started = datetime.now(UTC)
-    context = WorkerContext(output_dir=output_dir)
+    context = WorkerContext(output_dir=output_dir, request_as_of=request.as_of)
     results: list[OperationResult] = []
     statuses: dict[str, str] = {}
     for operation in request.operations:
@@ -86,6 +86,8 @@ def execute_request(
             # Retain diagnostic artifacts for audit, not as input to later workers.
             context.frames.pop(operation.operation_id, None)
             context.payloads.pop(operation.operation_id, None)
+        if operation.operation_id in context.completed_operations:
+            context.completed_operations[operation.operation_id]["status"] = item.status
         statuses[operation.operation_id] = item.status
         results.append(item)
     overall = _overall_status([item.status for item in results])
