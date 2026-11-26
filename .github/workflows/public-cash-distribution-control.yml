@@ -1,0 +1,30 @@
+name: Public cash distribution control
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-cash-distribution-control.yml"
+permissions:
+  contents: read
+concurrency:
+  group: public-cash-distribution-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Exact official document and known cash event sensitivity
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 170s python -m investment_evidence_engine.public_cash_distribution_control
