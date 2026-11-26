@@ -9,6 +9,8 @@ import os
 import re
 import sys
 import zipfile
+from decimal import Decimal
+from xml.etree import ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
@@ -53,7 +55,7 @@ def row_fields(rows) -> dict:
     for value in matches[0][1:4]:
         if value is None or value == ".":
             values.append(None)
-        elif type(value) in (int, float) and -100000 <= value <= 100000 and int(value) == value:
+        elif type(value) in (int, float, Decimal) and -100000 <= value <= 100000 and int(value) == value:
             values.append(int(value) * 1000)
         else:
             raise ValueError("PHILLY_VALUE_SCHEMA")
@@ -61,28 +63,97 @@ def row_fields(rows) -> dict:
             "release_values": values, "latest_revision_not_used": True}
 
 
-def parse(raw: bytes) -> dict:
-    import openpyxl
+NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+PKG = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
+
+def read_xml(z, name):
+    raw = z.read(name)
+    if len(raw) > 8 * MAX_BYTES or re.search(br"<!DOCTYPE|<!ENTITY", raw, re.I):
+        raise ValueError("PHILLY_XML_BOUNDS")
+    return ET.fromstring(raw)
+
+
+def parse(raw: bytes) -> dict:
+    """Read only workbook/relationship/cell values, not style or formula machinery."""
     if not 0 < len(raw) <= MAX_BYTES:
         raise ValueError("PHILLY_BODY_SIZE")
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         files = z.infolist()
-        if len(files) > 100 or sum(x.file_size for x in files) > 8 * MAX_BYTES:
+        names = {x.filename for x in files}
+        if (len(files) > 100 or len(names) != len(files)
+                or sum(x.file_size for x in files) > 8 * MAX_BYTES):
             raise ValueError("PHILLY_XLSX_BOUNDS")
-        if any(x.filename.startswith("xl/externalLinks/") or x.filename.endswith("vbaProject.bin") for x in files):
+        if any(x.startswith("xl/externalLinks/") or x.endswith("vbaProject.bin") for x in names):
             raise ValueError("PHILLY_XLSX_EXTERNAL")
-    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=False, keep_links=False)
-    try:
-        if len(wb.worksheets) != 1:
+        workbook = read_xml(z, "xl/workbook.xml")
+        sheets = workbook.findall(f"{NS}sheets/{NS}sheet")
+        if len(sheets) != 1:
             raise ValueError("PHILLY_SHEET_SCOPE")
-        sheet = wb.worksheets[0]
-        if sheet.max_row is None or sheet.max_row > 2000 or sheet.max_column != 5:
-            raise ValueError("PHILLY_SHEET_BOUNDS")
-        return row_fields(sheet.iter_rows(min_col=1, max_col=5, values_only=True)) | {
-            "openpyxl_version": openpyxl.__version__, "source_rows_observed": sheet.max_row}
-    finally:
-        wb.close()
+        relations = read_xml(z, "xl/_rels/workbook.xml.rels")
+        matches = [r for r in relations.findall(f"{PKG}Relationship")
+                   if r.get("Id") == sheets[0].get(f"{REL}id")]
+        if len(matches) != 1:
+            raise ValueError("PHILLY_SHEET_RELATION")
+        link = matches[0]
+        target = link.get("Target", "")
+        if (link.get("TargetMode") not in (None, "Internal")
+                or not link.get("Type", "").endswith("/worksheet")):
+            raise ValueError("PHILLY_SHEET_RELATION")
+        if target.startswith("/xl/"):
+            target = target[1:]
+        else:
+            target = "xl/" + target
+        if not re.fullmatch(r"xl/worksheets/sheet[0-9]+\.xml", target):
+            raise ValueError("PHILLY_SHEET_RELATION")
+        strings = []
+        if "xl/sharedStrings.xml" in names:
+            ss = read_xml(z, "xl/sharedStrings.xml")
+            strings = ["".join(t.text or "" for t in item.iter(f"{NS}t"))
+                       for item in ss.findall(f"{NS}si")]
+            if len(strings) > 12000:
+                raise ValueError("PHILLY_STRING_LIMIT")
+        sheet = read_xml(z, target)
+        rows = []
+        last_row = 0
+        for row in sheet.findall(f"{NS}sheetData/{NS}row"):
+            index = int(row.get("r", "0"))
+            if not last_row < index <= 2000:
+                raise ValueError("PHILLY_ROW_ORDER")
+            last_row = index
+            values = [None] * 5
+            seen = set()
+            for cell in row.findall(f"{NS}c"):
+                address = re.fullmatch(r"([A-Z]+)([0-9]+)", cell.get("r", ""))
+                if not address or int(address[2]) != index or address[1] in seen:
+                    raise ValueError("PHILLY_CELL_SCOPE")
+                seen.add(address[1])
+                if cell.find(f"{NS}f") is not None:
+                    raise ValueError("PHILLY_FORMULA")
+                v = cell.findtext(f"{NS}v")
+                kind = cell.get("t", "n")
+                if kind == "inlineStr":
+                    value = "".join(t.text or "" for t in cell.iter(f"{NS}t"))
+                elif v is None:
+                    value = None
+                elif kind == "s":
+                    if not re.fullmatch(r"[0-9]+", v) or int(v) >= len(strings):
+                        raise ValueError("PHILLY_STRING_INDEX")
+                    value = strings[int(v)]
+                elif kind == "str":
+                    value = v
+                elif kind == "n" and re.fullmatch(r"-?[0-9]{1,12}(?:\.[0-9]{1,12})?", v):
+                    value = Decimal(v)
+                else:
+                    raise ValueError("PHILLY_CELL_TYPE")
+                if address[1] not in "ABCDE" or len(address[1]) != 1:
+                    if value is not None:
+                        raise ValueError("PHILLY_EXTRA_DATA_COLUMN")
+                    continue
+                values[ord(address[1]) - ord("A")] = value
+            rows.append(tuple(values))
+        return row_fields(rows) | {"reader": "BOUNDED_OOXML_VALUES", "source_rows_observed": len(rows)}
 
 
 def child(path: Path) -> None:
