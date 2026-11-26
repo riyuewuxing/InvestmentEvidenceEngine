@@ -69,7 +69,9 @@ jobs:
             request_path="$MANUAL_REQUEST_PATH"
             [[ "$request_path" =~ ^requests/[A-Za-z0-9][A-Za-z0-9_.-]*\.json$ ]] || exit 2
           else
-            mapfile -t candidates < <(git show --pretty=format: --name-only "$GITHUB_SHA" | grep -E '^requests/[A-Za-z0-9][A-Za-z0-9_.-]*\.json
+            mapfile -t candidates < <(git show --pretty=format: --name-only "$GITHUB_SHA" | grep -E '^requests/[A-Za-z0-9][A-Za-z0-9_.-]*\.json$')
+            [ "${#candidates[@]}" -eq 1 ] || exit 2
+            request_path="${candidates[0]}"
           fi
           if [ -z "$request_path" ] || [ ! -f "$request_path" ] || [ -L "$request_path" ]; then
             echo "No valid request JSON found" >&2
@@ -117,58 +119,6 @@ jobs:
 
       - name: Upload evidence artifacts
         timeout-minutes: 3
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: evidence-run-${{ github.run_id }}-${{ github.run_attempt }}
-          path: run-output/
-          if-no-files-found: error
-          retention-days: 7
-)
-            [ "${#candidates[@]}" -eq 1 ] || exit 2
-            request_path="${candidates[0]}"
-          fi
-          if [ -z "$request_path" ] || [ ! -f "$request_path" ]; then
-            echo "No valid request JSON found" >&2
-            exit 2
-          fi
-          echo "path=$request_path" >> "$GITHUB_OUTPUT"
-
-      - name: Validate public-data firewall
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import os
-
-          from investment_evidence_engine.contracts import ExecutionRequest
-
-          path = Path(os.environ["REQUEST_PATH"])
-          request = ExecutionRequest.model_validate_json(path.read_text(encoding="utf-8"))
-          if not request.verify():
-              raise SystemExit("ExecutionRequest request_sha256 is missing or invalid")
-          assert request.private_data_included is False
-          assert request.decision_authority is False
-          assert all(operation.public_data_only is True for operation in request.operations)
-          assert all(operation.decision_authority is False for operation in request.operations)
-          PY
-        env:
-          REQUEST_PATH: ${{ steps.request.outputs.path }}
-
-      - name: Execute request
-        id: engine
-        shell: bash
-        run: |
-          set +e
-          investment-evidence-engine "${{ steps.request.outputs.path }}" \
-            --output-dir run-output \
-            --executor-repo "$GITHUB_REPOSITORY" \
-            --executor-commit "$GITHUB_SHA"
-          code=$?
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit "$code"
-
-      - name: Upload evidence artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
