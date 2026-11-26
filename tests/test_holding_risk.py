@@ -69,7 +69,8 @@ def test_common_missing_session_not_silently_intersected():
 def test_cash_ex_date_reinvestment_distinguishes_price_drop_from_cash_return():
     i=10
     prices=[100]*i+[90]*(len(DATES)-i)
-    a=series("600000",prices); b=series("510300",[100]*len(DATES))
+    a=series("600000",prices)
+    b=series("510300",[100]*len(DATES))
     event=CashDistribution(subject_id="600000",disclosed_date=DATES[i-1],ex_date=DATES[i],
         gross_cash_per_unit_cny=10.,source_locator="https://example.invalid/disclosure")
     future=event.model_copy(update={"ex_date":date(2026,12,1)})
