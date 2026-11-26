@@ -10,7 +10,6 @@ from investment_evidence_engine.joint_portfolio_scenarios import (
 from investment_evidence_engine.portfolio_stress import StressPosition
 
 
-
 def portfolio():
     return PortfolioScenarioInputs(initial_equity_cny=100000.,cash_cny=40000.,
         positions=(StressPosition(subject_id=STOCK.symbol,market_value_cny=40000.),

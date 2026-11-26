@@ -14,7 +14,6 @@ from investment_evidence_engine.joint_scenario_receipt import (
 from investment_evidence_engine.market_calendar import CalendarObservation, scheduled_days
 
 
-
 def pair(*,price_conflict=False):
     first=date(2026,8,24)
     cal=CalendarObservation(first_requested=first,last_requested=DAY,observed_at=NOW-timedelta(minutes=1),
