@@ -117,3 +117,16 @@ def test_calendar_outcome_schema_not_ambiguous(tmp_path):
         persist_receipt(tmp_path,receipt().model_copy(update={"schema_version":"2"}))
     with pytest.raises(ValueError):
         persist_receipt(tmp_path,receipt().model_copy(update={"calendar_error_code":"MISSING"}))
+
+
+def test_newer_complete_source_failure_withholds_old_pair(tmp_path):
+    persist_receipt(tmp_path,receipt())
+    failures=tuple(HistoricalCaptureFailure(provider=p,asset_type=a,error_code="WATCHDOG_TIMEOUT")
+        for p,a in (("sina","STOCK"),("sina","ETF"),("baostock","STOCK")))
+    failed=receipt().model_copy(update={"schema_version":"2","observed_at":NOW,
+        "series":(),"failures":failures,"calendar_error_code":"CALENDAR_NOT_ATTEMPTED_MISSING_PAIR"})
+    digest,result=persist_receipt(tmp_path,failed)
+    assert result["status"]=="BLOCKED" and result["error_code"]=="MISSING_ASSET_HISTORY"
+    loaded=load_receipt(tmp_path,A,B,END,now=NOW)
+    assert loaded["normalized_observation_sha256"]==digest
+    assert "reference" not in loaded

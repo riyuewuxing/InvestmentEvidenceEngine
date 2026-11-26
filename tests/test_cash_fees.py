@@ -52,3 +52,24 @@ def test_unknown_broker_cost_not_zero_or_guessed():
 def test_invalid_scope_revalidated(changes):
     with pytest.raises(ValueError):
         fee_scenario(inputs().model_copy(update=changes))
+
+
+def test_fee_only_return_is_not_total_or_expected_return():
+    base=inputs().model_copy(update={"exit_notional_cny":10100.})
+    result=fee_scenario(base)
+    assert result["gross_price_change_pct"]==1.
+    assert result["conditional_fee_only_net_return_pct"]==pytest.approx((10100-10.15)/(10000+5.10)*100-100)
+    assert not result["total_holding_cost_estimated"]
+    assert fee_scenario(inputs(commission=False))["conditional_fee_only_net_return_pct"] is None
+
+
+def test_subcent_or_holiday_invalid():
+    for changes in ({"entry_notional_cny":100.001},{"entry_notional_cny":.01,"entry_orders":2},
+                    {"reference_session":date(2026,10,1)}):
+        with pytest.raises(ValueError):
+            fee_scenario(inputs().model_copy(update=changes))
+
+
+def test_ordinary_standard_minimum_fee_scope():
+    with pytest.raises(ValueError):
+        CommissionScenario(inclusive_rate_bps=3.,minimum_per_order_cny=0.,note="unverified special term")

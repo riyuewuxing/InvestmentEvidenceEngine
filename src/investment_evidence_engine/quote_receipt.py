@@ -22,7 +22,14 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .historical_capture import SH, PublicSecurity
-from .quote_reference import MAX_BYTES, PROVIDERS, acquire_quote, crosscheck_quotes, parse_quote, quote_reference
+from .quote_reference import (
+    MAX_BYTES,
+    PROVIDERS,
+    acquire_quote,
+    crosscheck_quotes,
+    parse_quote,
+    quote_reference,
+)
 
 MAX_RECEIPT_BYTES = 256*1024
 MAX_PER_SUBJECT_DAY = 256

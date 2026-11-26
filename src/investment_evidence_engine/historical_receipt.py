@@ -45,7 +45,7 @@ class HistoricalReceipt(BaseModel):
     akshare_version: str = Field(min_length=1, max_length=100)
     attempted_providers: tuple[str, ...] = Field(min_length=1, max_length=4)
     failures: tuple[HistoricalCaptureFailure, ...] = Field(default=(), max_length=8)
-    series: tuple[HistoricalCloseSeries, ...] = Field(min_length=1, max_length=8)
+    series: tuple[HistoricalCloseSeries, ...] = Field(max_length=8)
     calendar: CalendarObservation | None = None
     calendar_error_code: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_:]{1,160}$")
     distributions: CashDistributionInputs | None = None
