@@ -1,0 +1,30 @@
+name: Public TWSE licensed exact snapshot retention
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-twse-archive-retention.yml"
+permissions:
+  contents: read
+concurrency:
+  group: public-twse-archive-retention
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Fixed open-licensed original only, exact prior hash required
+        timeout-minutes: 1
+        run: timeout --signal=TERM --kill-after=5s 45s python scripts/public_twse_archive_retention.py
