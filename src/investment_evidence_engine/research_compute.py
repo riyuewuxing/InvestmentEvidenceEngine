@@ -74,6 +74,26 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
     cutoff, day_scope = validate_event_cutoff(cutoff_raw)
     if cutoff is None:
         raise ValueError("PIT_REPLAY requires as_of")
+    # An operation may narrow, but never extend, the sealed request scope.
+    if context.request_as_of is not None:
+        ceiling, ceiling_day_only = validate_event_cutoff(context.request_as_of)
+        if ceiling is None:
+            raise ValueError("PIT_REPLAY_REQUEST_CUTOFF_REQUIRED")
+        if ceiling_day_only:
+            op_day = cutoff.date() if day_scope else cutoff.astimezone(SHANGHAI).date()
+            outside = op_day > ceiling.date()
+        elif day_scope:
+            # A whole-day filter cannot prove an intraday ceiling.
+            outside = True
+        else:
+            outside = cutoff > ceiling
+        if outside:
+            return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+                                   errors=["PIT_REPLAY_REQUEST_SCOPE_EXCEEDED"])
+    if ("inline_records" in operation.parameters
+            and "depends_on_operation_ids" in operation.parameters):
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+                               errors=["PIT_REPLAY_DEPENDENCY_INLINE_CONFLICT"])
     available_field = str(operation.parameters.get("available_at_field") or "available_at")
     published_field = str(operation.parameters.get("published_at_field") or "published_at")
     retrieved_field = str(operation.parameters.get("retrieved_at_field") or "retrieved_at")

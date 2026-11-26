@@ -184,3 +184,63 @@ def test_portfolio_component_sum_and_zero_volatility_undefined(tmp_path):
     assert run_operation(op,ctx).metrics["portfolio_volatility"] == 0
     assert ctx.payloads["p"]["risk_contributions"] == []
     assert ctx.payloads["p"]["risk_contribution_status"] == "UNDEFINED_ZERO_VOLATILITY"
+
+
+@pytest.mark.parametrize(("request_cutoff", "operation_cutoff"), [
+    ("2026-11-25", "2026-11-26T00:00:00+08:00"),
+    ("2026-11-26T20:00:00+08:00", "2026-11-26T20:00:01+08:00"),
+    ("2026-11-26T20:00:00+08:00", "2026-11-26"),
+    ("2026-11-25", "2026-11-26"),
+])
+def test_pit_replay_cannot_extend_request_scope(tmp_path, request_cutoff, operation_cutoff):
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": operation_cutoff, "inline_records": []})
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of=request_cutoff)
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.errors == ["PIT_REPLAY_REQUEST_SCOPE_EXCEEDED"]
+
+
+def test_pit_replay_rejects_inline_dependency_shadowing(tmp_path):
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-11-26T20:01:00+08:00",
+        "inline_records": [], "depends_on_operation_ids": ["source"]})
+    result = run_operation(op, _context(tmp_path))
+    assert result.status == "BLOCK"
+    assert result.errors == ["PIT_REPLAY_DEPENDENCY_INLINE_CONFLICT"]
+
+
+def test_actual_issuer_revision_receipts_are_not_historically_visible(tmp_path):
+    # Exact observed receipts from public run 45815738164, not fabricated historical captures.
+    records = [
+        {"version": "annual_2025", "value_cny": "10892968839.23",
+         "available_at": "2026-11-26T12:01:30.379368+00:00",
+         "retrieved_at": "2026-11-26T12:01:30.379368+00:00"},
+        {"version": "half_2026", "value_cny": "10758535847.11",
+         "available_at": "2026-11-26T12:01:31.791024+00:00",
+         "retrieved_at": "2026-11-26T12:01:31.791024+00:00"},
+    ]
+    for cutoff, expected, count in [
+        ("2026-06-30T23:59:59+08:00", "BLOCK", 0),
+        ("2026-09-01T23:59:59+08:00", "BLOCK", 0),
+        ("2026-11-26T20:01:32+08:00", "WARN", 2),
+    ]:
+        ctx = WorkerContext(output_dir=tmp_path, request_as_of=cutoff)
+        op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+            "as_of": cutoff, "inline_records": records})
+        result = run_operation(op, ctx)
+        assert result.status == expected
+        assert result.metrics["eligible_count"] == count
+        assert not result.metrics["pit_safe"]
+        assert not ctx.payloads["pit"]["historical_vintage_verified"]
+
+
+def test_pit_replay_accepts_narrower_exact_operation_under_request_day(tmp_path):
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-11-26T20:01:32+08:00", "inline_records": [{
+            "available_at": "2026-11-26T12:01:31Z",
+            "retrieved_at": "2026-11-26T12:01:31Z"}]})
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of="2026-11-26")
+    result = run_operation(op, ctx)
+    assert result.status == "WARN"
+    assert not result.metrics["pit_safe"]
