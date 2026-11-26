@@ -4,11 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from investment_evidence_engine.prospective_assessment import DailyAssessmentBatch, DailyAssessmentRow
+from investment_evidence_engine.prospective_assessment import (
+    DailyAssessmentBatch,
+    DailyAssessmentRow,
+)
 from investment_evidence_engine.prospective_protocol import (
     CohortBatchRecord,
     CohortProtocol,
     assess_registered_cohort,
+    deadline,
     maturity,
     planning_start,
     protocol_sha256,
@@ -96,3 +100,14 @@ def test_reject_reordered_cohort():
     altered = f.model_copy(update={"batch": f.batch.model_copy(update={"rows": tuple(reversed(f.batch.rows))})})
     with pytest.raises(ValueError):
         assess_registered_cohort(p, (altered,), expected_protocol_sha256=protocol_sha256(p), now=maturity(p.first))
+
+
+def test_expired_pending_is_not_invented_outcome():
+    p = protocol()
+    f = record(p, p.first, outcome=False)
+    r = assess_registered_cohort(p, (f,), expected_protocol_sha256=protocol_sha256(p),
+                                 now=deadline(p.first)+timedelta(seconds=1))
+    assert r["overdue_pending_slots"] == 2
+    assert r["assessment"]["outcome_counts"]["PENDING"] == 2
+    assert r["assessment"]["observed_selected_count"] == 0
+    assert not r["final_settlement_window_closed"]

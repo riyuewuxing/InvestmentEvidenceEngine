@@ -121,6 +121,7 @@ def assess_registered_cohort(protocol: CohortProtocol, records: tuple[CohortBatc
     seen = set()
     matured = tuple(d for d in sessions if maturity(d) <= now)
     matured_records = []
+    overdue_pending_slots = 0
     for raw in records:
         record = CohortBatchRecord.model_validate(raw.model_dump())
         batch = record.batch
@@ -135,6 +136,8 @@ def assess_registered_cohort(protocol: CohortProtocol, records: tuple[CohortBatc
             raise ValueError("PROTOCOL_RECORD_NOT_YET_OBSERVED")
         if batch.session in matured:
             matured_records.append(batch)
+            if now > deadline(batch.session):
+                overdue_pending_slots += sum(row.outcome_status == "PENDING" for row in batch.rows)
     report = (assess_daily_cohort(protocol.first, matured[-1], protocol.symbols,
                                   tuple(matured_records), now=now) if matured else None)
     return {
@@ -149,6 +152,9 @@ def assess_registered_cohort(protocol: CohortProtocol, records: tuple[CohortBatc
         "future_sessions_with_frozen_batch": sum(d in seen for d in sessions if d not in matured),
         "assessment": report,
         "final_interval_matured": len(matured) == len(sessions),
+        "final_settlement_window_closed": now > deadline(sessions[-1]),
+        "settlement_window_closed_sessions": sum(now > deadline(day) for day in sessions),
+        "overdue_pending_slots": overdue_pending_slots,
         "interval_preregistration_verified": False,
         "external_commit_first_attempt_and_source_completeness_verification_required": True,
         "probability_calibrated": False,
