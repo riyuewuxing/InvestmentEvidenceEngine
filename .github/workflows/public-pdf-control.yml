@@ -5,13 +5,14 @@ on:
     paths:
       - '.github/workflows/public-pdf-control.yml'
       - 'scripts/public_pdf_control.py'
+      - 'scripts/public_cash_distribution_control.py'
 permissions:
   contents: read
 jobs:
   control:
     if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 9
     steps:
       - uses: actions/checkout@v6
         with:
@@ -21,8 +22,13 @@ jobs:
           python-version: '3.11'
           cache: pip
       - name: Install public engine
+        id: install
         timeout-minutes: 4
         run: python -m pip install -e .
+      - name: Observe scheduled cash event on an independent fixed public control
+        timeout-minutes: 2
+        run: timeout --signal=TERM --kill-after=5s 45s python scripts/public_cash_distribution_control.py
       - name: Observe same fixed public PDF on two official hosts
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 2
         run: timeout --signal=TERM --kill-after=5s 85s python scripts/public_pdf_control.py
