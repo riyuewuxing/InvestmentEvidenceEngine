@@ -101,6 +101,10 @@ def _continuous(stamp: datetime) -> bool:
 
 def quote_reference(quote: QuoteObservation, *, now: datetime) -> dict:
     quote=QuoteObservation.model_validate(quote.model_dump())
+    quote.subject.prefixed
+    tick=Decimal("0.01" if quote.subject.asset_type=="STOCK" else "0.001")
+    if quote.bid>quote.ask or any(Decimal(str(value))%tick!=0 for value in (quote.bid,quote.ask,quote.last)):
+        raise ValueError("QUOTE_PRICE_OR_TICK_INVALID")
     if now.utcoffset() is None or not quote.provider_at<=quote.observed_at<=now:
         raise ValueError("QUOTE_CHRONOLOGY_INVALID")
     age=(now-quote.provider_at).total_seconds()

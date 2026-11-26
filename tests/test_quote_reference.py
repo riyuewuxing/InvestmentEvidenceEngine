@@ -4,7 +4,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from investment_evidence_engine.historical_capture import PublicSecurity
-from investment_evidence_engine.quote_reference import crosscheck_quotes, parse_quote, quote_reference
+from investment_evidence_engine.quote_reference import (
+    crosscheck_quotes,
+    parse_quote,
+    quote_reference,
+)
 
 SH=ZoneInfo("Asia/Shanghai")
 NOW=datetime(2026,11,26,13,40,5,tzinfo=SH)
@@ -61,3 +65,9 @@ def test_etf_tick_and_different_displayed_prices():
     a=parse_quote(tencent(),STOCK,"tencent",NOW)
     b=parse_quote(sina(ask="100.03"),STOCK,"sina",NOW)
     assert crosscheck_quotes(a,b,now=NOW)["status"]=="DIFFERENT_DISPLAYED_PRICES"
+
+
+def test_constructed_crossed_quote_revalidated():
+    a=parse_quote(tencent(),STOCK,"tencent",NOW)
+    with pytest.raises(ValueError):
+        quote_reference(a.model_copy(update={"bid":100.03}),now=NOW)

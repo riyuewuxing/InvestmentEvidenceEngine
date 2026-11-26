@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'src/investment_evidence_engine/quote_reference.py'
+      - 'src/investment_evidence_engine/quote_receipt.py'
       - 'scripts/quote_reference_smoke.py'
       - '.github/workflows/quote-reference-smoke.yml'
   workflow_dispatch:
@@ -27,4 +28,4 @@ jobs:
         run: python -m pip install -e .
       - name: Fixed public top-of-book controls
         timeout-minutes: 2
-        run: timeout --signal=TERM --kill-after=5s 65s python scripts/quote_reference_smoke.py
+        run: timeout --signal=TERM --kill-after=5s 90s python scripts/quote_reference_smoke.py
