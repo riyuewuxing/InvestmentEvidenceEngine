@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from .book_depth import compare_displayed_depth
+from .book_depth import compare_displayed_depth, depth_walk_scenario
 from .historical_capture import SH, PublicSecurity
 from .quote_reference import (
     MAX_BYTES,
@@ -147,12 +147,12 @@ def persist_quote_receipt(folder: Path,receipt: QuoteReceipt) -> tuple[str,dict]
     return digest,result
 
 
-def load_latest_quote(folder: Path,subject: PublicSecurity,*,now: datetime) -> dict:
+def read_latest_quote_receipt(folder: Path,subject: PublicSecurity,*,now: datetime) -> tuple[QuoteReceipt,str] | None:
     if now.utcoffset() is None:
         raise ValueError("QUOTE_READ_TIME_INVALID")
     subject.prefixed
     if not folder.is_dir():
-        return {"status":"UNAVAILABLE","error_code":"NO_LOCAL_QUOTE_RECEIPT"}
+        return None
     base=folder.resolve(strict=True)
     rows=[]
     for n,path in enumerate(base.iterdir(),start=1):
@@ -175,7 +175,30 @@ def load_latest_quote(folder: Path,subject: PublicSecurity,*,now: datetime) -> d
     if not rows:
         return {"status":"UNAVAILABLE","error_code":"NO_LOCAL_QUOTE_RECEIPT"}
     _,digest,receipt=max(rows,key=lambda row:(row[0],row[1]))
+    return receipt,digest
+
+
+def load_latest_quote(folder: Path,subject: PublicSecurity,*,now: datetime) -> dict:
+    selected=read_latest_quote_receipt(folder,subject,now=now)
+    if selected is None:
+        return {"status":"UNAVAILABLE","error_code":"NO_LOCAL_QUOTE_RECEIPT"}
+    receipt,digest=selected
     return summarize_receipt(receipt,now=now) | {"receipt_sha256":digest,"receipt_rehashed":True}
+
+
+def walk_latest_quote(folder: Path,subject: PublicSecurity,*,now: datetime,side: str,units: int) -> dict:
+    if type(units) is not int or not 0<units<=100000000 or side not in {"BUY","SELL"}:
+        raise ValueError("DEPTH_SCENARIO_SIZE_OR_SIDE_INVALID")
+    selected=read_latest_quote_receipt(folder,subject,now=now)
+    if selected is None:
+        return {"status":"UNAVAILABLE","error_code":"NO_LOCAL_QUOTE_RECEIPT"}
+    receipt,digest=selected
+    payloads={p.provider:p for p in receipt.payloads}
+    if set(payloads)!=set(PROVIDERS):
+        return {"status":"UNAVAILABLE","error_code":"DEPTH_REQUIRES_BOTH_SOURCES","receipt_sha256":digest}
+    t,s=payloads["tencent"],payloads["sina"]
+    return depth_walk_scenario(subject,t.raw(),t.observed_at,s.raw(),s.observed_at,
+        now=now,side=side,units=units) | {"receipt_sha256":digest,"receipt_rehashed":True}
 
 
 def _child(provider: str,symbol: str,asset_type: str) -> None:

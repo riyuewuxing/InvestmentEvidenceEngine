@@ -13,6 +13,7 @@ from investment_evidence_engine.quote_receipt import (
     load_latest_quote,
     persist_quote_receipt,
     summarize_receipt,
+    walk_latest_quote,
 )
 
 NOW=datetime(2026,11,26,13,40,5,tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -66,3 +67,10 @@ def test_raw_body_hash_mismatch_not_accepted():
     broken=original.payloads[0].model_copy(update={"raw_sha256":"0"*64})
     with pytest.raises(ValueError,match="QUOTE_RAW_BYTES_HASH_MISMATCH"):
         summarize_receipt(original.model_copy(update={"payloads":(broken,)}),now=NOW)
+
+
+def test_depth_walk_requires_both_raw_sources(tmp_path):
+    persist_quote_receipt(tmp_path,receipt())
+    result=walk_latest_quote(tmp_path,STOCK,now=NOW,side="BUY",units=100)
+    assert result["error_code"]=="DEPTH_REQUIRES_BOTH_SOURCES"
+    assert "conditional_vwap_cny" not in result

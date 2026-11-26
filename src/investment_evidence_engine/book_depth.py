@@ -8,9 +8,9 @@ verified. A stock snapshot roundtrip is not a same-day trading recommendation.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
-import re
 
 from .historical_capture import PublicSecurity
 from .quote_reference import _number, _text, parse_quote, quote_reference
