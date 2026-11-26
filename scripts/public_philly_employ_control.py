@@ -9,12 +9,12 @@ import os
 import re
 import sys
 import zipfile
-from decimal import Decimal
-from xml.etree import ElementTree as ET
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener
+from xml.etree import ElementTree as ET
 
 from replay_bls_archive import retained_revisions
 
@@ -89,24 +89,27 @@ def parse(raw: bytes) -> dict:
             raise ValueError("PHILLY_XLSX_EXTERNAL")
         workbook = read_xml(z, "xl/workbook.xml")
         sheets = workbook.findall(f"{NS}sheets/{NS}sheet")
-        if len(sheets) != 1:
+        if not 1 <= len(sheets) <= 8:
             raise ValueError("PHILLY_SHEET_SCOPE")
         relations = read_xml(z, "xl/_rels/workbook.xml.rels")
-        matches = [r for r in relations.findall(f"{PKG}Relationship")
-                   if r.get("Id") == sheets[0].get(f"{REL}id")]
-        if len(matches) != 1:
-            raise ValueError("PHILLY_SHEET_RELATION")
-        link = matches[0]
-        target = link.get("Target", "")
-        if (link.get("TargetMode") not in (None, "Internal")
-                or not link.get("Type", "").endswith("/worksheet")):
-            raise ValueError("PHILLY_SHEET_RELATION")
-        if target.startswith("/xl/"):
-            target = target[1:]
-        else:
-            target = "xl/" + target
-        if not re.fullmatch(r"xl/worksheets/sheet[0-9]+\.xml", target):
-            raise ValueError("PHILLY_SHEET_RELATION")
+        targets = []
+        for sheet in sheets:
+            matches = [r for r in relations.findall(f"{PKG}Relationship")
+                       if r.get("Id") == sheet.get(f"{REL}id")]
+            if len(matches) != 1:
+                raise ValueError("PHILLY_SHEET_RELATION")
+            link = matches[0]
+            target = link.get("Target", "")
+            if (link.get("TargetMode") not in (None, "Internal")
+                    or not link.get("Type", "").endswith("/worksheet")):
+                raise ValueError("PHILLY_SHEET_RELATION")
+            if target.startswith("/xl/"):
+                target = target[1:]
+            else:
+                target = "xl/" + target
+            if not re.fullmatch(r"xl/worksheets/sheet[0-9]+\.xml", target) or target in targets:
+                raise ValueError("PHILLY_SHEET_RELATION")
+            targets.append(target)
         strings = []
         if "xl/sharedStrings.xml" in names:
             ss = read_xml(z, "xl/sharedStrings.xml")
@@ -114,46 +117,60 @@ def parse(raw: bytes) -> dict:
                        for item in ss.findall(f"{NS}si")]
             if len(strings) > 12000:
                 raise ValueError("PHILLY_STRING_LIMIT")
-        sheet = read_xml(z, target)
-        rows = []
-        last_row = 0
-        for row in sheet.findall(f"{NS}sheetData/{NS}row"):
-            index = int(row.get("r", "0"))
-            if not last_row < index <= 2000:
-                raise ValueError("PHILLY_ROW_ORDER")
-            last_row = index
-            values = [None] * 5
-            seen = set()
-            for cell in row.findall(f"{NS}c"):
-                address = re.fullmatch(r"([A-Z]+)([0-9]+)", cell.get("r", ""))
-                if not address or int(address[2]) != index or address[1] in seen:
-                    raise ValueError("PHILLY_CELL_SCOPE")
-                seen.add(address[1])
-                if cell.find(f"{NS}f") is not None:
-                    raise ValueError("PHILLY_FORMULA")
-                v = cell.findtext(f"{NS}v")
-                kind = cell.get("t", "n")
-                if kind == "inlineStr":
-                    value = "".join(t.text or "" for t in cell.iter(f"{NS}t"))
-                elif v is None:
-                    value = None
-                elif kind == "s":
-                    if not re.fullmatch(r"[0-9]+", v) or int(v) >= len(strings):
-                        raise ValueError("PHILLY_STRING_INDEX")
-                    value = strings[int(v)]
-                elif kind == "str":
-                    value = v
-                elif kind == "n" and re.fullmatch(r"-?[0-9]{1,12}(?:\.[0-9]{1,12})?", v):
-                    value = Decimal(v)
-                else:
-                    raise ValueError("PHILLY_CELL_TYPE")
-                if address[1] not in "ABCDE" or len(address[1]) != 1:
-                    if value is not None:
-                        raise ValueError("PHILLY_EXTRA_DATA_COLUMN")
-                    continue
-                values[ord(address[1]) - ord("A")] = value
-            rows.append(tuple(values))
-        return row_fields(rows) | {"reader": "BOUNDED_OOXML_VALUES", "source_rows_observed": len(rows)}
+        candidates = []
+        for target in targets:
+            rows = sheet_rows(z, target, strings)
+            # Ignore non-release sheets only if no exact release header appears.
+            if not any(tuple(str(c).strip().lower() for c in row) ==
+                       ("date", "first", "second", "third", "most_recent") for row in rows):
+                continue
+            candidates.append(row_fields(rows) | {"source_rows_observed": len(rows)})
+        if len(candidates) != 1:
+            raise ValueError("PHILLY_UNIQUE_RELEASE_SHEET_REQUIRED")
+        return candidates[0] | {"reader": "BOUNDED_OOXML_VALUES", "workbook_sheet_count": len(sheets)}
+
+
+def sheet_rows(z, target, strings):
+    sheet = read_xml(z, target)
+    rows = []
+    last_row = 0
+    for row in sheet.findall(f"{NS}sheetData/{NS}row"):
+        index = int(row.get("r", "0"))
+        if not last_row < index <= 2000:
+            raise ValueError("PHILLY_ROW_ORDER")
+        last_row = index
+        values = [None] * 5
+        seen = set()
+        for cell in row.findall(f"{NS}c"):
+            address = re.fullmatch(r"([A-Z]+)([0-9]+)", cell.get("r", ""))
+            if not address or int(address[2]) != index or address[1] in seen:
+                raise ValueError("PHILLY_CELL_SCOPE")
+            seen.add(address[1])
+            if cell.find(f"{NS}f") is not None:
+                raise ValueError("PHILLY_FORMULA")
+            v = cell.findtext(f"{NS}v")
+            kind = cell.get("t", "n")
+            if kind == "inlineStr":
+                value = "".join(t.text or "" for t in cell.iter(f"{NS}t"))
+            elif v is None:
+                value = None
+            elif kind == "s":
+                if not re.fullmatch(r"[0-9]+", v) or int(v) >= len(strings):
+                    raise ValueError("PHILLY_STRING_INDEX")
+                value = strings[int(v)]
+            elif kind == "str":
+                value = v
+            elif kind == "n" and re.fullmatch(r"-?[0-9]{1,12}(?:\.[0-9]{1,12})?", v):
+                value = Decimal(v)
+            else:
+                raise ValueError("PHILLY_CELL_TYPE")
+            if address[1] not in "ABCDE" or len(address[1]) != 1:
+                if value is not None:
+                    raise ValueError("PHILLY_EXTRA_DATA_COLUMN")
+                continue
+            values[ord(address[1]) - ord("A")] = value
+        rows.append(tuple(values))
+    return rows
 
 
 def child(path: Path) -> None:
