@@ -3,6 +3,7 @@ from datetime import date
 from hashlib import sha256
 
 import pytest
+from test_input_binding import fixture
 
 from investment_evidence_engine.market_calendar import scheduled_days
 from investment_evidence_engine.research_profile import (
@@ -14,9 +15,6 @@ from investment_evidence_engine.research_profile import (
     evaluate_market_profile,
 )
 from investment_evidence_engine.runner import execute_request
-
-from test_input_binding import fixture
-
 
 def params(ref):
     return {"as_of": ref.as_of, "input_artifact_ids": [ref.input_id],

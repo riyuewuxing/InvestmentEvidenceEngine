@@ -1,0 +1,31 @@
+name: Public research profile control
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-research-profile-control.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-research-profile-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Fixed real raw market and research profile arithmetic
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_profile_control.py

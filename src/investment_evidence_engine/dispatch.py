@@ -18,7 +18,6 @@ from .supplemental_workers import run_ownership_flow, run_portfolio_math
 from .workers import WORKERS as BASE_WORKERS
 from .workers import WorkerContext
 
-
 EXTRA_WORKERS = {
     "RESEARCH": run_research,
     "MARKET_UNIVERSE": run_market_universe,
