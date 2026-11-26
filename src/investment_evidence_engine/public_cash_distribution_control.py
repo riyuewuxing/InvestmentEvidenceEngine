@@ -69,6 +69,10 @@ def checked_fields(kind: str, first_text: str, selected_text: str) -> dict:
     return {k: doc[k] for k in ("symbol", "declared_day", "record_day", "ex_day", "payment_day")} | {
         "gross_cash_per_unit_cny": str(Decimal(doc["cash_per_10"]) / Decimal(10)),
         "declared_day_not_verified_publication_clock": True,
+        "declared_day_parsed_from_selected_pages": kind == "etf",
+        "payment_day_parsed_from_selected_pages": kind == "etf",
+        "payment_day_scope": ("DELEGATED_A_SHARE_PAYMENTS_ONLY" if kind == "stock"
+                              else "ANNOUNCED_ETF_PAYMENT_DAY"),
     }
 
 

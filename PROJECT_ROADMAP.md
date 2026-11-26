@@ -140,3 +140,9 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual 000035/510300 two-source-per-asset date sensitivity, retrospective only.
 - [x] Existing factor/backtest integrity and exact-byte public/consumer guards; explicit revision-chain offline real-original replay.
 - [ ] Full official listing, genuinely time-visible historical evidence, formal RESEARCH profile and private same-SHA gates. Do not repeat completed probes.
+
+## 2026-11-26 cash / identity maintenance
+- [x] Real two-source cash-entitlement sensitivity, WARN only.
+- [x] Factor cutoff and adjustment ambiguity guards; verify final same-SHA regression.
+- [x] BSE official routes attempted, BLOCK 302; no active list obtained.
+- [ ] Actual historical first availability, verified complete corporate actions and listing, formal RESEARCH and private dual gates.

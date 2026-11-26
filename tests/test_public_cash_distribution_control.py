@@ -61,3 +61,15 @@ def test_single_event_cash_sensitivity_and_scope():
         cash_sensitivity(series, ex_date=event, cash=Decimal("1"), sessions=sessions[1:])
     with pytest.raises(ValueError, match="EVENT_SCOPE"):
         cash_sensitivity(series, ex_date=event, cash=Decimal("NaN"), sessions=sessions)
+
+
+def test_payment_field_provenance_is_not_overstated():
+    stock = checked_fields("stock", STOCK, STOCK)
+    etf = checked_fields("etf", ETF_FIRST, ETF_PAGE)
+    assert stock["payment_day_parsed_from_selected_pages"] is False
+    assert stock["declared_day_parsed_from_selected_pages"] is False
+    assert stock["payment_day_scope"] == "DELEGATED_A_SHARE_PAYMENTS_ONLY"
+    assert etf["payment_day_parsed_from_selected_pages"] is True
+    assert etf["declared_day_parsed_from_selected_pages"] is True
+    assert stock["declared_day_not_verified_publication_clock"] is True
+    assert etf["declared_day_not_verified_publication_clock"] is True

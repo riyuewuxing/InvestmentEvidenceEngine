@@ -65,3 +65,6 @@ Q3 solved: same index body, title alias, two exact PDFs and 25 further financial
 
 ## Latest continuation — Turn 06
 Read STATE and latest handoff. SZSE aggregate actual 2908/1411 companies Oct2026; HTTPS first-page URLError, do not retry unchanged or claim complete A-share listing. Actual Q3 event comparison #45824427520 completed WARN; dual-source price-only, ambiguous event clock, no causality or PIT. Explicit archived release/observed-clock replay #45825201392 completed; no 2025 capture inferred. Generic factor/backtest guards and exact parsed-byte binding now implemented; verify final exact-SHA regression. Next prioritize actual new source evidence or formal research requirements (no diagnostic repetition), private full gates blocked, historical pin and frozen prospective receipt unchanged.
+
+## Latest continuation — cash and identity
+Read STATE and exact final regression. Cash #45828673907 and BSE #45829363865 completed; do not repeat unchanged. Cash is a one-known-event gross ex-close scenario, not total return or PIT. BSE direct bytes BLOCK 302; fixed identity mapping and complete official lists remain open. No speculative suffix mapping. Prioritize actual independent historical availability / genuine admissible research inputs. Preserve accepted historical pin, private dual gate BLOCK, public-only compute, and frozen prospective receipt until due.
