@@ -10,7 +10,7 @@ from .contracts import ExecutionRequest, ExecutionResult, canonical_sha256
 from .dispatch import run_operation
 from .input_binding import select_scan_record
 from .snapshot_integrity import strict_json_loads
-from .transport_integrity import observe_artifact_file, read_contract_bytes, result_transport_errors
+from .transport_integrity import read_contract_bytes, read_verified_artifact, result_transport_errors
 from .workers import WorkerContext
 
 
@@ -68,15 +68,15 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
     if {path.name for path in root.iterdir()} != expected_files:
         raise ValueError("PUBLIC_SCAN_PACKET_UNDECLARED_FILES")
     artifact_digests = {}
+    verified_bytes = {}
     for op in result.operations:
         for ref in op.artifacts:
-            digest, size = observe_artifact_file(root, ref.path, ref.size_bytes)
-            if digest != ref.sha256 or size != ref.size_bytes:
-                raise ValueError("PUBLIC_SCAN_ARTIFACT_HASH_MISMATCH")
-            artifact_digests[ref.path] = {"sha256": digest, "size_bytes": size}
-    raw = read_contract_bytes(root / "opportunity-scan.json")
+            body = read_verified_artifact(root, ref.path, ref.sha256, ref.size_bytes)
+            artifact_digests[ref.path] = {"sha256": ref.sha256, "size_bytes": len(body)}
+            verified_bytes[ref.path] = body
+    raw = verified_bytes["opportunity-scan.json"]
     selected = select_scan_record(raw, request.as_of)
-    universe = strict_json_loads(read_contract_bytes(root / "market-universe.json"))
+    universe = strict_json_loads(verified_bytes["market-universe.json"])
     if not isinstance(universe, dict) or not isinstance(universe.get("records"), list):
         raise ValueError("PUBLIC_SCAN_UNIVERSE_RECORDS")
     codes = [row["code"] for row in universe["records"]]
@@ -97,9 +97,10 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
         attached = Path(temp) / "requests/inputs/scan.json"
         attached.parent.mkdir(parents=True)
         attached.write_bytes(raw)
-        digest, size = observe_artifact_file(Path(temp), "requests/inputs/scan.json", len(raw))
-        if (digest != artifact_digests["opportunity-scan.json"]["sha256"] or size != len(raw)
-                or select_scan_record(attached.read_bytes(), request.as_of) != selected):
+        verified_attachment = read_verified_artifact(
+            Path(temp), "requests/inputs/scan.json",
+            artifact_digests["opportunity-scan.json"]["sha256"], len(raw))
+        if select_scan_record(verified_attachment, request.as_of) != selected:
             raise ValueError("PUBLIC_SCAN_ATTACHMENT_MISMATCH")
     receipt = {"status": "PUBLIC_PACKET_AND_ATTACHMENT_REHASHED",
                "request_sha256": request.request_sha256, "result_sha256": result.result_sha256,

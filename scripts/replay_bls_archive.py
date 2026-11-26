@@ -12,11 +12,12 @@ from investment_evidence_engine.revision_chain import Revision, revision_view
 
 ROOT = Path(__file__).resolve().parents[1] / "public-evidence" / "sha256"
 # Capture clocks from observed run logs. Durable verification clocks are
-# successful actual-byte pytest observations, not the historical publication.
+# successful actual-byte pytest observations, rounded up to microseconds,
+# not the historical publication.
 TIMES = {
-    "202508": ("2026-11-26T12:33:06.001861+00:00", "2026-11-26T12:34:55.2440627+00:00"),
-    "202509": ("2026-11-26T12:35:35.442319+00:00", "2026-11-26T12:38:00.5473074+00:00"),
-    "202511": ("2026-11-26T12:35:42.932059+00:00", "2026-11-26T12:38:00.5473074+00:00"),
+    "202508": ("2026-11-26T12:33:06.001861+00:00", "2026-11-26T12:34:55.244063+00:00"),
+    "202509": ("2026-11-26T12:35:35.442319+00:00", "2026-11-26T12:38:00.547308+00:00"),
+    "202511": ("2026-11-26T12:35:42.932059+00:00", "2026-11-26T12:38:00.547308+00:00"),
 }
 
 
@@ -50,8 +51,8 @@ def run_replay(now: datetime) -> dict:
                               "2025-11-20T08:30:00-05:00", "2025-12-16T08:30:00-05:00")]
     observed = [revision_view(rows, cutoff=datetime.fromisoformat(stamp), analysis_at=now,
                               mode="DURABLE_OBSERVED_VIEW")
-                for stamp in ("2025-12-16T08:30:00-05:00", "2026-11-26T12:34:55.2440627+00:00",
-                              "2026-11-26T12:38:00.5473074+00:00")]
+                for stamp in ("2025-12-16T08:30:00-05:00", "2026-11-26T12:34:55.244063+00:00",
+                              "2026-11-26T12:38:00.547308+00:00")]
     return {"source": "BLS_ARCHIVE_VIA_FRASER", "actual_files_reopened_and_parsed": len(rows),
             "declared_release_views": declared, "durable_observed_views": observed,
             "decision_authority": False, "pit_safe": False}

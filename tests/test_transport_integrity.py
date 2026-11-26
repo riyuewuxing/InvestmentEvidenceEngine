@@ -5,6 +5,7 @@ import pytest
 from investment_evidence_engine.transport_integrity import (
     observe_artifact_file,
     read_contract_bytes,
+    read_verified_artifact,
     request_chain_errors,
     result_transport_errors,
     safe_artifact_path,
@@ -131,3 +132,36 @@ def test_bounded_contract_read(tmp_path):
     path.write_bytes(b"")
     with pytest.raises(ValueError, match="CONTRACT_FILE_INVALID"):
         read_contract_bytes(path)
+
+
+def test_parse_uses_same_verified_bytes_not_a_second_read(tmp_path):
+    path = tmp_path / "artifact.json"
+    body = b'{"measurement":1}'
+    path.write_bytes(body)
+    digest = hashlib.sha256(body).hexdigest()
+    verified = read_verified_artifact(tmp_path, "artifact.json", digest, len(body))
+    path.write_bytes(body.replace(b"1", b"2"))
+    assert verified == body
+    with pytest.raises(ValueError, match="HASH_OR_SIZE_MISMATCH"):
+        read_verified_artifact(tmp_path, "artifact.json", digest, len(body))
+
+
+@pytest.mark.parametrize("size,digest", [(0, "a"*64), (True, "a"*64), (2, "a"*63)])
+def test_verified_artifact_rejects_invalid_expectations(tmp_path, size, digest):
+    (tmp_path / "artifact.json").write_bytes(b"{}")
+    with pytest.raises(ValueError):
+        read_verified_artifact(tmp_path, "artifact.json", digest, size)
+
+
+def test_verified_artifact_rejects_symlink_parent(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    body = b"{}"
+    (real / "artifact.json").write_bytes(body)
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links not available")
+    with pytest.raises(ValueError, match="SYMLINK_FORBIDDEN"):
+        read_verified_artifact(tmp_path, "alias/artifact.json", hashlib.sha256(body).hexdigest(), len(body))

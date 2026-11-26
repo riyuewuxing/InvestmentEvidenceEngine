@@ -152,3 +152,35 @@ def observe_artifact_file(root: Path, relative: str, expected_size: int | None =
     if count != size or (expected_size is not None and count != expected_size):
         raise ValueError("ARTIFACT_SIZE_CHANGED_OR_OVERSIZED")
     return digest.hexdigest(), count
+
+
+def read_verified_artifact(root: Path, relative: str, expected_sha256: str,
+                           expected_size: int, *, max_bytes: int = MAX_CONTRACT_BYTES) -> bytes:
+    """Return the same bounded bytes that were hashed, for subsequent parsing.
+
+    Like observe_artifact_file, assumes a consumer-owned extraction directory.
+    A hostile concurrent filesystem writer is not part of this portable threat
+    model. No second unverified read is necessary to parse the returned bytes.
+    """
+    if not safe_artifact_path(relative):
+        raise ValueError("UNSAFE_ARTIFACT_PATH")
+    if (type(max_bytes) is not int or not 0 < max_bytes <= MAX_CONTRACT_BYTES
+            or type(expected_size) is not int or not 0 < expected_size <= max_bytes):
+        raise ValueError("ARTIFACT_SIZE_INVALID_OR_OVERSIZED")
+    if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("ARTIFACT_DIGEST_INVALID")
+    root = root.resolve()
+    candidate = root
+    for part in relative.split("/"):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError("ARTIFACT_SYMLINK_FORBIDDEN")
+    if not candidate.resolve().is_relative_to(root) or not candidate.is_file():
+        raise ValueError("ARTIFACT_NOT_OBSERVED")
+    if candidate.stat().st_size != expected_size:
+        raise ValueError("ARTIFACT_SIZE_MISMATCH_OR_OVERSIZED")
+    with candidate.open("rb") as handle:
+        raw = handle.read(expected_size + 1)
+    if len(raw) != expected_size or hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("ARTIFACT_HASH_OR_SIZE_MISMATCH")
+    return raw

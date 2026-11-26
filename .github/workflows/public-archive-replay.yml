@@ -1,10 +1,6 @@
 name: Public retained archive replay
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-archive-replay.yml'
-      - 'scripts/replay_bls_archive.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
