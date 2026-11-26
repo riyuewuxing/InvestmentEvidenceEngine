@@ -1,18 +1,10 @@
-"""Contract tests for public audit receipt validation."""
-import importlib.util
+"""Contract tests for exact dependency audit coverage validation."""
+import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
-    "public_docling_inventory",
-    Path(__file__).resolve().parents[1] / "scripts/public_docling_dependency_inventory.py",
-)
-assert _spec is not None and _spec.loader is not None
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-verify_audit = _mod.verify_audit
+from investment_evidence_engine.dependency_audit import missing_pins, parse_pins, verify_audit
 
 
 def payload(rows):
@@ -27,7 +19,8 @@ def test_exact_pin_audit_receipt():
     receipt = verify_audit(b"example-pkg==1.0\n", payload([row()]))
     assert receipt["package_count"] == 1
     assert len(receipt["audit_sha256"]) == 64
-    assert receipt["private_dependency_environment_verified"] is False
+    assert receipt["audit_sha256"] == hashlib.sha256(payload([row()])).hexdigest()
+    assert receipt["inventory_sha256"] == hashlib.sha256(b"example-pkg==1.0\n").hexdigest()
 
 
 @pytest.mark.parametrize("rows", [
@@ -51,7 +44,7 @@ def test_rejects_duplicate_inventory():
 def test_explicit_supplement_covers_only_missing_pin():
     inventory = b"example-pkg==1.0\npackaging==26.4\n"
     primary = payload([row()])
-    assert _mod.missing_pins(inventory, primary) == b"packaging==26.4\n"
+    assert missing_pins(inventory, primary) == b"packaging==26.4\n"
     receipt = verify_audit(inventory, primary, payload([row("packaging", "26.4")]))
     assert receipt["package_count"] == 2
     assert receipt["supplemental_package_count"] == 1
@@ -71,3 +64,25 @@ def test_supplement_cannot_hide_coverage_failure(rows):
             payload([row()]),
             payload(rows),
         )
+
+
+@pytest.mark.parametrize("inventory", [
+    b"",
+    b"invalid==1.0==2.0\n",
+    b"pkg @ https://example.invalid/pkg.whl\n",
+    b"pkg==1.0 # comment\n",
+])
+def test_invalid_inventory_rejected(inventory):
+    with pytest.raises(ValueError):
+        parse_pins(inventory)
+
+
+@pytest.mark.parametrize("audit", [
+    b"not-json",
+    b"[]",
+    b'{"dependencies":[]}',
+    b'{"dependencies":[],"fixes":[{}]}',
+])
+def test_invalid_audit_rejected(audit):
+    with pytest.raises(ValueError):
+        verify_audit(b"example-pkg==1.0\n", audit)

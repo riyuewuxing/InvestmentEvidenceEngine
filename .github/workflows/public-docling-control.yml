@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'src/investment_evidence_engine/docling_adapter.py'
+      - 'src/investment_evidence_engine/dependency_audit.py'
       - 'tests/test_docling_adapter_contract.py'
       - 'fixtures/docling_native/**'
       - 'scripts/public_docling_native_control.py'
