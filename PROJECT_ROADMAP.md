@@ -175,3 +175,9 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual new SSE delisting directory response, exact-version duplicate exclusion and retrospective date-interval coverage.
 - [x] Existing factor/backtest dependency cardinality and market identity binding; public 845-test regression.
 - [ ] SZSE delisting/active listing, resolve SSE duplicate keys/identity semantics, full point-in-time universe/company actions, formal RESEARCH profile and private dual gates. No blind retry or guessed deduplication.
+
+## Turn 02 — bounded research profile
+- [x] Execute actual production RESEARCH arithmetic from real scanned candidate + same-window raw-market attachment; retain formal BLOCK.
+- [x] Exact serialized input/window binding; separate full/validated/computation fingerprints and exact recomputation; explicit prior-version mismatch.
+- [x] Public arithmetic and regression controls (895 + Ruff); both new live controls manual-only.
+- [ ] Genuine historical source/version/availability evidence, complete listing/actions, independent source/actual execution/cost evidence, formal profile and private full gates. No unchanged diagnostic rerun.
