@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import pandas as pd
@@ -42,7 +43,13 @@ def _subject(operation: ExecutionOperation) -> str:
 
 
 def _as_of(operation: ExecutionOperation) -> date:
-    return date.fromisoformat(str(operation.parameters.get("as_of"))[:10])
+    raw = operation.parameters.get("as_of")
+    if not isinstance(raw, str):
+        raise ValueError("FUNDAMENTAL_EXACT_DATE_REQUIRED")
+    parsed = date.fromisoformat(raw)
+    if raw != parsed.isoformat():
+        raise ValueError("FUNDAMENTAL_EXACT_DATE_REQUIRED")
+    return parsed
 
 
 def _ts_code(symbol: str) -> str:
@@ -71,9 +78,11 @@ def _pit_records(frame: pd.DataFrame, *, endpoint: str, as_of: date) -> list[dic
         raise ProviderError(f"{endpoint} has no announcement availability field")
     parsed = pd.to_datetime(out[available_source].astype(str), format="%Y%m%d", errors="coerce")
     # Date-only publication timestamps are conservatively treated as available next calendar day.
-    out["available_at"] = parsed + pd.Timedelta(days=1)
+    out["vendor_date_filter_proxy"] = parsed + pd.Timedelta(days=1)
     cutoff = pd.Timestamp(as_of)
-    out = out[out["available_at"].notna() & (out["available_at"] <= cutoff)].copy()
+    out = out[out["vendor_date_filter_proxy"].notna() & (out["vendor_date_filter_proxy"] <= cutoff)].copy()
+    # Never emit an inferred day as an actual source availability timestamp.
+    out = out.drop(columns=["available_at"], errors="ignore")
     out["endpoint"] = endpoint
     return json.loads(out.to_json(orient="records", date_format="iso", force_ascii=False))
 
@@ -134,12 +143,15 @@ def _run_tushare_pit(operation: ExecutionOperation, context: WorkerContext) -> O
             errors=["PIT_FINANCIAL_SOURCE_RETURNED_NO_ADMISSIBLE_RECORDS"],
         )
 
+    warnings.append("VENDOR_ANNOUNCEMENT_DATE_NOT_VERIFIED_HISTORICAL_VINTAGE")
     payload = {
         "symbol": symbol,
         "as_of": cutoff.isoformat(),
         "provider": "tushare",
-        "availability_policy": "f_ann_date_else_ann_date_plus_one_calendar_day",
-        "pit_safe": True,
+        "availability_policy": "vendor_f_ann_date_else_ann_date_plus_one_day_filter_only",
+        "observed_at": datetime.now(UTC).isoformat(),
+        "pit_safe": False,
+        "historical_vintage_verified": False,
         "records": records,
         "attempts": attempts,
         "warnings": warnings,
@@ -150,11 +162,12 @@ def _run_tushare_pit(operation: ExecutionOperation, context: WorkerContext) -> O
     context.payloads[operation.operation_id] = payload
     return OperationResult(
         operation_id=operation.operation_id,
-        status="WARN" if warnings else "PASS",
-        exit_code=0,
+        status="BLOCK",
+        exit_code=2,
         artifacts=[_artifact(path)],
-        metrics={"pit_safe": True, "rows": total_rows, "provider": "tushare"},
+        metrics={"pit_safe": False, "rows": total_rows, "provider": "tushare"},
         warnings=warnings,
+        errors=["FUNDAMENTAL_HISTORICAL_VINTAGE_NOT_VERIFIED"],
     )
 
 
@@ -163,7 +176,7 @@ def run_fundamental_with_pit_guard(
     context: WorkerContext,
 ) -> OperationResult:
     cutoff = _as_of(operation)
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     if cutoff > today:
         return OperationResult(
             operation_id=operation.operation_id,
@@ -171,9 +184,17 @@ def run_fundamental_with_pit_guard(
             exit_code=2,
             errors=["FUTURE_AS_OF_NOT_ALLOWED"],
         )
-    pit_required = bool(operation.parameters.get("pit_required", True))
+    pit_required = operation.parameters.get("pit_required", True)
+    if type(pit_required) is not bool:
+        raise ValueError("FUNDAMENTAL_PIT_REQUIRED_MUST_BE_BOOLEAN")
     if pit_required and cutoff < today:
         return _run_tushare_pit(operation, context)
     # For a current snapshot, use public live sources; the base worker explicitly marks its
     # statement availability limitation as WARN rather than pretending historical PIT safety.
-    return run_fundamental_history(operation, context)
+    result = run_fundamental_history(operation, context)
+    if pit_required:
+        result.status = "BLOCK"
+        result.exit_code = 2
+        result.metrics["pit_safe"] = False
+        result.errors.append("FUNDAMENTAL_CURRENT_AVAILABILITY_NOT_VERIFIED")
+    return result

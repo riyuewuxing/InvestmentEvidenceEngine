@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
+from .evidence_time_guard import SHANGHAI, parse_event_stamp, source_visible, validate_event_cutoff
 from .workers import WorkerContext
 
 
@@ -65,65 +66,98 @@ def _records(operation: ExecutionOperation, context: WorkerContext) -> list[dict
 
 
 def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
+    """Check stated observation chronology, never attest historical source vintage."""
     records = _records(operation, context)
     cutoff_raw = operation.parameters.get("as_of")
-    if cutoff_raw is None:
+    cutoff, day_scope = validate_event_cutoff(cutoff_raw)
+    if cutoff is None:
         raise ValueError("PIT_REPLAY requires as_of")
-    cutoff = pd.Timestamp(str(cutoff_raw))
     available_field = str(operation.parameters.get("available_at_field") or "available_at")
     published_field = str(operation.parameters.get("published_at_field") or "published_at")
-    strict = bool(operation.parameters.get("strict", True))
+    retrieved_field = str(operation.parameters.get("retrieved_at_field") or "retrieved_at")
+    strict = operation.parameters.get("strict", True)
+    if type(strict) is not bool or len({available_field, published_field, retrieved_field}) != 3:
+        raise ValueError("PIT_REPLAY_INVALID_FIELD_OR_STRICT_SCOPE")
 
-    eligible: list[dict[str, object]] = []
-    future: list[int] = []
-    missing_availability: list[int] = []
+    eligible = []
+    future = []
+    missing_availability = []
+    invalid_chronology = []
     for index, record in enumerate(records):
-        available = record.get(available_field)
-        if available is None:
-            available = record.get(published_field)
-        if available is None:
-            missing_availability.append(index)
-            continue
-        timestamp = pd.to_datetime(available, errors="coerce")
-        if pd.isna(timestamp):
-            missing_availability.append(index)
-            continue
-        if timestamp > cutoff:
-            future.append(index)
+        available, _ = parse_event_stamp(record.get(available_field))
+        retrieved, _ = parse_event_stamp(record.get(retrieved_field))
+        published_raw = record.get(published_field)
+        published, _ = parse_event_stamp(published_raw)
+        # Detect explicit future evidence even when the other fields are absent.
+        stamps = (available, retrieved, published)
+        if day_scope:
+            later = any(stamp is not None and
+                (stamp.astimezone(SHANGHAI) if stamp.utcoffset() is not None else stamp).date()
+                > cutoff.date() for stamp in stamps)
         else:
-            eligible.append(record)
+            later = any(stamp is not None and stamp.utcoffset() is not None
+                        and stamp > cutoff for stamp in stamps)
+        if later:
+            future.append(index)
+            continue
+        if available is None or retrieved is None:
+            missing_availability.append(index)
+            continue
+        if (day_scope or (published_raw is not None and published is None)
+                or not source_visible(available_at=available, retrieved_at=retrieved,
+                                      published_at=published, cutoff=cutoff)):
+            invalid_chronology.append(index)
+            continue
+        eligible.append(record)
 
-    blockers: list[str] = []
-    if strict and missing_availability:
-        blockers.append(f"MISSING_AVAILABILITY:{len(missing_availability)}")
+    blockers = []
+    if day_scope:
+        blockers.append("EXACT_AWARE_CUTOFF_REQUIRED")
     if future:
         blockers.append(f"FUTURE_RECORDS_REJECTED:{len(future)}")
+    if missing_availability:
+        blockers.append(f"MISSING_AVAILABILITY_OR_RETRIEVAL:{len(missing_availability)}")
+    if invalid_chronology:
+        blockers.append(f"INVALID_OR_UNVERIFIED_CHRONOLOGY:{len(invalid_chronology)}")
     if not records:
         blockers.append("NO_REPLAY_RECORDS")
-
+    elif not eligible:
+        blockers.append("NO_CHRONOLOGY_ELIGIBLE_RECORDS")
+    # Even complete caller-supplied timestamps do not prove the bytes existed then.
+    # The non-strict mode may expose a partial chronology diagnostic, never PIT-safe.
+    status = "BLOCK" if blockers and (strict or not eligible or future) else "WARN"
+    warnings = ["CALLER_STATED_CHRONOLOGY_NOT_HISTORICAL_VINTAGE_OR_ADMISSION"]
+    if blockers and status == "WARN":
+        warnings.extend(blockers)
     payload = {
-        "as_of": cutoff.isoformat(),
+        "as_of": cutoff_raw,
         "input_count": len(records),
         "eligible_count": len(eligible),
         "future_rejected_count": len(future),
         "missing_availability_count": len(missing_availability),
+        "invalid_chronology_count": len(invalid_chronology),
         "eligible_records": eligible,
         "strict": strict,
-        "pit_safe": not blockers,
+        "chronology_complete": not blockers,
+        "pit_safe": False,
+        "historical_vintage_verified": False,
         "decision_authority": False,
+        "warnings": warnings,
     }
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     context.payloads[operation.operation_id] = payload
     return OperationResult(
         operation_id=operation.operation_id,
-        status="BLOCK" if blockers else "PASS",
-        exit_code=2 if blockers else 0,
+        status=status,
+        exit_code=2 if status == "BLOCK" else 0,
         artifacts=[_artifact(path)],
         metrics={key: payload[key] for key in (
-            "input_count", "eligible_count", "future_rejected_count", "missing_availability_count", "pit_safe"
+            "input_count", "eligible_count", "future_rejected_count", "missing_availability_count",
+            "invalid_chronology_count", "chronology_complete", "pit_safe"
         )},
-        errors=blockers,
+        warnings=warnings,
+        errors=blockers if status == "BLOCK" else [],
     )
 
 

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from investment_evidence_engine.contracts import ExecutionOperation
 from investment_evidence_engine.dispatch import run_operation
 from investment_evidence_engine.workers import WorkerContext
@@ -116,3 +118,69 @@ def test_test_suite_blocks_unknown_command(tmp_path: Path) -> None:
     result = run_operation(operation, _context(tmp_path))
     assert result.status == "BLOCK"
     assert result.errors[0].startswith("UNSAFE_OR_UNKNOWN_TEST_SUITE")
+
+
+def test_pit_replay_never_promotes_publication_or_date_only(tmp_path):
+    cutoff = "2026-01-10T08:30:00+08:00"
+    op = ExecutionOperation(operation_id="pit",kind="PIT_REPLAY",parameters={
+        "as_of":cutoff,"inline_records":[
+            {"published_at":"2026-01-09T08:00:00+08:00"},
+            {"available_at":"2026-01-09","retrieved_at":"2026-01-09"},
+            {"available_at":"2026-01-09T08:00:00+08:00",
+             "retrieved_at":"2026-01-10T09:00:00+08:00"},
+        ]})
+    ctx = _context(tmp_path)
+    result = run_operation(op,ctx)
+    assert result.status == "BLOCK"
+    assert result.metrics["eligible_count"] == 0
+    assert result.metrics["future_rejected_count"] == 1
+    assert not result.metrics["pit_safe"]
+
+
+def test_pit_replay_complete_chronology_is_only_diagnostic(tmp_path):
+    op = ExecutionOperation(operation_id="pit",kind="PIT_REPLAY",parameters={
+        "as_of":"2026-01-10T08:30:00+08:00","inline_records":[{
+            "available_at":"2026-01-09T08:00:00+08:00",
+            "retrieved_at":"2026-01-09T01:00:00Z"}]})
+    ctx = _context(tmp_path)
+    result = run_operation(op,ctx)
+    assert result.status == "WARN"
+    assert result.metrics["chronology_complete"]
+    assert not result.metrics["pit_safe"]
+    assert not ctx.payloads["pit"]["historical_vintage_verified"]
+
+
+@pytest.mark.parametrize("cov", [[[1,2],[0,1]], [[1,2],[2,1]], [[-1,0],[0,1]],
+                              [[1,True],[True,1]], [[1e-20,2e-20],[2e-20,1e-20]]])
+def test_portfolio_blocks_invalid_covariance_even_if_weighted_variance_positive(tmp_path,cov):
+    op = ExecutionOperation(operation_id="p",kind="PORTFOLIO_MATH",parameters={
+        "assets":[{"asset_id":"A","weight":.5},{"asset_id":"B","weight":.5}],
+        "covariance_matrix":cov})
+    assert run_operation(op,_context(tmp_path)).status == "BLOCK"
+
+
+@pytest.mark.parametrize("assets", [
+    [{"asset_id":"A","weight":1},{"asset_id":"A","weight":1}],
+    [{"asset_id":"A","weight":2},{"asset_id":"B","weight":-1}],
+    [{"asset_id":"A"}], [{"asset_id":"A","weight":True}],
+    [{"asset_id":"A","weight":1,"expected_return":float("inf")}],
+])
+def test_portfolio_blocks_ambiguous_or_invalid_assets(tmp_path,assets):
+    op = ExecutionOperation(operation_id="p",kind="PORTFOLIO_MATH",parameters={"assets":assets})
+    assert run_operation(op,_context(tmp_path)).status == "BLOCK"
+
+
+def test_portfolio_component_sum_and_zero_volatility_undefined(tmp_path):
+    op = ExecutionOperation(operation_id="p",kind="PORTFOLIO_MATH",parameters={
+        "assets":[{"asset_id":"A","weight":.6},{"asset_id":"B","weight":.4}],
+        "covariance_matrix":[[.04,.01],[.01,.09]]})
+    ctx = _context(tmp_path)
+    result = run_operation(op,ctx)
+    payload = ctx.payloads["p"]
+    assert sum(x["component_volatility_contribution"] for x in payload["risk_contributions"]) == pytest.approx(
+        result.metrics["portfolio_volatility"])
+    assert not payload["formal_marginal_portfolio_risk_estimated"]
+    op.parameters["covariance_matrix"] = [[0,0],[0,0]]
+    assert run_operation(op,ctx).metrics["portfolio_volatility"] == 0
+    assert ctx.payloads["p"]["risk_contributions"] == []
+    assert ctx.payloads["p"]["risk_contribution_status"] == "UNDEFINED_ZERO_VOLATILITY"

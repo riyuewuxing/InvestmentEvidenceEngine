@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import numpy as np
@@ -43,7 +44,12 @@ def _records(frame: pd.DataFrame | None) -> list[dict[str, object]]:
 
 def run_ownership_flow(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
     symbol = _symbol(operation)
-    as_of = date.fromisoformat(str(operation.parameters.get("as_of"))[:10])
+    raw_as_of = operation.parameters.get("as_of")
+    if not isinstance(raw_as_of, str):
+        raise ValueError("OWNERSHIP_EXACT_DATE_REQUIRED")
+    as_of = date.fromisoformat(raw_as_of)
+    if raw_as_of != as_of.isoformat() or as_of > datetime.now(ZoneInfo("Asia/Shanghai")).date():
+        raise ValueError("OWNERSHIP_EXACT_NONFUTURE_DATE_REQUIRED")
     history_days = max(30, min(int(operation.parameters.get("history_days") or 730), 3650))
     start = as_of - timedelta(days=history_days)
     warnings: list[str] = []
@@ -102,12 +108,13 @@ def run_ownership_flow(operation: ExecutionOperation, context: WorkerContext) ->
     except Exception as exc:
         warnings.append(f"NORTHBOUND_DETAIL_UNAVAILABLE:{type(exc).__name__}:{exc}")
 
-    require_pit = bool(operation.parameters.get("pit_required", False))
-    # Some ownership endpoints expose report/effective dates but not a verified public-availability
-    # timestamp. Never certify historical PIT safety from those fields alone.
-    pit_safe = not require_pit or as_of >= date.today()
-    if require_pit and as_of < date.today():
-        warnings.append("HISTORICAL_OWNERSHIP_AVAILABILITY_NOT_FULLY_VERIFIED")
+    require_pit = operation.parameters.get("pit_required", False)
+    if type(require_pit) is not bool:
+        raise ValueError("OWNERSHIP_PIT_REQUIRED_MUST_BE_BOOLEAN")
+    # The live endpoints do not provide verified capture vintage or exact availability.
+    # Current-day scope is not proof of prior intraday visibility either.
+    pit_safe = False
+    warnings.append("OWNERSHIP_AVAILABILITY_AND_HISTORICAL_VINTAGE_UNVERIFIED")
 
     total_rows = sum(len(items) for items in sources.values())
     if total_rows == 0:
@@ -122,6 +129,9 @@ def run_ownership_flow(operation: ExecutionOperation, context: WorkerContext) ->
     payload = {
         "symbol": symbol,
         "as_of": as_of.isoformat(),
+        "observed_at": datetime.now(UTC).isoformat(),
+        "date_scope": "REQUESTED_REPORT_WINDOW_NOT_PIT_FILTER",
+        "historical_vintage_verified": False,
         "sources": sources,
         "source_row_counts": {key: len(value) for key, value in sources.items()},
         "pit_safe": pit_safe,
@@ -146,106 +156,102 @@ def run_ownership_flow(operation: ExecutionOperation, context: WorkerContext) ->
 
 
 def run_portfolio_math(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
+    """Long-only normalized hypothetical allocation; no real portfolio or forecast."""
+    def blocked(reason):
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                               exit_code=2, errors=[reason])
+
     scope = str(operation.parameters.get("portfolio_scope") or "synthetic").lower()
     if scope not in {"synthetic", "generic", "public_model"}:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["PORTFOLIO_MATH_PRIVATE_SCOPE_FORBIDDEN"],
-        )
-
+        return blocked("PORTFOLIO_MATH_PRIVATE_SCOPE_FORBIDDEN")
     assets = operation.parameters.get("assets")
-    if not isinstance(assets, list) or not assets or not all(isinstance(item, dict) for item in assets):
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["PORTFOLIO_MATH_REQUIRES_PUBLIC_OR_SYNTHETIC_ASSETS"],
-        )
-
-    names = [str(item.get("asset_id") or f"asset_{i}") for i, item in enumerate(assets)]
-    weights = np.asarray([float(item.get("weight") or 0.0) for item in assets], dtype=float)
-    if not np.isfinite(weights).all():
-        raise ValueError("weights must be finite")
+    if (not isinstance(assets, list) or not 1 <= len(assets) <= 256
+            or not all(isinstance(item, dict) for item in assets)):
+        return blocked("PORTFOLIO_MATH_REQUIRES_PUBLIC_OR_SYNTHETIC_ASSETS")
+    names = [item.get("asset_id") for item in assets]
+    if (any(not isinstance(name, str) or not name.strip() or name != name.strip() for name in names)
+            or len(set(names)) != len(names)):
+        return blocked("PORTFOLIO_ASSET_IDENTITY_INVALID")
+    raw_weights = [item.get("weight") for item in assets]
+    if any(type(v) not in (int, float) for v in raw_weights):
+        return blocked("PORTFOLIO_WEIGHT_REQUIRED_NUMERIC")
+    weights = np.asarray(raw_weights, dtype=float)
+    if not np.isfinite(weights).all() or np.any(weights < 0):
+        return blocked("PORTFOLIO_LONG_ONLY_FINITE_WEIGHTS_REQUIRED")
     weight_sum = float(weights.sum())
-    if abs(weight_sum) < 1e-12:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["PORTFOLIO_WEIGHT_SUM_ZERO"],
-        )
+    if not np.isfinite(weight_sum) or weight_sum <= 0:
+        return blocked("PORTFOLIO_WEIGHT_SUM_INVALID")
     normalized = weights / weight_sum
     hhi = float(np.square(normalized).sum())
-    effective_n = float(1.0 / hhi) if hhi > 0 else None
-
+    effective_n = float(1.0 / hhi)
     covariance_raw = operation.parameters.get("covariance_matrix")
-    portfolio_volatility: float | None = None
-    marginal_risk: list[dict[str, object]] = []
+    portfolio_volatility = None
+    contributions = []
     if covariance_raw is not None:
-        covariance = np.asarray(covariance_raw, dtype=float)
         n = len(normalized)
-        if covariance.shape != (n, n) or not np.isfinite(covariance).all():
-            return OperationResult(
-                operation_id=operation.operation_id,
-                status="BLOCK",
-                exit_code=2,
-                errors=["INVALID_COVARIANCE_MATRIX"],
-            )
-        variance = float(normalized @ covariance @ normalized)
-        if variance < -1e-10:
-            return OperationResult(
-                operation_id=operation.operation_id,
-                status="BLOCK",
-                exit_code=2,
-                errors=["NEGATIVE_PORTFOLIO_VARIANCE"],
-            )
-        variance = max(variance, 0.0)
-        portfolio_volatility = float(np.sqrt(variance))
-        component = normalized * (covariance @ normalized)
-        if portfolio_volatility and portfolio_volatility > 0:
-            contributions = component / portfolio_volatility
+        if (not isinstance(covariance_raw, list) or len(covariance_raw) != n
+                or any(not isinstance(row, list) or len(row) != n
+                       or any(type(v) not in (int, float) for v in row) for row in covariance_raw)):
+            return blocked("INVALID_COVARIANCE_MATRIX")
+        covariance = np.asarray(covariance_raw, dtype=float)
+        if not np.isfinite(covariance).all():
+            return blocked("INVALID_COVARIANCE_MATRIX")
+        # Relative tolerances on the matrix scale, not on an absolute unit size.
+        scale = float(np.max(np.abs(covariance)))
+        if scale == 0:
+            portfolio_volatility = 0.0
         else:
-            contributions = np.zeros_like(normalized)
-        marginal_risk = [
-            {
-                "asset_id": names[i],
-                "normalized_weight": float(normalized[i]),
-                "component_volatility_contribution": float(contributions[i]),
-            }
-            for i in range(len(names))
-        ]
-
+            scaled = covariance / scale
+            if not np.allclose(scaled, scaled.T, rtol=0, atol=1e-12):
+                return blocked("COVARIANCE_NOT_SYMMETRIC")
+            scaled = (scaled + scaled.T) * 0.5
+            if np.any(np.diag(scaled) < 0) or float(np.linalg.eigvalsh(scaled)[0]) < -1e-12:
+                return blocked("COVARIANCE_NOT_POSITIVE_SEMIDEFINITE")
+            direction = scaled @ normalized
+            variance = float(normalized @ direction)
+            if variance < -1e-12:
+                return blocked("NEGATIVE_PORTFOLIO_VARIANCE")
+            root = float(np.sqrt(max(variance, 0.0)))
+            portfolio_volatility = float(np.sqrt(scale)) * root
+            if root > 0:
+                component = normalized * direction / root * np.sqrt(scale)
+                if not np.isfinite(component).all():
+                    return blocked("NONFINITE_PORTFOLIO_CONTRIBUTION")
+                contributions = [
+                    {"asset_id": names[i], "normalized_weight": float(normalized[i]),
+                     "component_volatility_contribution": float(component[i])}
+                    for i in range(n)
+                ]
+        # A zero-volatility derivative is undefined, not a zero marginal risk.
+        if portfolio_volatility == 0:
+            contributions = []
     expected_raw = [item.get("expected_return") for item in assets]
-    expected_return: float | None = None
-    if all(value is not None for value in expected_raw):
-        expected = np.asarray([float(value) for value in expected_raw], dtype=float)
-        expected_return = float(normalized @ expected)
-
+    if any(v is not None and (type(v) not in (int, float) or not np.isfinite(float(v)))
+           for v in expected_raw):
+        return blocked("INVALID_EXPECTED_RETURN_ASSUMPTION")
+    expected_return = None
+    if all(v is not None for v in expected_raw):
+        expected_return = float(normalized @ np.asarray(expected_raw, dtype=float))
+        if not np.isfinite(expected_return):
+            return blocked("NONFINITE_PORTFOLIO_EXPECTED_RETURN")
     payload = {
         "scope": scope,
-        "assets": [
-            {"asset_id": names[i], "input_weight": float(weights[i]), "normalized_weight": float(normalized[i])}
-            for i in range(len(names))
-        ],
-        "metrics": {
-            "input_weight_sum": weight_sum,
-            "hhi": hhi,
-            "effective_number_of_assets": effective_n,
-            "expected_return": expected_return,
-            "portfolio_volatility": portfolio_volatility,
-        },
-        "risk_contributions": marginal_risk,
+        "assets": [{"asset_id": names[i], "input_weight": float(weights[i]),
+                    "normalized_weight": float(normalized[i])} for i in range(len(names))],
+        "metrics": {"input_weight_sum": weight_sum, "hhi": hhi,
+                    "effective_number_of_assets": effective_n,
+                    "expected_return": expected_return,
+                    "portfolio_volatility": portfolio_volatility},
+        "risk_contributions": contributions,
+        "risk_contribution_status": ("COMPONENT_VOLATILITY_ONLY" if contributions else
+            "UNDEFINED_ZERO_VOLATILITY" if portfolio_volatility == 0 else "COVARIANCE_NOT_SUPPLIED"),
+        "assumption_basis": "CALLER_SUPPLIED_LONG_ONLY_WEIGHTS_AND_COVARIANCE",
+        "forecast_validated": False,
+        "formal_marginal_portfolio_risk_estimated": False,
         "decision_authority": False,
     }
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     context.payloads[operation.operation_id] = payload
-    return OperationResult(
-        operation_id=operation.operation_id,
-        status="PASS",
-        exit_code=0,
-        artifacts=[_artifact(path)],
-        metrics=payload["metrics"],
-    )
+    return OperationResult(operation_id=operation.operation_id, status="PASS", exit_code=0,
+                           artifacts=[_artifact(path)], metrics=payload["metrics"])
