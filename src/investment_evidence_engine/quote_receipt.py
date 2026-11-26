@@ -21,6 +21,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from .book_depth import compare_displayed_depth
 from .historical_capture import SH, PublicSecurity
 from .quote_reference import (
     MAX_BYTES,
@@ -89,9 +90,14 @@ def summarize_receipt(receipt: QuoteReceipt,*,now: datetime) -> dict:
     rows=[quote_reference(q,now=now) for q in obs]
     usable=[row for row in rows if row["status"]=="OBSERVED_TOP_OF_BOOK_ONLY"]
     comparison=crosscheck_quotes(*obs,now=now) if len(obs)==2 else {"status":"SOURCE_UNAVAILABLE"}
+    depth={"status":"UNAVAILABLE","error_code":"DEPTH_REQUIRES_BOTH_SOURCES"}
+    if len(obs)==2:
+        payloads={p.provider:p for p in receipt.payloads}
+        t,s=payloads["tencent"],payloads["sina"]
+        depth=compare_displayed_depth(receipt.subject,t.raw(),t.observed_at,s.raw(),s.observed_at,now=now)
     return {"status":"OBSERVED_TOP_OF_BOOK_ONLY" if usable else "UNAVAILABLE",
         "subject":receipt.subject.model_dump(mode="json"),"captured_at":receipt.captured_at.isoformat(),
-        "observations":rows,"crosscheck":comparison,
+        "observations":rows,"crosscheck":comparison,"displayed_depth":depth,
         "failures":[f.model_dump(mode="json") for f in receipt.failures],
         "raw_payloads_rehashed":True,"impact_cost_estimated":False,
         "formal_liquidity_cost_estimated":False,"decision_authority":False,

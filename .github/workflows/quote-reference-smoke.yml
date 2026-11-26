@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/investment_evidence_engine/quote_reference.py'
       - 'src/investment_evidence_engine/quote_receipt.py'
+      - 'src/investment_evidence_engine/book_depth.py'
       - 'scripts/quote_reference_smoke.py'
       - '.github/workflows/quote-reference-smoke.yml'
   workflow_dispatch:
