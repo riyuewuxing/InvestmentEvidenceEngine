@@ -8,6 +8,7 @@ on:
       - 'scripts/historical_reference_smoke.py'
       - 'src/investment_evidence_engine/historical_reference.py'
       - 'src/investment_evidence_engine/historical_capture.py'
+      - 'src/investment_evidence_engine/historical_receipt.py'
   workflow_dispatch:
 
 permissions:
