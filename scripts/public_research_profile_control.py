@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
-from investment_evidence_engine.research_profile_evidence import evaluate_market_profile
+from investment_evidence_engine.research_profile_evidence import canonical_sha256, evaluate_market_profile
 from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.snapshot_integrity import strict_json_loads
 from investment_evidence_engine.transport_integrity import read_verified_artifact
@@ -24,20 +25,28 @@ FIRST = date(2025, 1, 2)
 LAST = date(2026, 11, 25)
 
 
-def main() -> int:
+EXPECTED_BARS_SHA256 = "aeb60bb14f900b396ac0abb4ec3db32c90ef6d59e2c1dce8f44fceb6bef8cd88"
+PRIOR_RUN = 45853666093
+PRIOR_JOB = 140026299369
+PRIOR_EXECUTOR = "53020c1b280042e4999ebfe1831d58b00cd3a04d"
+PRIOR_DIAGNOSTIC = Path(__file__).resolve().parents[1] / "fixtures/research_profile/observed_20261126_000035_diagnostic.json"
+
+
+def main(*, same_version: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     sha = os.environ["GITHUB_SHA"]
+    subject = "000035" if same_version else SUBJECT
     op = ExecutionOperation(operation_id="market", kind="MARKET_DATA",
-        parameters={"subject_ids": [SUBJECT], "as_of": SCOPE,
+        parameters={"subject_ids": [subject], "as_of": SCOPE,
                     "history_days": (LAST-FIRST).days, "history_end_offset_days": 1,
                     "adjust": "", "price_tolerance": 0.001},
         expected_outputs=["market.json"], evidence_domains=["MARKET"])
     req = ExecutionRequest(job_id="public-research-profile-control",
-        trace_id="public-research-profile-20261127", subject_repo=REPO,
+        trace_id="public-research-profile-20261127-recompute" if same_version else "public-research-profile-20261127", subject_repo=REPO,
         subject_commit=sha, as_of=SCOPE, operations=[op])
     req.request_sha256 = req.compute_hash()
-    report = {"status": "BLOCK", "executor_commit": sha, "scope": SCOPE, "subject": SUBJECT,
+    report = {"status": "BLOCK", "executor_commit": sha, "scope": SCOPE, "subject": subject,
               "fixed_public_control_not_gate1_candidate": True, "source_graph_verified": False,
               "formal_profile_admitted": False, "pit_safe": False, "decision_authority": False,
               "execution_allowed": False, "raw_body_retained": False}
@@ -62,7 +71,26 @@ def main() -> int:
                 report |= {"market_artifact_rehash": "MATCH", "market_artifact_sha256": art.sha256,
                            "market_artifact_size": len(raw), "crosscheck": data["crosscheck"],
                            "providers": data["providers"]}
-                report["profile_diagnostic"] = evaluate_market_profile(raw, symbol=SUBJECT, as_of=SCOPE)
+                if same_version:
+                    actual_digest = canonical_sha256(data["bars"])
+                    report |= {"prior_run": PRIOR_RUN, "prior_job": PRIOR_JOB,
+                               "prior_executor_commit": PRIOR_EXECUTOR,
+                               "expected_prior_bars_sha256": EXPECTED_BARS_SHA256,
+                               "observed_bars_sha256": actual_digest,
+                               "normalized_bar_version_match": actual_digest == EXPECTED_BARS_SHA256}
+                    if actual_digest != EXPECTED_BARS_SHA256:
+                        raise ValueError("RESEARCH_PRIOR_NORMALIZED_BAR_VERSION_MISMATCH")
+                    prior = strict_json_loads(PRIOR_DIAGNOSTIC.read_bytes())
+                    current = evaluate_market_profile(raw, symbol=subject, as_of=SCOPE)
+                    report |= {"prior_diagnostic_sha256": canonical_sha256(prior),
+                               "current_diagnostic_sha256": canonical_sha256(current["raw_price_diagnostic"]),
+                               "prior_exact_diagnostic_recompute": "MATCH" if canonical_sha256(prior)
+                                   == canonical_sha256(current["raw_price_diagnostic"]) else "MISMATCH"}
+                    if report["prior_exact_diagnostic_recompute"] != "MATCH":
+                        raise ValueError("RESEARCH_PRIOR_DIAGNOSTIC_RECOMPUTE_MISMATCH")
+                    report["profile_diagnostic"] = current
+                else:
+                    report["profile_diagnostic"] = evaluate_market_profile(raw, symbol=subject, as_of=SCOPE)
                 report["status"] = "WARN"
             except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
                 reason = str(exc)
@@ -73,4 +101,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if len(sys.argv) == 1:
+        raise SystemExit(main())
+    if sys.argv[1:] == ["--same-version"]:
+        raise SystemExit(main(same_version=True))
+    raise SystemExit(2)

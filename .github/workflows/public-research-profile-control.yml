@@ -1,5 +1,9 @@
 name: Public research profile control
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-research-profile-control.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Fixed real raw market and research profile arithmetic
+      - name: Exact prior normalized-bar version and diagnostic recompute
         timeout-minutes: 3
-        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_profile_control.py
+        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_profile_control.py --same-version
