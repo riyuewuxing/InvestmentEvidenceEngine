@@ -9,6 +9,7 @@ import pandas as pd
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
 from .industry_worker import _frame_returns, _infer_industry
 from .providers import AKShareResearchProvider, ProviderError, normalize_ohlcv
+from .twse_archive_industry import run_twse_archive_industry
 from .workers import WorkerContext
 
 
@@ -63,6 +64,8 @@ def run_industry_macro_resilient(
     operation: ExecutionOperation,
     context: WorkerContext,
 ) -> OperationResult:
+    if "industry_profile" in operation.parameters:
+        return run_twse_archive_industry(operation, context)
     symbol = _subject(operation.parameters)
     as_of = pd.Timestamp(str(operation.parameters.get("as_of"))).date()
     history_days = max(120, min(int(operation.parameters.get("history_days") or 450), 3650))
