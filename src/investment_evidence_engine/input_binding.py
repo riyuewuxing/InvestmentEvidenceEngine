@@ -27,14 +27,10 @@ _SCAN_KEYS = {
 }
 
 
-def observe_scan_input(root: Path, ref: InputArtifactRef) -> tuple[ObservedInputArtifact, bytes]:
-    digest, size = observe_artifact_file(
-        root, ref.materialized_path, ref.source_artifact_size_bytes, max_bytes=4 * 1024 * 1024)
-    if digest != ref.source_artifact_sha256:
-        raise ValueError("INPUT_ARTIFACT_HASH_MISMATCH")
-    raw = read_contract_bytes(root / ref.materialized_path)
-    if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
-        raise ValueError("INPUT_ARTIFACT_CHANGED")
+def select_scan_record(raw: bytes, as_of: str) -> dict:
+    """Validate actual public scan bytes; return first record, not an admission."""
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= 4 * 1024 * 1024:
+        raise ValueError("INPUT_ARTIFACT_BODY_INVALID")
     data = strict_json_loads(raw)
     if (not isinstance(data, dict) or not set(data).issubset(_SCAN_KEYS)
             or _find_private_parameter(data)
@@ -54,7 +50,7 @@ def observe_scan_input(root: Path, ref: InputArtifactRef) -> tuple[ObservedInput
                        for key in ("threshold", "weight")) or rule["weight"] < 0):
             raise ValueError("INPUT_ARTIFACT_PUBLIC_RULE_INVALID")
     dep = data.get("dependency_evidence")
-    if (not isinstance(dep, dict) or dep.get("as_of") != ref.as_of
+    if (not isinstance(dep, dict) or dep.get("as_of") != as_of
             or dep.get("market") != "CN_A" or dep.get("asset_type") != "STOCK"
             or dep.get("source") != "public_market_data"
             or dep.get("status") not in {"PASS", "WARN"}):
@@ -78,7 +74,19 @@ def observe_scan_input(root: Path, ref: InputArtifactRef) -> tuple[ObservedInput
                     raise ValueError("INPUT_ARTIFACT_CANDIDATE_TEXT_INVALID")
             elif value is not None and (type(value) not in {int, float} or not math.isfinite(value)):
                 raise ValueError("INPUT_ARTIFACT_CANDIDATE_NUMBER_INVALID")
-    if rows[0]["code"] != ref.selector.value or canonical_sha256(rows[0]) != ref.selector.record_sha256:
+    return rows[0]
+
+
+def observe_scan_input(root: Path, ref: InputArtifactRef) -> tuple[ObservedInputArtifact, bytes]:
+    digest, size = observe_artifact_file(
+        root, ref.materialized_path, ref.source_artifact_size_bytes, max_bytes=4 * 1024 * 1024)
+    if digest != ref.source_artifact_sha256:
+        raise ValueError("INPUT_ARTIFACT_HASH_MISMATCH")
+    raw = read_contract_bytes(root / ref.materialized_path)
+    if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("INPUT_ARTIFACT_CHANGED")
+    selected = select_scan_record(raw, ref.as_of)
+    if selected["code"] != ref.selector.value or canonical_sha256(selected) != ref.selector.record_sha256:
         raise ValueError("INPUT_ARTIFACT_RECORD_SELECTOR_MISMATCH")
     observed = ObservedInputArtifact(input_id=ref.input_id, materialized_path=ref.materialized_path,
                                     observed_sha256=digest, observed_size_bytes=size, status="MATCH")

@@ -1,0 +1,31 @@
+name: Public exchange listing and scan packet control
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-exchange-scan-control.yml'
+      - 'scripts/public_exchange_scan_control.py'
+permissions:
+  contents: read
+concurrency:
+  group: public-exchange-scan-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Observe exchange references before one conditional scan
+        timeout-minutes: 4
+        run: timeout --signal=TERM --kill-after=5s 210s python scripts/public_exchange_scan_control.py
