@@ -11,7 +11,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .contracts import ExecutionRequest, ExecutionResult, ExecutorStamp
+from .contracts import ExecutionRequest, ExecutionResult, ExecutorStamp, OperationResult
 from .dispatch import run_operation
 from .workers import WorkerContext
 
@@ -60,7 +60,30 @@ def execute_request(
     shutil.copy2(request_path, output_dir / "execution_request.json")
     started = datetime.now(UTC)
     context = WorkerContext(output_dir=output_dir)
-    results = [run_operation(operation, context) for operation in request.operations]
+    results: list[OperationResult] = []
+    statuses: dict[str, str] = {}
+    for operation in request.operations:
+        dependencies = operation.parameters.get("depends_on_operation_ids", [])
+        unavailable = [dep for dep in dependencies if statuses[dep] not in {"PASS", "WARN"}]
+        warned = [dep for dep in dependencies if statuses[dep] == "WARN"]
+        if unavailable:
+            item = OperationResult(
+                operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+                errors=["UPSTREAM_NOT_USABLE:" + ",".join(unavailable)],
+            )
+        else:
+            item = run_operation(operation, context)
+            if warned and item.status in {"PASS", "WARN"}:
+                item = item.model_copy(update={
+                    "status": "WARN",
+                    "warnings": [*item.warnings, "UPSTREAM_WARN:" + ",".join(warned)],
+                })
+        if item.status not in {"PASS", "WARN"}:
+            # Retain diagnostic artifacts for audit, not as input to later workers.
+            context.frames.pop(operation.operation_id, None)
+            context.payloads.pop(operation.operation_id, None)
+        statuses[operation.operation_id] = item.status
+        results.append(item)
     finished = datetime.now(UTC)
     result = ExecutionResult(
         job_id=request.job_id,

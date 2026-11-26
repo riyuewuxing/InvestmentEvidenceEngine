@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
+from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.workers import WorkerContext, run_operation
 
 COMMIT = "a" * 40
@@ -76,3 +77,62 @@ def test_unimplemented_worker_blocks_instead_of_guessing(tmp_path) -> None:
     result = run_operation(operation, WorkerContext(output_dir=tmp_path))
     assert result.status == "BLOCK"
     assert result.errors == ["UNIMPLEMENTED_OPERATION:FACTOR_COMPUTE"]
+
+
+@pytest.mark.parametrize("operation_id", ["../escape", "a/b", "a\\b", "execution_result", "run_manifest", "a\n", ""])
+def test_operation_id_cannot_escape_artifact_directory(operation_id) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionOperation(operation_id=operation_id, kind="MARKET_DATA")
+
+
+def _request(operations):
+    return ExecutionRequest(
+        job_id="test-job", trace_id="test-trace", subject_repo="example/public",
+        subject_commit=COMMIT, as_of="2026-08-24", operations=operations,
+    )
+
+
+@pytest.mark.parametrize("dependencies", [["later"], ["first", "first"], "first", [1]])
+def test_dependency_requires_unique_earlier_operations(dependencies) -> None:
+    with pytest.raises(ValidationError):
+        _request([
+            ExecutionOperation(operation_id="first", kind="MARKET_DATA"),
+            ExecutionOperation(operation_id="second", kind="PRICE_ANALYTICS",
+                               parameters={"depends_on_operation_ids": dependencies}),
+        ])
+
+
+@pytest.mark.parametrize("upstream_status,expected", [
+    ("BLOCK", "BLOCK"), ("ERROR", "BLOCK"), ("PENDING", "BLOCK"), ("WARN", "WARN"), ("PASS", "PASS"),
+])
+def test_runner_propagates_dependency_status(tmp_path, monkeypatch, upstream_status, expected) -> None:
+    from investment_evidence_engine import runner
+    from investment_evidence_engine.contracts import OperationResult
+
+    operations = [
+        ExecutionOperation(operation_id="first", kind="MARKET_DATA"),
+        ExecutionOperation(operation_id="second", kind="PRICE_ANALYTICS",
+                           parameters={"depends_on_operation_ids": ["first"]}),
+        ExecutionOperation(operation_id="independent", kind="MARKET_DATA"),
+    ]
+    request = _request(operations)
+    request.request_sha256 = request.compute_hash()
+    path = tmp_path / "request.json"
+    path.write_text(request.model_dump_json(), encoding="utf-8")
+    called = []
+
+    def fake_worker(operation, context):
+        called.append(operation.operation_id)
+        if operation.operation_id == "first":
+            context.payloads["first"] = {"diagnostic": True}
+            return OperationResult(operation_id="first", status=upstream_status)
+        return OperationResult(operation_id=operation.operation_id, status="PASS")
+
+    monkeypatch.setattr(runner, "run_operation", fake_worker)
+    result = execute_request(path, output_dir=tmp_path / "out",
+                             executor_repo="example/public", executor_commit=COMMIT)
+    assert [item.status for item in result.operations] == [upstream_status, expected, "PASS"]
+    assert ("second" in called) == (expected != "BLOCK")
+    assert "independent" in called
+    if expected == "WARN":
+        assert "UPSTREAM_WARN:first" in result.operations[1].warnings

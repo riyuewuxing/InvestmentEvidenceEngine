@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -86,8 +87,9 @@ class ExecutionOperation(BaseModel):
 
     @model_validator(mode="after")
     def validate_public_boundary(self) -> ExecutionOperation:
-        if not self.operation_id.strip():
-            raise ValueError("operation_id must not be empty")
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", self.operation_id)
+                or self.operation_id.lower() in {"execution_request", "execution_result", "run_manifest"}):
+            raise ValueError("unsafe or reserved operation_id")
         private_path = _find_private_parameter(self.parameters)
         if private_path:
             raise ValueError(f"private-state boundary violation: {private_path}")
@@ -113,8 +115,16 @@ class ExecutionRequest(BaseModel):
         if not self.operations:
             raise ValueError("execution request requires at least one operation")
         ids = [item.operation_id for item in self.operations]
-        if len(ids) != len(set(ids)):
+        if len(ids) != len({item.lower() for item in ids}):
             raise ValueError("duplicate operation_id")
+        prior: set[str] = set()
+        for operation in self.operations:
+            dependencies = operation.parameters.get("depends_on_operation_ids", [])
+            if (not isinstance(dependencies, list)
+                    or any(not isinstance(dep, str) or dep not in prior for dep in dependencies)
+                    or len(dependencies) != len(set(dependencies))):
+                raise ValueError("dependencies must be unique earlier operation IDs")
+            prior.add(operation.operation_id)
         if any(ref.strip().lower().startswith(_PRIVATE_REF_PREFIXES) for ref in self.input_refs):
             raise ValueError("private input refs are forbidden")
         return self
