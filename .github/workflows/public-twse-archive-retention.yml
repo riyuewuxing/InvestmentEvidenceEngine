@@ -1,9 +1,6 @@
 name: Public TWSE licensed exact snapshot retention
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-twse-archive-retention.yml"
 permissions:
   contents: read
 concurrency:

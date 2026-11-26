@@ -1,0 +1,56 @@
+{
+  "source_repository": "riyuewuxing/InvestmentEvidenceEngine",
+  "run_id": 45834919849,
+  "job_id": 139961118884,
+  "log_timestamp": "2026-11-26T14:02:28.9982367Z",
+  "git_blob": "1bf4790364b4ddf515d5fbd45af9b9c3bc437338",
+  "caller_rehash": "MATCH",
+  "git_blob_readback_rehash": "MATCH",
+  "report": {
+    "bytes": 207911,
+    "decision_authority": false,
+    "elapsed_seconds": 12.085,
+    "execution_allowed": false,
+    "executor_commit": "e91dfaa41a54386b1eb42c92b253ad8a38aa038b",
+    "expected_sha256": "0e6a2cbfb78befd2c77415e57aadfdf7acc1038a48e9d815bedb113730b622f2",
+    "fields": {
+      "amounts": [
+        586890319,
+        511857399,
+        367473051,
+        4485617293,
+        3130436902
+      ],
+      "historical_vintage_verified": false,
+      "market": "TWSE",
+      "period": "2026-10-01",
+      "recomputed_rates_pct": [
+        "14.658950",
+        "59.709758",
+        "43.290455"
+      ],
+      "reported_rates_pct": [
+        "14.658949962741477",
+        "59.709757600700904",
+        "43.29045540365918"
+      ],
+      "snapshot_date": "2026-11-17",
+      "snapshot_not_publication_clock": true,
+      "source_rows_observed": 1091,
+      "source_rowset_completeness_verified": false,
+      "symbol": "2330",
+      "unit": "TWD_THOUSANDS"
+    },
+    "historical_capture_verified": false,
+    "license": "https://data.gov.tw/license",
+    "parent_rehash": "MATCH",
+    "pit_safe": false,
+    "retrieved_at": "2026-11-26T14:02:28.910547+00:00",
+    "sha256": "0e6a2cbfb78befd2c77415e57aadfdf7acc1038a48e9d815bedb113730b622f2",
+    "source": "https://data.gov.tw/dataset/18420",
+    "source_attribution": "金融監督管理委員會證券期貨局／臺灣證券交易所，2026，上市公司每月營業收入彙總表",
+    "source_url": "https://mopsfin.twse.com.tw/opendata/t187ap05_L.csv",
+    "status": "EXACT_PRIOR_DIGEST_MATCH",
+    "worker_status": "OK"
+  }
+}
