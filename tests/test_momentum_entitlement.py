@@ -139,3 +139,33 @@ def test_artifact_sensitivity_rejects_invalid_source_or_terms(fault):
     with pytest.raises(ValueError):
         evaluate_entitlement_sensitivity(json.dumps(market).encode(), json.dumps(terms).encode(),
             symbol="000035", as_of="2026-11-26")
+
+
+def test_independent_split_start_terminal_and_purged_event_boundaries():
+    days, values, subject, original, _ = fixture()
+    from investment_evidence_engine.momentum_profile import momentum_profile
+
+    base = momentum_profile(days, values, values)
+    train_end = date.fromisoformat(base["segments"][0]["terminal_open"])
+    validation_start = date.fromisoformat(base["segments"][1]["first_entry_open"])
+    gap = days[days.index(train_end)+1]
+    assert train_end < gap < validation_start
+
+    def moved(ex):
+        record = days[days.index(ex)-1]
+        return replace(original, disclosed_date=record, record_date=record, ex_date=ex)
+
+    terms = tuple(moved(ex) for ex in (train_end, gap, validation_start))
+    events = CashDistributionInputs(events=tuple(CashDistribution(
+        subject_id=t.symbol, disclosed_date=t.disclosed_date, ex_date=t.ex_date,
+        gross_cash_per_unit_cny=float(t.gross_per_share), source_locator=t.source_locator) for t in terms))
+    report = momentum_entitlement_profile(days, values, values, subject=subject, events=events,
+                                          reference_terms=terms)
+    assert report["included_events_outside_independent_segments"] == [gap.isoformat()]
+    train, val = [s["stress"][0]["constant_invested"] for s in report["segments"][:2]]
+    assert len(train["events"]) == len(val["events"]) == 1
+    assert train["events"][0]["ex_date"] == train_end.isoformat()
+    assert train["events"][0]["held_at_previous_record_close"] is True
+    assert val["events"][0]["ex_date"] == validation_start.isoformat()
+    assert val["events"][0]["held_at_previous_record_close"] is False
+    assert val["gross_entitlement_increment_pp"] == 0

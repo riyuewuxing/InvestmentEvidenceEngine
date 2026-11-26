@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -35,7 +36,9 @@ def test_policy_fields_missing_block():
 
 def test_actual_derived_receipt_offline_and_resealed_arithmetic_tamper():
     path = Path("fixtures/corporate_actions/observed_000035_momentum_entitlement.json")
-    prior = json.loads(path.read_bytes())
+    raw = path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == "abe7050f6592433f207b750e88810a9f09add2dd682f3abede5c23fa1c1a90b7"
+    prior = json.loads(raw)
     rows = calculate_from_receipt(prior)
     assert len(rows) == 27
     row = next(r for r in rows if r["segment"] == "test_reference"

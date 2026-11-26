@@ -1,8 +1,16 @@
+import hashlib
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
-from investment_evidence_engine.dividend_accounting_control import _row, parse_pages, reconcile
+from investment_evidence_engine.dividend_accounting_control import (
+    _row,
+    parse_pages,
+    reconcile,
+    validate_prior_receipts,
+)
 
 
 def test_row_is_anchored_and_column_order_checked():
@@ -78,3 +86,17 @@ def test_missing_approval_blocks():
     data[-1]["fields"]["approved"] = False
     with pytest.raises(ValueError, match="DIVIDEND_APPROVAL_NOT_VERIFIED"):
         reconcile(data, {"2025": "84058753.47", "2026": "85969179.68"})
+
+
+def test_exact_retained_approval_and_accounting_receipt_fixture():
+    raw = Path("fixtures/corporate_actions/observed_000035_dividend_accounting_initial.json").read_bytes()
+    blob = f"blob {len(raw)}".encode()+b"\x00"+raw
+    assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == "ed76a5425a07fa8fccd14aace78d9090920ffc5b"
+    data = json.loads(raw)
+    rows = validate_prior_receipts(data)
+    assert len(rows) == 4
+    assert next(r["fields"]["parent_distribution_cny"] for r in rows
+                if r["kind"] == "annual_2025") == "84058749.07"
+    data["documents"][0]["source_sha256"] = "0"*64
+    with pytest.raises(ValueError, match="DIVIDEND_PRIOR_RECEIPT_MISMATCH"):
+        validate_prior_receipts(data)
