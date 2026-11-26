@@ -13,8 +13,9 @@ def table(*, wrong=False, missing=False):
     # are fixed evidence examples. A fixture is not a live listing.
     pairs = [(name, old, new) for old, (new, name) in PILOTS.items()]
     pairs += [("芭薇股份", "837023", "920123")]
-    pairs += [(f"fixture{i}", f"840{i:03d}", f"920{i:03d}")
-              for i in range(300, 541)]
+    reserved = {new for _, _, new in pairs}
+    remaining = [i for i in range(1, 1000) if f"920{i:03d}" not in reserved][:241]
+    pairs += [(f"fixture{i}", f"840{i:03d}", f"920{i:03d}") for i in remaining]
     if wrong:
         pairs[-1] = pairs[-1][0], pairs[-2][1], pairs[-1][2]
     if missing:

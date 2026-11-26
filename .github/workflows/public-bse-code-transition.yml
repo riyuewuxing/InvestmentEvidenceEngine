@@ -1,9 +1,6 @@
 name: Public BSE code transition control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-bse-code-transition.yml"
 permissions:
   contents: read
 concurrency:
