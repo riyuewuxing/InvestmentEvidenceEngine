@@ -87,7 +87,7 @@ class ExecutionOperation(BaseModel):
 
     @model_validator(mode="after")
     def validate_public_boundary(self) -> ExecutionOperation:
-        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", self.operation_id)
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", self.operation_id)
                 or self.operation_id.lower() in {"execution_request", "execution_result", "run_manifest"}):
             raise ValueError("unsafe or reserved operation_id")
         private_path = _find_private_parameter(self.parameters)
