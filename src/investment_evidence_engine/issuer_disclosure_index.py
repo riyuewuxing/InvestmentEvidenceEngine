@@ -133,7 +133,7 @@ def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
         title = row.get("announcementTitle")
         if not isinstance(title, str):
             raise ValueError("INDEX_TITLE_MISMATCH")
-        if "2026年第三季度报告" not in "".join(title.split()):
+        if not re.search(r"2026年(?:第)?三季度报告", "".join(title.split())):
             continue
         url = row.get("adjunctUrl")
         if not isinstance(url, str) or not re.fullmatch(
