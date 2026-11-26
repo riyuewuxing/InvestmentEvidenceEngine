@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from investment_evidence_engine.akshare_daily_adapter import call_akshare_daily
+from investment_evidence_engine.akshare_daily_adapter import call_akshare_daily, call_sina_stock_daily
 
 
 def test_current_endpoint_preferred_and_legacy_only_when_absent():
@@ -33,3 +33,31 @@ def test_provider_error_not_retried_through_old_name():
         call_akshare_daily(SimpleNamespace(stock_zh_a_hist_em=fail, stock_zh_a_hist=old), symbol="600000")
     with pytest.raises(ValueError):
         call_akshare_daily(SimpleNamespace(), symbol="600000")
+
+
+def test_sina_current_name_with_period_and_legacy_without_period():
+    calls = []
+    def current(**kw):
+        calls.append(("current", kw))
+        return "current"
+    def legacy(**kw):
+        calls.append(("legacy", kw))
+        return "legacy"
+    params = {"symbol": "sh600000", "start_date": "20250101",
+              "end_date": "20250201", "adjust": ""}
+    assert call_sina_stock_daily(SimpleNamespace(stock_zh_a_hist_sina=current,
+                                                 stock_zh_a_daily=legacy), **params) == "current"
+    assert call_sina_stock_daily(SimpleNamespace(stock_zh_a_daily=legacy), **params) == "legacy"
+    assert calls == [("current", params | {"period": "daily"}), ("legacy", params)]
+
+
+def test_sina_provider_failure_not_retried_or_relabelled():
+    def fail(**kw):
+        raise TimeoutError("source unavailable")
+    def forbidden(**kw):
+        pytest.fail("must not retry or switch vendor")
+    with pytest.raises(TimeoutError):
+        call_sina_stock_daily(SimpleNamespace(stock_zh_a_hist_sina=fail,
+                            stock_zh_a_daily=forbidden), symbol="sh600000")
+    with pytest.raises(ValueError, match="SINA_STOCK_DAILY_ENDPOINT_UNAVAILABLE"):
+        call_sina_stock_daily(SimpleNamespace(stock_zh_a_hist_em=forbidden), symbol="sh600000")

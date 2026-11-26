@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .akshare_daily_adapter import call_sina_stock_daily
 from .historical_reference import DailyClose, HistoricalCloseSeries, historical_pair_reference
 
 SH = ZoneInfo("Asia/Shanghai")
@@ -146,7 +147,11 @@ def _provider_rows(source: str, subject: PublicSecurity, start: date, end: date)
         frame = method(symbol=subject.symbol, period="daily", start_date=first, end_date=last, adjust="")
         frame = frame.rename(columns={"日期": "date", "收盘": "close"})
     elif source == "sina" and subject.asset_type == "STOCK":
-        frame = ak.stock_zh_a_daily(symbol=prefixed, start_date=first, end_date=last, adjust="")
+        frame = call_sina_stock_daily(ak, symbol=prefixed, start_date=first, end_date=last, adjust="")
+        if frame is not None and {"日期", "收盘"}.issubset(frame.columns):
+            if "date" in frame.columns or "close" in frame.columns:
+                raise ValueError("SINA_DUPLICATE_COLUMN_BASIS")
+            frame = frame.rename(columns={"日期": "date", "收盘": "close"})
     elif source == "sina":
         frame = ak.fund_etf_hist_sina(symbol=prefixed)
     else:
