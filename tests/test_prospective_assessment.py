@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -8,8 +8,8 @@ from investment_evidence_engine.prospective_assessment import (
     assess_daily_cohort,
 )
 
-NOW = datetime(2026,11,26,8,tzinfo=timezone.utc)
-A,B = "600000","510050"
+NOW = datetime(2026,11,26,8,tzinfo=UTC)
+A,B = "600000","000001"
 FIRST,LAST = date(2026,11,23),date(2026,11,25)
 
 
