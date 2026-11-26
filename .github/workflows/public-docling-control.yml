@@ -44,9 +44,9 @@ jobs:
         run: |
           .docling-control-venv/bin/python -m pip check
           .docling-control-venv/bin/python scripts/public_docling_dependency_inventory.py
-          timeout --signal=TERM --kill-after=5s 90s .docling-control-venv/bin/python -m pip_audit --strict --no-deps --progress-spinner off --format json --output public_docling_audit.json --requirement public_docling_requirements.txt
+          timeout --signal=TERM --kill-after=5s 90s .docling-control-venv/bin/python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off --format json --output public_docling_audit.json --requirement public_docling_requirements.txt
           .docling-control-venv/bin/python scripts/public_docling_dependency_inventory.py --find-missing
           if [ -s public_docling_missing.txt ]; then
-            timeout --signal=TERM --kill-after=5s 60s .docling-control-venv/bin/python -m pip_audit --strict --no-deps --progress-spinner off --format json --output public_docling_supplemental_audit.json --requirement public_docling_missing.txt
+            timeout --signal=TERM --kill-after=5s 60s .docling-control-venv/bin/python -m pip_audit --strict --no-deps --disable-pip --progress-spinner off --format json --output public_docling_supplemental_audit.json --requirement public_docling_missing.txt
           fi
           .docling-control-venv/bin/python scripts/public_docling_dependency_inventory.py --verify-audit
