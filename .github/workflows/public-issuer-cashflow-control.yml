@@ -1,10 +1,6 @@
 name: Public issuer official mirrors and cashflow
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-cashflow-control.yml'
-      - 'scripts/public_issuer_cashflow_control.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

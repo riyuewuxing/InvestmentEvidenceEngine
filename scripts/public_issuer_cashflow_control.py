@@ -6,7 +6,6 @@ import os
 
 from investment_evidence_engine.issuer_cashflow_control import main
 
-
 if __name__ == "__main__":
     if os.environ["GITHUB_REPOSITORY"] != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
