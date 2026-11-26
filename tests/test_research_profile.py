@@ -16,6 +16,7 @@ from investment_evidence_engine.research_profile import (
 )
 from investment_evidence_engine.runner import execute_request
 
+
 def params(ref):
     return {"as_of": ref.as_of, "input_artifact_ids": [ref.input_id],
             "depends_on_operation_ids": ["market"], "profile": PROFILE,
