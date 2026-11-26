@@ -72,8 +72,11 @@ _ALLOWED_HOST_SUFFIXES = (
 
 
 def validate_official_url(url: str) -> str:
+    if not isinstance(url, str) or any(ord(c) < 33 or ord(c) == 127 for c in url) or "\\" in url:
+        raise ValueError("invalid official source URL")
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment):
         raise ValueError("official source URL must be HTTPS")
     host = parsed.hostname.lower()
     if not any(host == suffix or host.endswith("." + suffix) for suffix in _ALLOWED_HOST_SUFFIXES):
@@ -115,6 +118,34 @@ def _decode_body(body: bytes, *, url: str, content_type: str) -> str:
         return body.decode("utf-8", errors="ignore")
 
 
+MAX_OFFICIAL_BODY_BYTES = 8_000_000
+
+
+class OfficialRedirectHandler(urllib.request.HTTPRedirectHandler):
+    max_redirections = 3
+    max_repeats = 1
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Regulatory HTML/DOCX sources may legitimately redirect within the
+        # approved official domains. Validate before issuing the next request.
+        validate_official_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def read_official_body(response, *, limit: int = MAX_OFFICIAL_BODY_BYTES) -> bytes:
+    if response.status != 200 or response.headers.get("Content-Range") is not None:
+        raise ValueError("official response is not a full successful body")
+    if response.headers.get("Content-Encoding", "identity").lower() not in {"", "identity"}:
+        raise ValueError("encoded official response is not accepted")
+    declared = response.headers.get("Content-Length")
+    if declared is not None and (not declared.isascii() or not declared.isdecimal() or int(declared) > limit):
+        raise ValueError("invalid or oversized official body")
+    body = response.read(limit + 1)
+    if len(body) > limit or (declared is not None and len(body) != int(declared)):
+        raise ValueError("oversized or truncated official body")
+    return body
+
+
 def fetch_official_url(url: str, timeout: float = 20.0) -> FetchedOfficialSource:
     validate_official_url(url)
     request = urllib.request.Request(
@@ -123,16 +154,19 @@ def fetch_official_url(url: str, timeout: float = 20.0) -> FetchedOfficialSource
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128 Safari/537.36 InvestmentEvidenceEngine/0.1",
             "Accept": "text/html,application/xhtml+xml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6",
+            "Accept-Encoding": "identity",
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read(8_000_000)
+    opener = urllib.request.build_opener(OfficialRedirectHandler())
+    with opener.open(request, timeout=timeout) as response:
+        resolved = validate_official_url(response.geturl())
+        body = read_official_body(response)
         content_type = str(response.headers.get("Content-Type") or "application/octet-stream")
     return FetchedOfficialSource(
-        url=url,
-        text=_decode_body(body, url=url, content_type=content_type),
+        url=resolved,
+        text=_decode_body(body, url=resolved, content_type=content_type),
         content_sha256=hashlib.sha256(body).hexdigest(),
         content_type=content_type,
     )
