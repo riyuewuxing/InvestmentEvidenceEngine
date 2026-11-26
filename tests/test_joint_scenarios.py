@@ -118,3 +118,25 @@ def test_star_minimum_and_tick_slippage():
     changed=x.model_copy(update={"stock_cost":COST.model_copy(update={"entry_adverse_bps":1.})})
     r=joint_scenarios(a,changed,evaluated_at=NOW)
     assert r["stock_entry"]["assumed_entry_price_cny"]==10.01
+
+
+def test_large_envelope_uses_bounded_fee_domain_and_discrete_lot():
+    a=ANCHOR.model_copy(update={"stock_raw_close_cny":900000.})
+    x=inputs().model_copy(update={"budget_cny":100000000.})
+    r=joint_scenarios(a,x,evaluated_at=NOW)
+    assert r["stock_entry"]["units"]==100
+    assert r["stock_entry"]["residual_cash_cny"]>0
+    assert r["etf_entry"]["single_order_cap_reached"]
+    x=inputs().model_copy(update={"budget_cny":100000000.})
+    r=joint_scenarios(ANCHOR,x,evaluated_at=NOW)
+    assert r["stock_entry"]["single_order_cap_reached"]
+    assert r["states"][0]["stock_terminal_hurdles"]["cash"]["required_terminal_reference_price_cny"]>0
+
+
+def test_positive_subtick_price_is_not_zero_recovery():
+    x=inputs()
+    state=x.states[0].model_copy(update={"stock":StockTerminal(explicit_terminal_price_cny=.001,
+        after_tax_cash_per_initial_share_cny=0.,basis_note="synthetic below tick")})
+    r=joint_scenarios(ANCHOR,x.model_copy(update={"states":(state,x.states[1])}),evaluated_at=NOW)
+    assert r["states"][0]["stock"]["status"]=="POSITIVE_REFERENCE_BELOW_MODELED_EXIT_TICK"
+    assert "conditional_net_return_pct" not in r["states"][0]["stock"]

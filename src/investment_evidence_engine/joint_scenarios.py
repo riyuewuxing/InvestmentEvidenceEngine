@@ -25,6 +25,7 @@ LOT_RULE_SOURCES = (
     "https://www.szse.cn/lawrules/rule/trade/current/t20260424_620190.html",
 )
 MAX_PRICE = Decimal("1000000")
+MAX_FEE_NOTIONAL = Decimal("10000000000")
 
 
 class _Strict(BaseModel):
@@ -171,7 +172,7 @@ def _tick(subject: PublicSecurity) -> Decimal:
 
 def _fill(subject: PublicSecurity,price: Decimal,bps: float,*,buy: bool) -> Decimal:
     adverse=_d(bps)/10000
-    return price.__mul__(1+adverse if buy else 1-adverse).quantize(
+    return (price*(1+adverse if buy else 1-adverse)).quantize(
         _tick(subject),rounding=ROUND_CEILING if buy else ROUND_FLOOR)
 
 
@@ -199,7 +200,10 @@ def _entry(subject: PublicSecurity,day: date,price: Decimal,budget: Decimal,cost
     if initial+fee>budget:
         return {"status":"NO_AFFORDABLE_MINIMUM_LOT","minimum_units":minimum,
                 "minimum_conditional_cash_cny":float(initial+fee)}
-    low,high=0,(maximum-minimum)//step
+    # Never probe a quantity already unaffordable before fees. This also
+    # keeps the fee model within its bounded notional domain.
+    upper=min(maximum,int(budget//fill))
+    low,high=0,(upper-minimum)//step
     while low<high:
         mid=(low+high+1)//2
         value,fee=spend(minimum+mid*step)
@@ -228,6 +232,10 @@ def _terminal(subject: PublicSecurity,day: date,price: Decimal,payout: float | N
     fill=_fill(subject,price,cost.exit_adverse_bps,buy=False)
     units=entry["units"]
     sale=_money(fill*units)
+    if price>0 and fill<=0:
+        return common | {"status":"POSITIVE_REFERENCE_BELOW_MODELED_EXIT_TICK"}
+    if sale>MAX_FEE_NOTIONAL:
+        return common | {"status":"EXIT_NOTIONAL_OUTSIDE_COST_MODEL"}
     fee=_fee(subject,day,sale,cost,buy=False)
     if sale>0 and fee>sale:
         # Fee exceeds terminal proceeds: no financed sale assumed.
@@ -256,7 +264,8 @@ def _hurdle(subject: PublicSecurity,day: date,payout: float,cash_factor: Decimal
         return row["status"]=="CONDITIONAL_TERMINAL_WEALTH_ONLY" and _d(row["terminal_wealth_cny"])>=target
     if enough(0):
         return 0.
-    high=int(MAX_PRICE/tick)
+    bound=MAX_FEE_NOTIONAL/(_d(entry["units"])*(1-_d(cost.exit_adverse_bps)/10000))
+    high=int(min(MAX_PRICE,bound)/tick)
     if not enough(high):
         return None
     low=1
@@ -306,10 +315,11 @@ def joint_scenarios(anchor: PairPriceAnchor, assumptions: JointAssumptions, *, e
                 price=_hurdle(anchor.stock,day,state.stock.after_tax_cash_per_initial_share_cny,
                     factor,se,assumptions.stock_cost,budget,_d(target))
                 profit=None
-                if price is not None and state.stock.terminal_pe is not None:
+                if price is not None and price>0 and state.stock.terminal_pe is not None:
                     profit=float(_d(price)*state.stock.terminal_share_count/_d(state.stock.terminal_pe))
                 hurdle[key]={"required_terminal_reference_price_cny":price,
                     "required_terminal_profit_cny_at_state_pe_and_shares":profit,
+                    "cash_and_payout_assumptions_alone_cover_target":price==0 if price is not None else None,
                     "target_terminal_wealth_cny":float(target)}
         rows.append({"state_id":state.state_id,"rationale":state.rationale,"invalidator":state.invalidator,
             "stock":stock,"etf":etf,"cash":{"terminal_wealth_cny":None if cash_wealth is None else float(cash_wealth),
