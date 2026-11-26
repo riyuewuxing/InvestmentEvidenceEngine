@@ -1,9 +1,6 @@
 name: Public ALFRED vintage control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-alfred-vintage-control.yml"
 permissions:
   contents: read
 concurrency:
