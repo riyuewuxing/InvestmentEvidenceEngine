@@ -1,0 +1,28 @@
+name: Bounded worker cross-platform check
+on:
+  push:
+    paths:
+      - 'src/investment_evidence_engine/bounded_worker.py'
+      - 'tests/test_bounded_worker.py'
+      - '.github/workflows/bounded-worker-windows.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install test runner
+        timeout-minutes: 2
+        run: python -m pip install pytest
+      - name: Exercise actual worker success and timeout on Windows
+        timeout-minutes: 2
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q tests/test_bounded_worker.py
