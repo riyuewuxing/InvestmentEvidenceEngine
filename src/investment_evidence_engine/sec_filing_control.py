@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener

@@ -1,10 +1,6 @@
 name: Public issuer Q3 original and comparative basis
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-issuer-q3-control.yml'
-      - 'scripts/public_issuer_q3_control.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

@@ -3,7 +3,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from investment_evidence_engine.sec_filing_control import CIK, FILING, PERIOD, TAG, extract_concept, extract_filings
+from investment_evidence_engine.sec_filing_control import (
+    CIK,
+    FILING,
+    PERIOD,
+    TAG,
+    extract_concept,
+    extract_filings,
+)
 
 NOW = datetime(2026, 11, 26, tzinfo=UTC)
 

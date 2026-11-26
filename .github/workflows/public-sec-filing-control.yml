@@ -1,10 +1,6 @@
 name: Public SEC filing identity and concept control
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-sec-filing-control.yml'
-      - 'scripts/public_sec_filing_control.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

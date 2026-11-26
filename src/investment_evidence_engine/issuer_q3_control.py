@@ -85,7 +85,7 @@ def _child(url: str, path: Path) -> None:
                                "body": base64.b64encode(raw).decode(), "retrieved_at": captured})
 
 
-def observe_pdf(url: str, folder: Path) -> dict:
+def observe_pdf(url: str, folder: Path, *, pressure: bool = False) -> dict:
     from pypdf import PdfReader
 
     out = {"url": url, "status": "BLOCK", "raw_body_retained": False}
@@ -124,6 +124,13 @@ def observe_pdf(url: str, folder: Path) -> dict:
         out |= {"page_count": len(reader.pages),
                 "page_sha256": [hashlib.sha256(x.encode()).hexdigest() for x in pages],
                 "financial": extract_q3(*pages)}
+        if pressure:
+            from .issuer_q3_pressure import EXPECTED_SHA, extract_pressure
+
+            if digest != EXPECTED_SHA:
+                raise ValueError("Q3_PRESSURE_VERSION_MISMATCH")
+            out["pressure"] = extract_pressure({i: reader.pages[i-1].extract_text() or ""
+                                               for i in (5, 6, 7, 9, 10)})
     except Exception as exc:  # noqa: BLE001
         message = str(exc)
         return out | {"error": message if re.fullmatch(r"Q3_[A-Z_]+", message) else type(exc).__name__}
