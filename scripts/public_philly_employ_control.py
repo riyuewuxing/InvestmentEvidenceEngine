@@ -58,17 +58,33 @@ def row_fields(rows) -> dict:
         raise ValueError("PHILLY_SERIES_UNIT")
     if len(matches) != 1:
         raise ValueError("PHILLY_TARGET_SCOPE")
-    values = []
-    for value in matches[0][1:4]:
-        if value is None or value == ".":
-            values.append(None)
-        elif type(value) in (int, float, Decimal) and -100000 <= value <= 100000 and int(value) == value:
-            values.append(int(value) * 1000)
-        else:
-            raise ValueError("PHILLY_VALUE_SCHEMA")
+    cells = [release_cell(v) for v in matches[0][1:4]]
     return {"period": "2025-08", "series": "EMPLOY", "unit": "JOBS",
-            "release_values": values, "target_date_label": matches[0][0].strip(),
-            "latest_revision_not_used": True}
+            "release_values": [c["jobs"] for c in cells], "target_date_label": matches[0][0].strip(),
+            "release_cells": cells, "latest_revision_not_used": True}
+
+
+def release_cell(value) -> dict:
+    """Preserve explicit missing versus invalid; never substitute a later vintage."""
+    cell = {"type": type(value).__name__, "jobs": None, "status": "INVALID"}
+    if value is None:
+        return cell | {"status": "MISSING", "literal": None}
+    literal = str(value)
+    # The exact fixed source is public; only short numeric or missing-like tokens
+    # are exposed to diagnose schema drift, never arbitrary worksheet text.
+    if re.fullmatch(r"[-+0-9A-Za-z#./_ ]{0,40}", literal):
+        cell["literal"] = literal
+    else:
+        cell["literal"] = None
+        cell["unrecognized_length"] = len(literal)
+    if isinstance(value, str) and value.strip() in {"", ".", "NA", "N/A", "#N/A", "NaN"}:
+        return cell | {"status": "MISSING"}
+    if type(value) in (int, float, Decimal) or (
+            isinstance(value, str) and re.fullmatch(r"-?[0-9]{1,6}(?:\\.0{1,12})?", value)):
+        number = Decimal(str(value))
+        if number.is_finite() and -100000 <= number <= 100000 and number == number.to_integral_value():
+            return cell | {"status": "OBSERVED", "jobs": int(number) * 1000}
+    return cell
 
 
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -214,6 +230,10 @@ def main() -> int:
               "executor_commit": os.environ["GITHUB_SHA"], "worker_status": task.status,
               "elapsed_seconds": task.elapsed_seconds, "original_values_jobs": expected,
               "date_format_documentation": DATE_FORMAT_DOC, "expected_prior_sha256": EXPECTED_SHA256,
+              "release_methodology": ("https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/"
+                                      "real-time-data/data-files/documentation/"
+                                      "documentation_first_second_third_release_values.pdf"
+                                      "?hash=BA6377422DCA6DECD4D22C0DDD895D4B&la=en"),
               "original_source_sha256": [r.raw_sha256 for r in originals],
               "raw_body_retained": False, "historical_capture_verified": False,
               "source_independence_verified": False, "intraday_availability_verified": False,
@@ -241,8 +261,12 @@ def main() -> int:
                 result |= {"fields": fields, "matches": matches,
                            "comparison": "MATCH" if all(x is True for x in matches) else (
                                "CONFLICT" if any(x is False for x in matches) else "INCOMPLETE")}
-                # Missing values are never substituted by later revisions.
-                if result["comparison"] == "MATCH":
+                # The official methodology (May 21 2026, pp.10–11) expressly
+                # preserves missing release values near the 2025 shutdown.
+                if any(c["status"] == "INVALID" for c in fields["release_cells"]):
+                    result["comparison"] = "INVALID_SOURCE_CELL"
+                    result["error"] = "PHILLY_VALUE_SCHEMA"
+                elif result["comparison"] == "MATCH":
                     result["status"] = "WARN"
         except Exception as exc:
             result["error"] = str(exc) if re.fullmatch(r"PHILLY_[A-Z_]+", str(exc)) else type(exc).__name__

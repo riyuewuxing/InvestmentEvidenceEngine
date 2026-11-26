@@ -76,3 +76,12 @@ def test_documented_colon_month_label_and_alias_collision(control):
         control.row_fields(prefix + [actual, ("2025:M08", 22, -4, -26, 999)])
     with pytest.raises(ValueError, match="TARGET_SCOPE"):
         control.row_fields(prefix + [("2025:09", 22, -4, -26, 999)])
+
+
+def test_explicit_missing_and_invalid_are_distinct(control):
+    assert control.release_cell("NA") == {"type": "str", "jobs": None, "status": "MISSING", "literal": "NA"}
+    assert control.release_cell("#N/A")["status"] == "MISSING"
+    assert control.release_cell("22.000")["jobs"] == 22000
+    assert control.release_cell("22.01")["status"] == "INVALID"
+    assert control.release_cell("unexpected")["status"] == "INVALID"
+    assert control.release_cell(None)["jobs"] is None

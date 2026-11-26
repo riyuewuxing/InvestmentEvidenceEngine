@@ -25,6 +25,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Verify documented yyyy:mm label against exact prior workbook
+      - name: Inspect exact target release cells and preserve intentional missingness
         timeout-minutes: 2
         run: timeout --signal=TERM --kill-after=5s 85s python scripts/public_philly_employ_control.py
