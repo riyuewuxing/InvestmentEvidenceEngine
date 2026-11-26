@@ -115,3 +115,10 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Official SSE main/STAR listing observed and raw rehash (1700 + 619, scope only); exact packet replay synthetic tests.
 - [ ] SZSE official transport and full independent listing coverage, actual public candidate packet; no forced full scan while gate BLOCK.
 - [ ] Genuine historical availability, corporate actions/cost/execution proof, real research profile and formal private same-SHA admission.
+
+## 2026-11-26 — exact real candidate diagnostics
+- [x] Public disclosure-directory / scan packet exact replay (WARN, limited scope).
+- [x] Same-run first real candidate retrospective raw-price diagnostic (WARN, ex-post; not formal RESEARCH).
+- [x] Shared strict candidate selection schema and fail-closed crosscheck receipt checks; verify final regression.
+- [ ] Official SZSE active-list coverage, independent price and vintage provenance, retention permission and independently verified original attachments.
+- [ ] Real historical PIT fundamental/research profile and private same-SHA formal admission; no freeze settlement before due time.

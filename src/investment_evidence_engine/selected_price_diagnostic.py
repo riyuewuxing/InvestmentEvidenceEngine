@@ -6,6 +6,7 @@ selection feasibility, a source graph, a PIT research profile, or advice.
 from __future__ import annotations
 
 import hashlib
+import math
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -57,6 +58,13 @@ def evaluate_market_payload(payload: object, *, symbol: str) -> dict:
     crosscheck = payload.get("crosscheck")
     if (not isinstance(crosscheck, dict) or crosscheck.get("status") != "MATCH_OBSERVED_ROWS"
             or crosscheck.get("tolerance") != 0.001
+            or type(crosscheck.get("max_relative_price_diff")) not in {int, float}
+            or not math.isfinite(crosscheck["max_relative_price_diff"])
+            or not 0 <= crosscheck["max_relative_price_diff"] <= 0.001
+            or type(crosscheck.get("overlap_rows")) is not int
+            or crosscheck["overlap_rows"] <= 0
+            or type(crosscheck.get("left_only_dates")) is not int
+            or type(crosscheck.get("right_only_dates")) is not int
             or crosscheck.get("latest_common_date") != end.isoformat()
             or crosscheck.get("left_only_dates") != 0 or crosscheck.get("right_only_dates") != 0):
         raise ValueError("SELECTED_DIAGNOSTIC_PRICE_CROSSCHECK_REQUIRED")

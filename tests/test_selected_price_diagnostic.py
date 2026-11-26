@@ -54,7 +54,7 @@ def payload():
             "pit_safe": False, "decision_authority": False, "historical_vintage_verified": False,
             "crosscheck": {"status": "MATCH_OBSERVED_ROWS", "tolerance": 0.001,
                            "latest_common_date": END.isoformat(), "overlap_rows": len(rows),
-                           "left_only_dates": 0, "right_only_dates": 0},
+                           "left_only_dates": 0, "right_only_dates": 0, "max_relative_price_diff": 0.0},
             "providers": [{"upstream": "eastmoney", "status": "OBSERVED"},
                           {"upstream": "tencent", "status": "OBSERVED", "raw_body_parent_rehash": "MATCH"}],
             "bars": [{"date": d.isoformat(), "open": 10, "close": 10, "high": 11, "low": 9, "volume": 1000}
@@ -83,4 +83,12 @@ def test_missing_or_conflicting_market_observation_blocks(fault):
     else:
         data["bars"].pop(10)
     with pytest.raises(ValueError):
+        evaluate_market_payload(data, symbol="600001")
+
+
+@pytest.mark.parametrize("value", [None, True, -0.1, 0.00101, float("nan"), float("inf")])
+def test_claimed_match_requires_bounded_actual_difference(value):
+    data = payload()
+    data["crosscheck"]["max_relative_price_diff"] = value
+    with pytest.raises(ValueError, match="PRICE_CROSSCHECK_REQUIRED"):
         evaluate_market_payload(data, symbol="600001")

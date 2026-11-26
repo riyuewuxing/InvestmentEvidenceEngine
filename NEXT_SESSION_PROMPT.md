@@ -51,3 +51,7 @@ Read current public and private authority state and latest exact-SHA Actions log
 ## 2026-11-26 latest checkpoint
 
 Use current exact SHA and completed logs. Tencent/Eastmoney 459-bar control and 38-bar production raw crosscheck already observed; do not rerun unchanged. SSE main/STAR compact date format observed successfully (1700/619); SZSE transport blocked. Do not blind retry or treat partial coverage as full. Conditional real scan never ran, packet replay synthetic only. Retrospective diagnostic is not PIT RESEARCH. Preserve historical acceptance pin, private dual gate BLOCK, and frozen prospective experiment. Resolve missing coverage/real candidate attachment and genuine PIT evidence before formal admission.
+
+## Latest continuation checkpoint — real candidate evidence
+
+Read current STATE and actual completed run logs before work. 45813236403 obtained real CNINFO directory / Sina scan and exact temporary attachment replay; 45813637777 extended to exact first candidate 000035 with 459 common raw OHLC bars. These are WARN price-only diagnostic, not formal RESEARCH, not durable vendor bytes or historical selection/availability. Do not rerun these controls just to obtain more green runs. SZSE official transport and full listing verification still BLOCK. Prioritize actual dated issuer disclosure / revision provenance, genuine historical observation, and licensed original-byte retention; preserve RESEARCH fail closed until supported. Public independent resources only. No private runner, no pin advance, no prospective settlement before existing cutoff.
