@@ -56,6 +56,14 @@ with TemporaryDirectory() as temp:
     assert payload["bars"] and all(row["date"][:10] <= cutoff.isoformat() for row in payload["bars"])
     assert payload["pit_safe"] is False and payload["historical_vintage_verified"] is False
     assert payload["source_independence_verified"] is False
+    assert payload["volume_units_crosschecked"] is False
+    assert payload["primary_upstream"] != "tencent"
+    # This run checks the newly integrated two-vendor path, not just a
+    # standalone adapter experiment. Failure to observe both remains failure.
+    assert payload["crosscheck"]["status"] == "MATCH_OBSERVED_ROWS"
+    observed_sources = {p["upstream"] for p in payload["providers"] if p["status"] == "OBSERVED"}
+    assert "tencent" in observed_sources and len(observed_sources) == 2
+    assert next(p for p in payload["providers"] if p["upstream"] == "tencent")["raw_body_parent_rehash"] == "MATCH"
     summary.update({"artifact_sha256": artifact.sha256, "local_artifact_rehash": "MATCH",
                     "providers": payload["providers"], "crosscheck": payload["crosscheck"],
                     "historical_vintage_verified": False, "raw_provider_bytes_retained": False})

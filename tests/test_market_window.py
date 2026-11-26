@@ -96,7 +96,7 @@ def test_observed_match_warns_and_raw_adjust_survives(ctx, monkeypatch):
     monkeypatch.setattr("investment_evidence_engine.market_worker._observe", observed)
     result = run_market_data_resilient(op(history_end_offset_days=1, adjust=""), ctx)
     assert result.status == "WARN"
-    assert calls == [("eastmoney", date(2026, 11, 25), ""), ("baostock", date(2026, 11, 25), "")]
+    assert calls == [("eastmoney", date(2026, 11, 25), ""), ("tencent", date(2026, 11, 25), "")]
     payload = ctx.payloads["market"]
     assert payload["crosscheck"]["status"] == "MATCH_OBSERVED_ROWS"
     assert payload["pit_safe"] is False
@@ -110,3 +110,50 @@ def test_all_providers_fail_closed(ctx, monkeypatch):
     assert result.status == "BLOCK"
     assert result.metrics["provider_count"] == 3
     assert "market" not in ctx.payloads
+
+
+def test_raw_secondary_never_becomes_primary_and_falls_back(ctx, monkeypatch):
+    calls = []
+    data = _bounded_frame(frame(), date(2026, 11, 1), date(2026, 11, 25))
+
+    def observed(source, symbol, start, end, adjust):
+        calls.append(source)
+        return ((data, {"provider": source, "status": "OBSERVED"}) if source == "baostock"
+                else (None, {"provider": source, "status": "BLOCK"}))
+
+    monkeypatch.setattr("investment_evidence_engine.market_worker._observe", observed)
+    result = run_market_data_resilient(op(history_end_offset_days=1, adjust=""), ctx)
+    assert calls == ["eastmoney", "sina", "baostock", "tencent"]
+    assert result.status == "WARN"
+    assert ctx.payloads["market"]["primary_upstream"] == "baostock"
+
+
+def test_adjusted_history_does_not_use_raw_tencent(ctx, monkeypatch):
+    calls = []
+    data = _bounded_frame(frame(), date(2026, 11, 1), date(2026, 11, 25))
+
+    def observed(source, symbol, start, end, adjust):
+        calls.append(source)
+        assert adjust == "qfq"
+        return data, {"provider": source, "status": "OBSERVED"}
+
+    monkeypatch.setattr("investment_evidence_engine.market_worker._observe", observed)
+    assert run_market_data_resilient(op(history_end_offset_days=1), ctx).status == "WARN"
+    assert calls == ["eastmoney", "baostock"]
+
+
+def test_conflicting_raw_prices_are_not_research_inputs(ctx, monkeypatch):
+    data = _bounded_frame(frame(), date(2026, 11, 1), date(2026, 11, 25))
+
+    def observed(source, symbol, start, end, adjust):
+        other = data.copy()
+        if source == "tencent":
+            other["close"] *= 1.02
+        return other, {"provider": source, "status": "OBSERVED"}
+
+    monkeypatch.setattr("investment_evidence_engine.market_worker._observe", observed)
+    result = run_market_data_resilient(op(history_end_offset_days=1, adjust=""), ctx)
+    assert result.status == "BLOCK"
+    assert result.errors == ["MARKET_PRICE_CONFLICT"]
+    assert "market" not in ctx.frames and "market" not in ctx.payloads
+    assert len(result.artifacts) == 1

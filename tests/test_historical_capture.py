@@ -1,5 +1,8 @@
+import sys
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from investment_evidence_engine import historical_capture as capture
@@ -111,3 +114,16 @@ def test_crosscheck_requires_every_pair_not_only_first_provider():
                     (high, middle, low, etf)):
         result = summarize_observed_pair(A, B, ordered, START, END)
         assert result["status"] == "BLOCKED" and result["error_code"] == "SOURCE_CONFLICT"
+
+
+def test_historical_eastmoney_uses_current_endpoint_without_live_retry(monkeypatch):
+    calls = []
+
+    def current(**kwargs):
+        calls.append(kwargs)
+        return pd.DataFrame({"日期": [END.isoformat()], "收盘": [100.0]})
+
+    monkeypatch.setitem(sys.modules, "akshare", SimpleNamespace(stock_zh_a_hist_em=current))
+    assert capture._provider_rows("eastmoney", A, START, END) == [[END.isoformat(), 100.0]]
+    assert calls == [{"symbol": A.symbol, "period": "daily", "start_date": START.strftime("%Y%m%d"),
+                      "end_date": END.strftime("%Y%m%d"), "adjust": ""}]

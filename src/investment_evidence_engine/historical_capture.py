@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .akshare_daily_adapter import call_sina_stock_daily
+from .akshare_daily_adapter import call_akshare_daily, call_sina_stock_daily
 from .historical_reference import DailyClose, HistoricalCloseSeries, historical_pair_reference
 
 SH = ZoneInfo("Asia/Shanghai")
@@ -143,8 +143,10 @@ def _provider_rows(source: str, subject: PublicSecurity, start: date, end: date)
 
     first, last = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     if source == "eastmoney":
-        method = ak.stock_zh_a_hist if subject.asset_type == "STOCK" else ak.fund_etf_hist_em
-        frame = method(symbol=subject.symbol, period="daily", start_date=first, end_date=last, adjust="")
+        kwargs = {"symbol": subject.symbol, "period": "daily", "start_date": first,
+                  "end_date": last, "adjust": ""}
+        frame = (call_akshare_daily(ak, **kwargs) if subject.asset_type == "STOCK"
+                 else ak.fund_etf_hist_em(**kwargs))
         frame = frame.rename(columns={"日期": "date", "收盘": "close"})
     elif source == "sina" and subject.asset_type == "STOCK":
         frame = call_sina_stock_daily(ak, symbol=prefixed, start_date=first, end_date=last, adjust="")

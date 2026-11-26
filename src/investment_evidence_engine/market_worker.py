@@ -117,6 +117,15 @@ def _child(source: str, symbol: str, start: date, end: date, adjust: str, path: 
 
 
 def _observe(source: str, symbol: str, start: date, end: date, adjust: str):
+    if source == "tencent":
+        # Lazy import avoids a circular import; the direct adapter observes
+        # raw day bars and rehashes the actual HTTP body in the parent.
+        from .retrospective_control import acquire_tencent
+
+        if adjust != "":
+            raise ValueError("TENCENT_RAW_ONLY")
+        frame, info = acquire_tencent(symbol, start, end)
+        return frame, info | {"upstream": "tencent", "volume_unit_verified": False}
     result = run_json_worker(
         (sys.executable, "-m", "investment_evidence_engine.market_worker", "--child",
          source, symbol, start.isoformat(), end.isoformat(), adjust or "none"),
@@ -209,13 +218,26 @@ def run_market_data_resilient(
 
     successes: list[tuple[str, str, pd.DataFrame]] = []
     provider_status: list[dict[str, object]] = []
-    for source in ("eastmoney", "sina", "baostock"):
-        if source == "sina" and successes:
-            continue
+    def attempt(source: str) -> None:
         frame, info = _observe(source, symbol, start, end, adjust)
         provider_status.append(info)
         if frame is not None:
             successes.append((str(info["provider"]), source, frame))
+
+    # Tencent raw OHLC is a second observation only: its volume units have
+    # not been independently established, so never substitute it as the
+    # generic primary OHLCV feed. Do not compare its raw bars to qfq/hfq.
+    tencent_eligible = (adjust == "" and (end - start).days <= 1100
+                        and symbol.startswith(("60", "68", "00", "30")))
+    attempt("eastmoney")
+    if not successes:
+        attempt("sina")
+    if successes and tencent_eligible:
+        attempt("tencent")
+    if len(successes) < 2:
+        attempt("baostock")
+    if tencent_eligible and len(successes) == 1 and successes[0][1] == "baostock":
+        attempt("tencent")
 
     if not successes:
         return OperationResult(
@@ -253,15 +275,24 @@ def run_market_data_resilient(
         "primary_upstream": primary_upstream,
         "providers": provider_status,
         "crosscheck": crosscheck,
+        "crosscheck_fields": ["open", "high", "low", "close"],
+        "volume_units_crosschecked": False,
         "bars": json.loads(
             primary.to_json(orient="records", date_format="iso", force_ascii=False)
         ),
         "decision_authority": False,
     }
-    context.frames[operation.operation_id] = primary
-    context.payloads[operation.operation_id] = details
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, details)
+    if crosscheck["status"] in {"PRICE_CONFLICT", "NO_OVERLAP"}:
+        return OperationResult(
+            operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+            artifacts=[_artifact(path)], errors=[f"MARKET_{crosscheck['status']}"],
+            metrics={"rows": len(primary), "crosscheck_status": crosscheck["status"],
+                     "provider_success_count": len(successes)},
+        )
+    context.frames[operation.operation_id] = primary
+    context.payloads[operation.operation_id] = details
 
     # Agreement of normalized rows is not proof of historical publication or vintage.
     status = "WARN"
