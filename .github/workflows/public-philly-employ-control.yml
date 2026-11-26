@@ -1,0 +1,30 @@
+name: Public Philadelphia Fed release control
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-philly-employ-control.yml"
+permissions:
+  contents: read
+concurrency:
+  group: public-philly-employ-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Observe one official release table and replay retained originals
+        timeout-minutes: 2
+        run: timeout --signal=TERM --kill-after=5s 85s python scripts/public_philly_employ_control.py
