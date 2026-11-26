@@ -13,7 +13,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
-from investment_evidence_engine.research_profile_evidence import canonical_sha256, evaluate_market_profile
+from investment_evidence_engine.research_profile_evidence import (
+    canonical_sha256,
+    evaluate_market_profile,
+)
 from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.snapshot_integrity import strict_json_loads
 from investment_evidence_engine.transport_integrity import read_verified_artifact
@@ -32,11 +35,11 @@ PRIOR_EXECUTOR = "53020c1b280042e4999ebfe1831d58b00cd3a04d"
 PRIOR_DIAGNOSTIC = Path(__file__).resolve().parents[1] / "fixtures/research_profile/observed_20261126_000035_diagnostic.json"
 
 
-def main(*, same_version: bool = False) -> int:
+def main(*, same_version: bool = False, fresh_recompute: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     sha = os.environ["GITHUB_SHA"]
-    subject = "000035" if same_version else SUBJECT
+    subject = "000035" if same_version or fresh_recompute else SUBJECT
     op = ExecutionOperation(operation_id="market", kind="MARKET_DATA",
         parameters={"subject_ids": [subject], "as_of": SCOPE,
                     "history_days": (LAST-FIRST).days, "history_end_offset_days": 1,
@@ -91,6 +94,22 @@ def main(*, same_version: bool = False) -> int:
                     report["profile_diagnostic"] = current
                 else:
                     report["profile_diagnostic"] = evaluate_market_profile(raw, symbol=subject, as_of=SCOPE)
+                    if fresh_recompute:
+                        import pandas as pd
+
+                        from investment_evidence_engine.retrospective_control import retrospective_momentum
+
+                        first_pass = report["profile_diagnostic"]
+                        reopened = read_verified_artifact(output, art.path, art.sha256, art.size_bytes)
+                        second_pass = evaluate_market_profile(reopened, symbol=subject, as_of=SCOPE)
+                        wrapper = retrospective_momentum(pd.DataFrame(data["bars"]), FIRST, LAST)
+                        if (canonical_sha256(first_pass) != canonical_sha256(second_pass)
+                                or canonical_sha256(wrapper) != canonical_sha256(first_pass["raw_price_diagnostic"])):
+                            raise ValueError("RESEARCH_FRESH_ARITHMETIC_RECOMPUTE_MISMATCH")
+                        report |= {"fresh_observed_version_only": True, "prior_version_match_claimed": False,
+                                   "same_artifact_reopen_and_recompute": "MATCH",
+                                   "existing_wrapper_recompute": "MATCH",
+                                   "prior_normalized_bar_version_mismatch_preserved": True}
                 report["status"] = "WARN"
             except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
                 reason = str(exc)
@@ -105,4 +124,6 @@ if __name__ == "__main__":
         raise SystemExit(main())
     if sys.argv[1:] == ["--same-version"]:
         raise SystemExit(main(same_version=True))
+    if sys.argv[1:] == ["--fresh-recompute"]:
+        raise SystemExit(main(fresh_recompute=True))
     raise SystemExit(2)

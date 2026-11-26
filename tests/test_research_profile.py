@@ -183,3 +183,41 @@ def test_market_request_window_and_recomputation_are_exact(tmp_path):
     report["raw_price_diagnostic"]["segments"][2]["stress"][0]["signal_rule"]["net_price_change_pct"] += 1
     with pytest.raises(ValueError, match="RECOMPUTATION_MISMATCH"):
         verify_diagnostic(raw, json.dumps(report).encode(), **kwargs)
+
+
+def test_complete_rows_and_computation_projection_have_distinct_digests():
+    p = payload()
+    first = evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+    p["bars"][10]["amount"] = 123.45
+    second = evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+    assert first["input_bars_sha256"] != second["input_bars_sha256"]
+    assert first["input_signal_rows_sha256"] == second["input_signal_rows_sha256"]
+    assert first["input_validated_ohlcv_sha256"] == second["input_validated_ohlcv_sha256"]
+    assert first["raw_price_diagnostic"] == second["raw_price_diagnostic"]
+    p["bars"][10]["volume"] += 1
+    third = evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+    assert second["input_validated_ohlcv_sha256"] != third["input_validated_ohlcv_sha256"]
+    assert second["input_signal_rows_sha256"] == third["input_signal_rows_sha256"]
+    p["bars"][10]["open"] += 0.01
+    fourth = evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+    assert third["input_signal_rows_sha256"] != fourth["input_signal_rows_sha256"]
+
+
+def test_legacy_receipt_compatibility_does_not_allow_partial_version_metadata(tmp_path):
+    _, _, ref = fixture(tmp_path)
+    p = payload()
+    raw = json.dumps(p).encode()
+    report = evaluate_market_profile(raw, symbol=ref.selector.value, as_of=ref.as_of)
+    report |= {"status": "BLOCK", "formal_blocker": "RESEARCH_POINT_IN_TIME_SOURCE_VINTAGE_AND_PROFILE_NOT_ADMITTED",
+               "candidate_attachment_sha256": ref.source_artifact_sha256,
+               "candidate_record_sha256": ref.selector.record_sha256, "source_operation_id": "market",
+               "source_graph_verified": False, "historical_selection_verified": False}
+    kwargs = {"symbol": ref.selector.value, "as_of": ref.as_of,
+              "candidate_sha256": ref.source_artifact_sha256,
+              "record_sha256": ref.selector.record_sha256, "source_operation_id": "market"}
+    v1 = {k: v for k, v in report.items() if k not in {
+        "profile_receipt_version", "input_signal_rows_sha256", "input_validated_ohlcv_sha256"}}
+    assert verify_diagnostic(raw, json.dumps(v1).encode(), **kwargs) == v1
+    report.pop("profile_receipt_version")
+    with pytest.raises(ValueError, match="VERSION_MISMATCH"):
+        verify_diagnostic(raw, json.dumps(report).encode(), **kwargs)

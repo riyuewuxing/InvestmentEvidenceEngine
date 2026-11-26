@@ -140,7 +140,17 @@ def evaluate_market_profile(raw: bytes, *, symbol: str, as_of: str) -> dict:
             raise ValueError("RESEARCH_MARKET_ROW_OHLCV")
     diagnostic = momentum_profile(tuple(dates), [float(row["close"]) for row in bars],
                                   [float(row["open"]) for row in bars])
+    # Record the complete received rows separately from the exact numerical
+    # projection used by the fixed algorithm. Optional amount/turnover changes
+    # cannot be confused with a changed price-only computation input.
+    signal_rows = [[d.isoformat(), float(row["open"]), float(row["close"])]
+                   for d, row in zip(dates, bars, strict=True)]
+    validated_rows = [[d.isoformat(), *[float(row[k]) for k in ("open", "high", "low", "close", "volume")]]
+                      for d, row in zip(dates, bars, strict=True)]
     return {"profile": PROFILE, "symbol": symbol, "as_of": as_of,
+            "profile_receipt_version": 2,
+            "input_signal_rows_sha256": canonical_sha256(signal_rows),
+            "input_validated_ohlcv_sha256": canonical_sha256(validated_rows),
             "input_bars_sha256": canonical_sha256(bars),
             "input_market_sha256": hashlib.sha256(raw).hexdigest(),
             "input_market_size_bytes": len(raw), "raw_price_diagnostic": diagnostic,
@@ -161,6 +171,13 @@ def verify_diagnostic(raw_market: bytes, raw_diagnostic: bytes, *,
                  "source_operation_id": source_operation_id, "source_graph_verified": False,
                  "historical_selection_verified": False}
     observed = strict_json_loads(raw_diagnostic)
+    if isinstance(observed, dict) and "profile_receipt_version" not in observed:
+        # Explicit legacy v1 compatibility: only the three new fields may be
+        # absent; all prior result fields still require exact recomputation.
+        if {"input_signal_rows_sha256", "input_validated_ohlcv_sha256"} & observed.keys():
+            raise ValueError("RESEARCH_DIAGNOSTIC_VERSION_MISMATCH")
+        for field in ("profile_receipt_version", "input_signal_rows_sha256", "input_validated_ohlcv_sha256"):
+            expected.pop(field)
     if canonical_sha256(observed) != canonical_sha256(expected):
         raise ValueError("RESEARCH_DIAGNOSTIC_RECOMPUTATION_MISMATCH")
     return expected

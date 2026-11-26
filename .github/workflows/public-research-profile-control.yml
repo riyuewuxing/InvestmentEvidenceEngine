@@ -26,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Exact prior normalized-bar version and diagnostic recompute
+      - name: Fresh observed version, projection hashes and independent arithmetic recompute
         timeout-minutes: 3
-        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_profile_control.py --same-version
+        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_profile_control.py --fresh-recompute
