@@ -181,3 +181,43 @@ def verify_diagnostic(raw_market: bytes, raw_diagnostic: bytes, *,
     if canonical_sha256(observed) != canonical_sha256(expected):
         raise ValueError("RESEARCH_DIAGNOSTIC_RECOMPUTATION_MISMATCH")
     return expected
+
+
+def evaluate_entitlement_sensitivity(raw_market: bytes, raw_terms: bytes, *, symbol: str, as_of: str) -> dict:
+    """Recompute on an exact raw-market artifact and explicit caller terms.
+
+    This is a local arithmetic sensitivity, never independent verification of
+    the terms' original disclosures or of actual account cash. Do not replace
+    the sealed price-only artifact or use this result for admission.
+    """
+    from .cash_entitlement import terms_from_mapping
+    from .holding_risk import CashDistribution, CashDistributionInputs
+    from .momentum_entitlement import momentum_entitlement_profile
+
+    if type(raw_terms) is not bytes or not 0 < len(raw_terms) <= 128*1024:
+        raise ValueError("RESEARCH_ENTITLEMENT_TERMS_INPUT_SIZE")
+    rows = strict_json_loads(raw_terms)
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+        raise ValueError("RESEARCH_ENTITLEMENT_TERMS_INPUT_LIST")
+    terms = tuple(terms_from_mapping(row) for row in rows)
+    base = evaluate_market_profile(raw_market, symbol=symbol, as_of=as_of)
+    bars = strict_json_loads(raw_market)["bars"]
+    days = tuple(date.fromisoformat(row["date"][:10]) for row in bars)
+    events = CashDistributionInputs(events=tuple(CashDistribution(
+        subject_id=t.symbol, disclosed_date=t.disclosed_date, ex_date=t.ex_date,
+        gross_cash_per_unit_cny=float(t.gross_per_share), source_locator=t.source_locator)
+        for t in terms))
+    sensitivity = momentum_entitlement_profile(days, [float(row["close"]) for row in bars],
+        [float(row["open"]) for row in bars], subject=PublicSecurity(symbol=symbol, asset_type="STOCK"),
+        events=events, reference_terms=terms)
+    if canonical_sha256(sensitivity["price_only_baseline"]) != canonical_sha256(base["raw_price_diagnostic"]):
+        raise ValueError("RESEARCH_ENTITLEMENT_PRICE_BASELINE_MISMATCH")
+    return {"status": "CONDITIONAL_CALLER_TERMS_RECOMPUTED_ONLY", "symbol": symbol, "as_of": as_of,
+            "input_market_sha256": base["input_market_sha256"],
+            "input_signal_rows_sha256": base["input_signal_rows_sha256"],
+            "input_terms_sha256": hashlib.sha256(raw_terms).hexdigest(),
+            "input_terms_size_bytes": len(raw_terms),
+            "price_baseline_sha256": canonical_sha256(base["raw_price_diagnostic"]),
+            "terms_source_original_bytes_verified": False, "formal_profile_admitted": False,
+            "admissible_for_decision": False, "execution_allowed": False, "pit_safe": False,
+            "calculation": sensitivity}

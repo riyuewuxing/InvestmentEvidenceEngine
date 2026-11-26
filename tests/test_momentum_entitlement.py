@@ -1,10 +1,12 @@
+import json
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
+from hashlib import sha256
 
 import pytest
 
-from investment_evidence_engine.cash_entitlement import CashEntitlementTerms
+from investment_evidence_engine.cash_entitlement import CashEntitlementTerms, terms_to_mapping
 from investment_evidence_engine.historical_capture import PublicSecurity
 from investment_evidence_engine.holding_risk import CashDistribution, CashDistributionInputs
 from investment_evidence_engine.market_calendar import scheduled_days
@@ -12,6 +14,7 @@ from investment_evidence_engine.momentum_entitlement import (
     momentum_entitlement_profile,
     segregated_entitlement_metrics,
 )
+from investment_evidence_engine.research_profile_evidence import evaluate_entitlement_sensitivity
 
 
 def test_ex_open_buy_excluded_ex_open_sell_included():
@@ -84,3 +87,53 @@ def test_profile_requires_event_identity_and_complete_calendar(fault):
     with pytest.raises(ValueError):
         momentum_entitlement_profile(days, values, values, subject=subject, events=events,
                                      reference_terms=supplied)
+
+
+def market_fixture():
+    days, values, symbol, terms, _ = fixture()
+    n = len(days)
+    market = {"symbol": symbol.symbol, "as_of": "2026-11-26", "start": days[0].isoformat(),
+              "end": days[-1].isoformat(), "adjust": "", "history_end_offset_days": 1,
+              "pit_safe": False, "historical_vintage_verified": False, "decision_authority": False,
+              "bars": [{"date": d.isoformat(), "open": v, "close": v, "high": v, "low": v, "volume": 1}
+                       for d, v in zip(days, values, strict=True)],
+              "crosscheck": {"status": "MATCH_OBSERVED_ROWS", "overlap_rows": n,
+                             "left_only_dates": 0, "right_only_dates": 0, "tolerance": 0.001,
+                             "max_relative_price_diff": 0.0, "latest_common_date": days[-1].isoformat()},
+              "providers": [{"upstream": "sina", "status": "OBSERVED", "rows": n},
+                            {"upstream": "tencent", "status": "OBSERVED", "rows": n,
+                             "raw_body_parent_rehash": "MATCH"}]}
+    return market, [terms_to_mapping(terms)]
+
+
+def test_artifact_sensitivity_binds_exact_bytes_and_never_admits():
+    market, terms = market_fixture()
+    raw = json.dumps(market).encode()
+    raw_terms = json.dumps(terms).encode()
+    result = evaluate_entitlement_sensitivity(raw, raw_terms, symbol="000035", as_of="2026-11-26")
+    assert result["input_market_sha256"] == sha256(raw).hexdigest()
+    assert result["input_terms_sha256"] == sha256(raw_terms).hexdigest()
+    assert result["calculation"]["segments"][0]["stress"][0]["constant_invested"]["gross_entitlement_increment_pp"] > 0
+    for key in ("pit_safe", "formal_profile_admitted", "execution_allowed",
+                "admissible_for_decision", "terms_source_original_bytes_verified"):
+        assert result[key] is False
+
+
+@pytest.mark.parametrize("fault", ["empty", "float", "identity", "qfq", "duplicate", "gap"])
+def test_artifact_sensitivity_rejects_invalid_source_or_terms(fault):
+    market, terms = market_fixture()
+    if fault == "empty":
+        terms = []
+    elif fault == "float":
+        terms[0]["gross_per_share"] = 0.0352
+    elif fault == "identity":
+        terms[0]["symbol"] = "000036"
+    elif fault == "qfq":
+        market["adjust"] = "qfq"
+    elif fault == "duplicate":
+        terms.append(terms[0])
+    else:
+        market["bars"].pop(5)
+    with pytest.raises(ValueError):
+        evaluate_entitlement_sensitivity(json.dumps(market).encode(), json.dumps(terms).encode(),
+            symbol="000035", as_of="2026-11-26")

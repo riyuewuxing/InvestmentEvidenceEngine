@@ -1,10 +1,6 @@
 name: Public dividend accounting control
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-dividend-accounting.yml'
 permissions:
   contents: read
 concurrency:
