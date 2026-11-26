@@ -1,10 +1,6 @@
 name: Public BLS exact archive retention
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-bls-archive-retention.yml'
-      - 'scripts/public_bls_archive_retention.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
