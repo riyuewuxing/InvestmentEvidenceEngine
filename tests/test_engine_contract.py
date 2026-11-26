@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import subprocess
 from datetime import date, timedelta
@@ -130,8 +131,12 @@ def test_runner_propagates_dependency_status(tmp_path, monkeypatch, upstream_sta
         if operation.operation_id == "first":
             context.payloads["first"] = {"diagnostic": True}
             return OperationResult(operation_id="first", status=upstream_status)
+        filename = operation.operation_id + ".json"
+        body = b"synthetic fixture"
+        (context.output_dir / filename).write_bytes(body)
         return OperationResult(operation_id=operation.operation_id, status="PASS",
-                               artifacts=[ArtifactRef(path=operation.operation_id + ".json", sha256="a" * 64)])
+                               artifacts=[ArtifactRef(path=filename, sha256=hashlib.sha256(body).hexdigest(),
+                                                      size_bytes=len(body))])
 
     monkeypatch.setattr(runner, "run_operation", fake_worker)
     result = execute_request(path, output_dir=tmp_path / "out",
@@ -191,3 +196,24 @@ def test_real_pit_block_is_not_factor_input(tmp_path) -> None:
     assert result.operations[1].errors == ["UPSTREAM_NOT_USABLE:pit"]
     assert (out / "pit.json").is_file()
     assert not (out / "factor.json").exists()
+
+
+def test_runner_refuses_stale_output_directory(tmp_path):
+    request = _request([ExecutionOperation(operation_id="noop", kind="TEST_SUITE")])
+    request.request_sha256 = request.compute_hash()
+    path = tmp_path / "request.json"
+    path.write_text(request.model_dump_json(), encoding="utf-8")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "stale.json").write_bytes(b"old")
+    with pytest.raises(ValueError, match="OUTPUT_DIRECTORY_MUST_BE_EMPTY"):
+        execute_request(path, output_dir=out, executor_repo="example/public", executor_commit=COMMIT)
+
+
+def test_runner_refuses_duplicate_json_key_before_model_validation(tmp_path):
+    request = _request([ExecutionOperation(operation_id="noop", kind="TEST_SUITE")])
+    request.request_sha256 = request.compute_hash()
+    path = tmp_path / "request.json"
+    path.write_text('{"job_id":"wrong",' + request.model_dump_json()[1:], encoding="utf-8")
+    with pytest.raises(ValueError, match="DUPLICATE_JSON_KEY"):
+        execute_request(path, output_dir=tmp_path / "out", executor_repo="example/public", executor_commit=COMMIT)

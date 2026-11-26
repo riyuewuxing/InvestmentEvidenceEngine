@@ -6,14 +6,14 @@ import json
 import os
 import platform
 import re
-import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .contracts import ExecutionRequest, ExecutionResult, ExecutorStamp, OperationResult
 from .dispatch import run_operation
-from .transport_integrity import result_transport_errors
+from .snapshot_integrity import strict_json_loads
+from .transport_integrity import observe_artifact_file, read_contract_bytes, result_transport_errors
 from .workers import WorkerContext
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -53,12 +53,15 @@ def execute_request(
     executor_repo: str,
     executor_commit: str,
 ) -> ExecutionResult:
-    request = ExecutionRequest.model_validate_json(request_path.read_text(encoding="utf-8"))
+    request_bytes = read_contract_bytes(request_path)
+    request = ExecutionRequest.model_validate(strict_json_loads(request_bytes))
     if not request.verify():
         raise ValueError("ExecutionRequest request_sha256 is missing or invalid")
 
+    if output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
+        raise ValueError("EXECUTION_OUTPUT_DIRECTORY_MUST_BE_EMPTY")
     output_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(request_path, output_dir / "execution_request.json")
+    (output_dir / "execution_request.json").write_bytes(request_bytes)
     started = datetime.now(UTC)
     context = WorkerContext(output_dir=output_dir)
     results: list[OperationResult] = []
@@ -92,6 +95,11 @@ def execute_request(
     )
     if transport_errors:
         raise ValueError("EXECUTION_TRANSPORT_INVALID:" + ";".join(transport_errors))
+    for item in results:
+        for artifact in item.artifacts:
+            observed, _ = observe_artifact_file(output_dir, artifact.path, artifact.size_bytes)
+            if observed != artifact.sha256:
+                raise ValueError("EXECUTION_ARTIFACT_HASH_MISMATCH:" + artifact.path)
     finished = datetime.now(UTC)
     result = ExecutionResult(
         job_id=request.job_id,

@@ -1,6 +1,10 @@
+import hashlib
+
 import pytest
 
 from investment_evidence_engine.transport_integrity import (
+    observe_artifact_file,
+    read_contract_bytes,
     request_chain_errors,
     result_transport_errors,
     safe_artifact_path,
@@ -76,3 +80,54 @@ def test_invalid_dependency_graph(dependencies):
     requested = ops()
     requested[1]["parameters"]["depends_on_operation_ids"] = dependencies
     assert "INVALID_OPERATION_DEPENDENCIES:second" in request_chain_errors(requested)
+
+
+def test_observe_exact_bytes_and_size(tmp_path):
+    body = b"synthetic evidence"
+    path = tmp_path / "sub" / "evidence.json"
+    path.parent.mkdir()
+    path.write_bytes(body)
+    assert observe_artifact_file(tmp_path, "sub/evidence.json", len(body)) == (
+        hashlib.sha256(body).hexdigest(), len(body))
+    with pytest.raises(ValueError, match="SIZE_MISMATCH"):
+        observe_artifact_file(tmp_path, "sub/evidence.json", len(body) + 1)
+    with pytest.raises(ValueError, match="OVERSIZED"):
+        observe_artifact_file(tmp_path, "sub/evidence.json", max_bytes=5)
+    with pytest.raises(ValueError, match="NOT_OBSERVED"):
+        observe_artifact_file(tmp_path, "missing.json")
+
+
+def test_observation_rejects_symlink_even_inside_root(tmp_path):
+    target = tmp_path / "evidence.json"
+    target.write_bytes(b"valid")
+    alias = tmp_path / "alias.json"
+    try:
+        alias.symlink_to(target)
+    except OSError:
+        pytest.skip("symbolic links not available")
+    with pytest.raises(ValueError, match="SYMLINK_FORBIDDEN"):
+        observe_artifact_file(tmp_path, "alias.json")
+    with pytest.raises(ValueError, match="CONTRACT_FILE_INVALID"):
+        read_contract_bytes(alias)
+
+
+def test_observation_rejects_symlink_parent(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "data.json").write_bytes(b"ok")
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links not available")
+    with pytest.raises(ValueError, match="SYMLINK_FORBIDDEN"):
+        observe_artifact_file(tmp_path, "alias/data.json")
+
+
+def test_bounded_contract_read(tmp_path):
+    path = tmp_path / "request.json"
+    path.write_bytes(b"{}")
+    assert read_contract_bytes(path) == b"{}"
+    path.write_bytes(b"")
+    with pytest.raises(ValueError, match="CONTRACT_FILE_INVALID"):
+        read_contract_bytes(path)

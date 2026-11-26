@@ -1,8 +1,10 @@
 """Public, deterministic transport checks. Integrity is not semantic or PIT admission."""
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 _STATUSES = ("ERROR", "BLOCK", "PENDING", "WARN", "PASS")
 _METADATA = frozenset({"execution_request.json", "execution_result.json", "run_manifest.json"})
@@ -99,3 +101,54 @@ def result_transport_errors(request_ops: Sequence[Mapping], result_ops: Sequence
     if overall_status in {"PASS", "WARN"} and not paths:
         errors.append("NO_OBSERVABLE_ARTIFACTS")
     return errors
+
+
+MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
+MAX_CONTRACT_BYTES = 4 * 1024 * 1024
+
+
+def read_contract_bytes(path: Path) -> bytes:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_CONTRACT_BYTES:
+        raise ValueError("CONTRACT_FILE_INVALID_OR_OVERSIZED")
+    with path.open("rb") as handle:
+        raw = handle.read(MAX_CONTRACT_BYTES + 1)
+    if not raw or len(raw) > MAX_CONTRACT_BYTES:
+        raise ValueError("CONTRACT_FILE_INVALID_OR_OVERSIZED")
+    return raw
+
+
+def observe_artifact_file(root: Path, relative: str, expected_size: int | None = None,
+                          *, max_bytes: int = MAX_ARTIFACT_BYTES) -> tuple[str, int]:
+    """Bounded rehash of a regular artifact below root, not a trust/authority assertion.
+
+    The consumer owns the extraction directory; concurrent hostile filesystem mutation
+    is outside this portable check's threat model.
+    """
+    if not safe_artifact_path(relative):
+        raise ValueError("UNSAFE_ARTIFACT_PATH")
+    if type(max_bytes) is not int or not 0 < max_bytes <= MAX_ARTIFACT_BYTES:
+        raise ValueError("INVALID_ARTIFACT_LIMIT")
+    if expected_size is not None and (type(expected_size) is not int or not 0 <= expected_size <= max_bytes):
+        raise ValueError("ARTIFACT_SIZE_INVALID_OR_OVERSIZED")
+    root = root.resolve()
+    candidate = root
+    for part in relative.split("/"):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError("ARTIFACT_SYMLINK_FORBIDDEN")
+    if not candidate.resolve().is_relative_to(root) or not candidate.is_file():
+        raise ValueError("ARTIFACT_NOT_OBSERVED")
+    size = candidate.stat().st_size
+    if size > max_bytes or (expected_size is not None and size != expected_size):
+        raise ValueError("ARTIFACT_SIZE_MISMATCH_OR_OVERSIZED")
+    digest = hashlib.sha256()
+    count = 0
+    with candidate.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            count += len(chunk)
+            if count > max_bytes or count > size:
+                raise ValueError("ARTIFACT_SIZE_CHANGED_OR_OVERSIZED")
+            digest.update(chunk)
+    if count != size or (expected_size is not None and count != expected_size):
+        raise ValueError("ARTIFACT_SIZE_CHANGED_OR_OVERSIZED")
+    return digest.hexdigest(), count
