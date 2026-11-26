@@ -9,7 +9,9 @@ from investment_evidence_engine.twse_revenue_control import (
     PERCENTS,
     REQUIRED,
     compare,
+    compare_issuer_table,
     parse_exchange,
+    parse_issuer_table,
 )
 
 NOW = datetime(2026, 11, 26, 13, tzinfo=UTC)
@@ -66,3 +68,18 @@ def test_mismatch_cannot_be_rescaled_until_it_passes():
     pdf["unit"] = "TWD"
     with pytest.raises(ValueError, match="COMPARISON_SCOPE"):
         compare(row, pdf)
+
+
+def test_current_issuer_table_matches_limited_subset_not_original_pdf():
+    html = ("<h1>2026 Monthly Revenue</h1> In Millions of New Taiwan Dollars "
+            "<table><tr><td>Sept.</td><td>511,857</td><td>54.6%</td></tr>"
+            "<tr><td>Oct.</td><td>586,890</td><td>59.7%</td></tr>"
+            "<tr><td>Total</td><td>4,485,617</td><td>43.3%</td></tr></table>"
+            "Year 2026 figures have not been audited.")
+    table = parse_issuer_table(html.encode())
+    result = compare_issuer_table(parse_exchange(body(), NOW), table)
+    assert result["comparison"] == "MATCH_CURRENT_TABLE_SUBSET"
+    assert not result["original_issuer_pdf_runner_verified"]
+    assert not result["pit_safe"]
+    with pytest.raises(ValueError, match="TSMC_TABLE_ROWS_MISSING"):
+        parse_issuer_table(html.replace("Oct.", "Nov.").encode())

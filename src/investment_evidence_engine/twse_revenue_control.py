@@ -16,6 +16,7 @@ import re
 import sys
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener
@@ -28,6 +29,7 @@ from .official_pdf_transport import validate_pdf_shape
 
 URLS = {
     "exchange": "https://mopsfin.twse.com.tw/opendata/t187ap05_L.csv",
+    "issuer_table": "https://investor.tsmc.com/english/monthly-revenue/2026",
     "issuer": ("https://pr.tsmc.com/system/files/newspdf/attachment/"
                "382be7eb993b44afd73aa6fbcf92ac792433c7d1/October%202026%20%28E%29_final_wmn.pdf"),
 }
@@ -74,8 +76,8 @@ def round_to(value: Decimal, precision: str) -> Decimal:
     return value.quantize(Decimal(precision), rounding=ROUND_HALF_UP)
 
 
-def parse_exchange(raw: bytes, observed: datetime) -> dict:
-    if not 0 < len(raw) <= MAX_BYTES or observed.utcoffset() is None:
+def select_exchange(raw: bytes) -> tuple[dict, int]:
+    if not 0 < len(raw) <= MAX_BYTES:
         raise ValueError("TWSE_BODY_OR_CLOCK")
     reader = csv.reader(io.StringIO(raw.decode("utf-8-sig", errors="strict")), strict=True)
     headers = next(reader, [])
@@ -91,7 +93,13 @@ def parse_exchange(raw: bytes, observed: datetime) -> dict:
             matches.append(row)
     if len(matches) != 1:
         raise ValueError("TWSE_TARGET_MISSING_OR_DUPLICATE")
-    row = matches[0]
+    return matches[0], rows
+
+
+def parse_exchange(raw: bytes, observed: datetime) -> dict:
+    if observed.utcoffset() is None:
+        raise ValueError("TWSE_BODY_OR_CLOCK")
+    row, rows = select_exchange(raw)
     if row["公司名稱"] not in {"台積電", "台灣積體電路製造股份有限公司", "台灣積體電路製造"}:
         raise ValueError("TWSE_TARGET_IDENTITY")
     period = roc_date(row["資料年月"], month=True)
@@ -114,6 +122,90 @@ def parse_exchange(raw: bytes, observed: datetime) -> dict:
             "reported_rates_pct": [str(v) for v in rates],
             "recomputed_rates_pct": [str(round_to(v, "0.000001")) for v in calculated],
             "snapshot_not_publication_clock": True, "historical_vintage_verified": False}
+
+
+class RevenueTable(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.rows = []
+        self.hidden = 0
+        self.row = None
+        self.cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        if not self.hidden and tag == "tr":
+            self.row = []
+        elif not self.hidden and tag in {"td", "th"} and self.row is not None:
+            self.cell = []
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"} and self.hidden:
+            self.hidden -= 1
+        if self.hidden:
+            return
+        if tag in {"td", "th"} and self.cell is not None and self.row is not None:
+            self.row.append(normalize_text("".join(self.cell)))
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+            self.cell = None
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+            if self.cell is not None:
+                self.cell.append(data)
+
+
+def parse_issuer_table(raw: bytes) -> dict:
+    if not 0 < len(raw) <= MAX_BYTES:
+        raise ValueError("TSMC_TABLE_BODY_SIZE")
+    parser = RevenueTable()
+    parser.feed(raw.decode("utf-8-sig", errors="strict"))
+    parser.close()
+    flat = normalize_text(" ".join(parser.parts))
+    if not all(s in flat for s in ("2026MonthlyRevenue", "MillionsofNewTaiwanDollars",
+                                  "Year2026figureshavenotbeenaudited")):
+        raise ValueError("TSMC_TABLE_IDENTITY")
+    selected = {}
+    for row in parser.rows:
+        if row and row[0] in {"Sept.", "Sep.", "Oct.", "Total"}:
+            label = "Sept." if row[0] == "Sep." else row[0]
+            if label in selected or len(row) != 3 or not row[2].endswith("%"):
+                raise ValueError("TSMC_TABLE_ROW_SCOPE")
+            selected[label] = [amount(row[1]), str(percent(row[2][:-1]))]
+    if set(selected) != {"Sept.", "Oct.", "Total"}:
+        raise ValueError("TSMC_TABLE_ROWS_MISSING")
+    return {"symbol": "2330", "period": MONTH.isoformat(), "unit": "TWD_MILLIONS",
+            "rows": selected, "audited": False, "current_web_table_not_original_release": True,
+            "historical_vintage_verified": False, "normalized_text_sha256": hashlib.sha256(flat.encode()).hexdigest()}
+
+
+def compare_issuer_table(exchange: dict, table: dict) -> dict:
+    if (exchange["symbol"], table["symbol"], exchange["period"], table["period"],
+        exchange["unit"], table["unit"]) != ("2330", "2330", MONTH.isoformat(), MONTH.isoformat(),
+                                              "TWD_THOUSANDS", "TWD_MILLIONS"):
+        raise ValueError("TWSE_COMPARISON_SCOPE")
+    current, prior, year_ago, ytd, ytd_ago = exchange["amounts"]
+    rows = table["rows"]
+    diffs = [str(Decimal(a) / 1000 - Decimal(rows[b][0])) for a, b in
+             zip((current, prior, ytd), ("Oct.", "Sept.", "Total"), strict=True)]
+    rates = [round_to(pct(current, year_ago), "0.1") == Decimal(rows["Oct."][1]),
+             round_to(pct(ytd, ytd_ago), "0.1") == Decimal(rows["Total"][1])]
+    good = all(abs(Decimal(v)) <= Decimal("0.5") for v in diffs) and all(rates)
+    return {"status": "WARN" if good else "BLOCK",
+            "comparison": "MATCH_CURRENT_TABLE_SUBSET" if good else "CONFLICT",
+            "amount_differences_twd_millions": diffs, "rate_matches": rates,
+            "compared_amounts": ["October", "September", "YTD"],
+            "compared_rates": ["October_YOY", "YTD_YOY"],
+            "original_issuer_pdf_runner_verified": False, "same_issuer_upstream": True,
+            "historical_vintage_verified": False, "historical_capture_verified": False,
+            "first_availability_verified": False, "cross_market_causal_link_verified": False,
+            "pit_safe": False, "decision_authority": False, "execution_allowed": False}
 
 
 def parse_issuer(raw: bytes) -> dict:
@@ -219,7 +311,21 @@ def observe(kind: str) -> dict:
             raise ValueError("TWSE_RECEIPT_HASH")
         out |= {"sha256": digest, "bytes": len(raw), "parent_rehash": "MATCH",
                 "retrieved_at": end.isoformat()}
-        fields = parse_exchange(raw, end) if kind == "exchange" else parse_issuer(raw)
+        if kind == "exchange":
+            row, count = select_exchange(raw)
+            # Bounded public numeric fields only. Never include remarks or the
+            # entire exchange response. Preserve spaces/signs for schema triage.
+            out["source_rows_observed"] = count
+            out["numeric_schema_samples"] = {
+                key: row[key] if re.fullmatch(r"[0-9.,%+\\-\\s]{1,40}", row[key])
+                else {"format_unrecognized": True, "characters": len(row[key])}
+                for key in (*AMOUNTS, *PERCENTS)
+            }
+            fields = parse_exchange(raw, end)
+        elif kind == "issuer_table":
+            fields = parse_issuer_table(raw)
+        else:
+            fields = parse_issuer(raw)
         return out | {"status": "OBSERVED", "fields": fields}
     except (KeyError, ValueError, TypeError, csv.Error) as exc:
         code = str(exc)
@@ -233,10 +339,12 @@ def main() -> int:
 
     if os.environ["GITHUB_REPOSITORY"] != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
-    receipts = [observe(kind) for kind in URLS]
-    comparison = (compare(receipts[0]["fields"], receipts[1]["fields"])
+    # The original PDF already returned 403. Do not rerun that failed route.
+    receipts = [observe(kind) for kind in ("exchange", "issuer_table")]
+    comparison = (compare_issuer_table(receipts[0]["fields"], receipts[1]["fields"])
                   if all(r["status"] == "OBSERVED" for r in receipts)
                   else {"status": "BLOCK", "comparison": "INCOMPLETE"})
+    comparison["original_pdf_prior_http_status"] = 403
     report = comparison | {"executor_commit": os.environ["GITHUB_SHA"], "receipts": receipts,
         "dataset": "https://data.gov.tw/dataset/18420",
         "source_attribution": "金融監督管理委員會證券期貨局、臺灣證券交易所：上市公司每月營業收入彙總表",
