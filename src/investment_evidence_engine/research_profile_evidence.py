@@ -38,6 +38,22 @@ def check_profile(params: dict) -> None:
         raise ValueError("RESEARCH_PROFILE_UNEXPECTED_PARAMETERS")
 
 
+def check_market_request(params: dict, raw: bytes, *, symbol: str, as_of: str, input_id: str) -> None:
+    """Bind the exact observed window to the upstream operation request."""
+    if not isinstance(params, dict):
+        raise ValueError("RESEARCH_MARKET_REQUEST_REQUIRED")
+    expected = {"as_of": as_of, "subject_ids": [symbol], "input_artifact_ids": [input_id],
+                "adjust": "", "history_end_offset_days": 1, "price_tolerance": 0.001}
+    if (any(canonical_sha256(params.get(k)) != canonical_sha256(v) for k, v in expected.items())
+            or type(params.get("history_days")) is not int or not 30 <= params["history_days"] <= 1100):
+        raise ValueError("RESEARCH_MARKET_REQUEST_SCOPE")
+    last = date.fromisoformat(as_of) - timedelta(days=1)
+    first = last - timedelta(days=params["history_days"])
+    data = strict_json_loads(raw)
+    if not isinstance(data, dict) or (data.get("start"), data.get("end")) != (first.isoformat(), last.isoformat()):
+        raise ValueError("RESEARCH_MARKET_REQUEST_WINDOW_MISMATCH")
+
+
 def evaluate_market_profile(raw: bytes, *, symbol: str, as_of: str) -> dict:
     """Run the fixed arithmetic profile from exact observed serialized price rows.
 
@@ -89,6 +105,7 @@ def evaluate_market_profile(raw: bytes, *, symbol: str, as_of: str) -> dict:
         raise ValueError("RESEARCH_PROVIDER_RECEIPTS_REQUIRED")
     observed = [p for p in providers if p.get("status") == "OBSERVED"]
     if (len(observed) != 2 or len({p.get("upstream") for p in observed}) != 2
+            or any(p.get("upstream") not in {"sina", "eastmoney", "baostock", "tencent"} for p in observed)
             or not any(p.get("upstream") == "tencent" and p.get("raw_body_parent_rehash") == "MATCH"
                        for p in observed)
             or any(type(p.get("rows")) is not int or p["rows"] != len(bars) for p in observed)):
@@ -131,3 +148,19 @@ def evaluate_market_profile(raw: bytes, *, symbol: str, as_of: str) -> dict:
             "actual_costs_verified": False, "source_independence_verified": False,
             "research_only": True, "pit_safe": False,
             "decision_authority": False, "execution_allowed": False}
+
+
+def verify_diagnostic(raw_market: bytes, raw_diagnostic: bytes, *,
+                      symbol: str, as_of: str, candidate_sha256: str,
+                      record_sha256: str, source_operation_id: str) -> dict:
+    """Independently recalculate every diagnostic field; no declaration-only admission."""
+    expected = evaluate_market_profile(raw_market, symbol=symbol, as_of=as_of)
+    expected |= {"status": "BLOCK", "formal_blocker": FORMAL_BLOCKER,
+                 "candidate_attachment_sha256": candidate_sha256,
+                 "candidate_record_sha256": record_sha256,
+                 "source_operation_id": source_operation_id, "source_graph_verified": False,
+                 "historical_selection_verified": False}
+    observed = strict_json_loads(raw_diagnostic)
+    if canonical_sha256(observed) != canonical_sha256(expected):
+        raise ValueError("RESEARCH_DIAGNOSTIC_RECOMPUTATION_MISMATCH")
+    return expected

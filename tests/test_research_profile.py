@@ -11,8 +11,10 @@ from investment_evidence_engine.research_profile_evidence import (
     FACTOR,
     PROFILE,
     SPLIT,
+    check_market_request,
     check_profile,
     evaluate_market_profile,
+    verify_diagnostic,
 )
 from investment_evidence_engine.runner import execute_request
 
@@ -97,6 +99,8 @@ def test_sealed_chain_retains_diagnostic_but_formal_admission_blocks(tmp_path, m
     reqfile, _, ref = fixture(tmp_path)
     request = ExecutionRequest.model_validate_json(reqfile.read_bytes())
     request.operations[1].parameters = params(ref)
+    request.operations[0].parameters.update({"adjust": "", "history_end_offset_days": 1,
+        "price_tolerance": 0.001, "history_days": (date(2026, 11, 24)-date(2025, 1, 2)).days})
     request.request_sha256 = request.compute_hash()
     reqfile.write_text(request.model_dump_json(), encoding="utf-8")
 
@@ -153,3 +157,29 @@ def test_portable_math_rejects_invalid_ohlcv(field, value):
     p["bars"][10][field] = value
     with pytest.raises(ValueError, match="RESEARCH_MARKET_ROW_OHLCV"):
         evaluate_market_profile(json.dumps(p).encode(), symbol=p["symbol"], as_of=p["as_of"])
+
+
+def test_market_request_window_and_recomputation_are_exact(tmp_path):
+    _, _, ref = fixture(tmp_path)
+    p = payload()
+    raw = json.dumps(p).encode()
+    params = {"as_of": ref.as_of, "subject_ids": [ref.selector.value],
+              "input_artifact_ids": [ref.input_id], "adjust": "",
+              "history_end_offset_days": 1, "price_tolerance": 0.001,
+              "history_days": (date(2026, 11, 24)-date(2025, 1, 2)).days}
+    check_market_request(params, raw, symbol=ref.selector.value, as_of=ref.as_of, input_id=ref.input_id)
+    with pytest.raises(ValueError, match="WINDOW_MISMATCH"):
+        check_market_request(params | {"history_days": params["history_days"]+1}, raw,
+                             symbol=ref.selector.value, as_of=ref.as_of, input_id=ref.input_id)
+    report = evaluate_market_profile(raw, symbol=ref.selector.value, as_of=ref.as_of)
+    report |= {"status": "BLOCK", "formal_blocker": "RESEARCH_POINT_IN_TIME_SOURCE_VINTAGE_AND_PROFILE_NOT_ADMITTED",
+               "candidate_attachment_sha256": ref.source_artifact_sha256,
+               "candidate_record_sha256": ref.selector.record_sha256, "source_operation_id": "market",
+               "source_graph_verified": False, "historical_selection_verified": False}
+    kwargs = {"symbol": ref.selector.value, "as_of": ref.as_of,
+              "candidate_sha256": ref.source_artifact_sha256,
+              "record_sha256": ref.selector.record_sha256, "source_operation_id": "market"}
+    assert verify_diagnostic(raw, json.dumps(report).encode(), **kwargs) == report
+    report["raw_price_diagnostic"]["segments"][2]["stress"][0]["signal_rule"]["net_price_change_pct"] += 1
+    with pytest.raises(ValueError, match="RECOMPUTATION_MISMATCH"):
+        verify_diagnostic(raw, json.dumps(report).encode(), **kwargs)

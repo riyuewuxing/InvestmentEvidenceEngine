@@ -62,6 +62,7 @@ def run_operation(operation: ExecutionOperation, context: WorkerContext) -> Oper
     }
     if operation.kind == "MARKET_DATA":
         provenance["artifact_refs"] = [ref.model_dump(mode="json") for ref in result.artifacts]
+        provenance["market_parameters"] = dict(operation.parameters)
     if operation.kind == "MARKET_UNIVERSE":
         raw_market = operation.parameters.get("market")
         raw_asset_type = operation.parameters.get("asset_type")

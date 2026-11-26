@@ -15,6 +15,10 @@ STRESS_BPS = (10, 20, 30)
 
 def momentum_metrics(gross: list[float], targets: list[int], bps: int) -> dict:
     """One fresh-cash segment, trade at interval start, liquidate at terminal open."""
+    if (type(bps) is not int or not 0 <= bps < 10000 or not gross or len(gross) != len(targets)
+            or any(type(v) not in {int, float} or not math.isfinite(v) or v <= 0 for v in gross)
+            or any(type(v) is not int or v not in (0, 1) for v in targets)):
+        raise ValueError("RETROSPECTIVE_INVALID_METRICS_INPUT")
     wealth = 1.0
     peak = 1.0
     drawdown = 0.0
@@ -35,11 +39,13 @@ def momentum_metrics(gross: list[float], targets: list[int], bps: int) -> dict:
     drawdown = max(drawdown, 1 - wealth / peak)
     if not math.isfinite(wealth) or wealth <= 0:
         raise ValueError("RETROSPECTIVE_WEALTH_INVALID")
-    return {"net_price_change_pct": 100 * (wealth - 1),
-            "max_observed_open_drawdown_pct": 100 * drawdown,
+    net_change, max_drawdown = 100 * (wealth - 1), 100 * drawdown
+    if not math.isfinite(net_change) or not math.isfinite(max_drawdown):
+        raise ValueError("RETROSPECTIVE_NONFINITE_METRICS")
+    return {"net_price_change_pct": net_change,
+            "max_observed_open_drawdown_pct": max_drawdown,
             "unit_weight_turnover": turnover, "invested_intervals": sum(targets),
             "interval_count": len(targets)}
-
 
 
 def momentum_profile(dates: tuple[date, ...], closes: list[float], opens: list[float]) -> dict:

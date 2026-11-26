@@ -1,9 +1,5 @@
 name: Public actual research chain
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-actual-research-chain.yml'
   workflow_dispatch:
 permissions:
   contents: read

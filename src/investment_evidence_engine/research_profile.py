@@ -2,7 +2,13 @@
 from __future__ import annotations
 
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
-from .research_profile_evidence import FORMAL_BLOCKER, PROFILE, check_profile, evaluate_market_profile
+from .research_profile_evidence import (
+    FORMAL_BLOCKER,
+    PROFILE,
+    check_market_request,
+    check_profile,
+    evaluate_market_profile,
+)
 from .snapshot_integrity import strict_json_loads
 from .transport_integrity import read_verified_artifact
 from .workers import WorkerContext, _artifact, _write_json
@@ -59,6 +65,8 @@ def run_research(operation: ExecutionOperation, context: WorkerContext) -> Opera
             from .input_binding import observe_scan_input
 
             receipt, _ = observe_scan_input(context.output_dir, ref)
+            check_market_request(provenance.get("market_parameters"), raw, symbol=ref.selector.value,
+                                 as_of=cutoff, input_id=ref.input_id)
             report = evaluate_market_profile(raw, symbol=ref.selector.value, as_of=cutoff)
             report |= {"status": "BLOCK", "formal_blocker": FORMAL_BLOCKER,
                        "candidate_attachment_sha256": receipt.observed_sha256,
