@@ -78,6 +78,10 @@ def test_exact_bytes_retained_but_research_blocked(tmp_path, monkeypatch):
                              executor_commit="e" * 40, input_root=tmp_path)
     assert result.status == "BLOCK"
     assert result.operations[1].errors == ["RESEARCH_POINT_IN_TIME_SOURCE_VINTAGE_AND_PROFILE_NOT_ADMITTED"]
+    readiness = result.operations[1].metrics["research_readiness"]
+    assert readiness["candidate_attachment"] == "CONTEXT_SCOPE_MATCH_TRANSPORT_ONLY"
+    assert readiness["market_input"] == "UNVERIFIED"
+    assert readiness["research_admitted"] is False and readiness["pit_safe"] is False
     assert result.observed_input_artifacts[0].observed_sha256 == ref.source_artifact_sha256
     assert (out / ref.materialized_path).read_bytes() == path.read_bytes()
     assert result.as_of == DAY and result.result_sha256 == result.compute_hash()
@@ -154,3 +158,32 @@ def test_observe_actual_scan_worker_output_on_synthetic_fixture(tmp_path):
         update={"record_sha256": canonical_sha256(scan["candidates"][0])})})
     receipt, raw = observe_scan_input(tmp_path, ref)
     assert receipt.status == "MATCH" and raw == path.read_bytes()
+
+
+def test_research_readiness_never_promotes_context_claims(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from investment_evidence_engine.dispatch import EXTRA_WORKERS
+
+    reqfile, _, ref = fixture(tmp_path)
+
+    def market(op, context):
+        context.frames[op.operation_id] = pd.DataFrame([{"close": 10.0}])
+        context.payloads[op.operation_id] = {"symbol": ref.selector.value, "as_of": DAY,
+                                             "pit_safe": True, "historical_vintage_verified": True}
+        body = b"synthetic scope fixture"
+        (context.output_dir / "market.json").write_bytes(body)
+        return OperationResult(operation_id=op.operation_id, status="PASS",
+                               artifacts=[ArtifactRef(path="market.json", sha256=sha256(body).hexdigest(),
+                                                      size_bytes=len(body))])
+
+    monkeypatch.setitem(EXTRA_WORKERS, "MARKET_DATA", market)
+    result = execute_request(reqfile, output_dir=tmp_path / "out", executor_repo="public/example",
+                             executor_commit="e" * 40, input_root=tmp_path)
+    readiness = result.operations[1].metrics["research_readiness"]
+    assert result.status == "BLOCK"
+    assert readiness["market_input"] == "OBSERVED_SCOPE_MATCH_ONLY"
+    assert readiness["historical_source_vintage"] == "NOT_ADMITTED"
+    assert readiness["formal_profile"] == "NOT_ADMITTED"
+    assert readiness["research_admitted"] is False
+    assert readiness["decision_authority"] is False

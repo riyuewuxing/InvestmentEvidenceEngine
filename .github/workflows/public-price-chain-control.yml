@@ -1,9 +1,6 @@
 name: Public price chain actual control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-price-chain-control.yml"
 permissions:
   contents: read
 concurrency:

@@ -7,7 +7,11 @@ from tempfile import TemporaryDirectory
 
 from PIL import Image
 
-from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest, canonical_sha256
+from investment_evidence_engine.contracts import (
+    ExecutionOperation,
+    ExecutionRequest,
+    canonical_sha256,
+)
 from investment_evidence_engine.runner import execute_request
 
 REPO = "riyuewuxing/InvestmentEvidenceEngine"

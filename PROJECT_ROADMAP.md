@@ -164,3 +164,9 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual IPO, delist gap, A/B identity and merger termination notices, date-scope WARN.
 - [x] Actual two issuer PDFs, aggregate consideration and dual-route exact endpoint marks; intermediate value unknown, fractional allocation not inferred.
 - [ ] Official complete historical listing and corporate-action coverage, first availability, formal RESEARCH and private full same-SHA gates. Do not repeat completed fixed controls.
+
+## 2026-11-26 Turn 05
+- [x] Existing price and chart consumer subject/time/basis/row integrity; bounded standalone fetch and complete observed-row metric windows.
+- [x] Real sealed 600519 market-to-price-to-chart control, same bars and exact cutoff; WARN only, no true historical vintage.
+- [x] Existing formal RESEARCH BLOCK exposes transport vs unadmitted prerequisites, without granting access.
+- [ ] Genuine historical point-in-time evidence, full listing/corporate-action coverage, actual execution/cost inputs, formal profile and full private same-SHA gates. Do not repeat finished controls.
