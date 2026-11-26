@@ -1,7 +1,7 @@
 """Public-only regulatory source observation; never print document bodies."""
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from investment_evidence_engine.sources import DEFAULT_OFFICIAL_SOURCES, fetch_official_spec
 
@@ -15,7 +15,7 @@ def main():
             "source_id": name, "status": "IDENTITY_TOKENS_OBSERVED",
             "resolved_url": result.url, "content_sha256": result.content_sha256,
             "content_type": result.content_type, "fallback_count": len(failures),
-            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "observed_at": datetime.now(UTC).isoformat(),
             "decision_authority": False,
         }, ensure_ascii=False))
     except Exception as exc:
