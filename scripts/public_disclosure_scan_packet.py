@@ -17,6 +17,7 @@ from investment_evidence_engine.disclosure_directory import observe_directory
 from investment_evidence_engine.listing_comparison import compare_code_sets, stock_code
 from investment_evidence_engine.public_scan_packet import verify_public_scan_packet
 from investment_evidence_engine.runner import execute_request
+from investment_evidence_engine.selected_price_diagnostic import SCOPE, run_selected_price_diagnostic
 
 
 def main() -> int:
@@ -24,7 +25,7 @@ def main() -> int:
     if repo != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    if now.weekday() >= 5 or now.hour < 18:
+    if now.date() != SCOPE or now.hour < 18:
         raise SystemExit("after-close weekday only")
     day = now.date().isoformat()
     reference, meta = observe_directory()
@@ -57,7 +58,7 @@ def main() -> int:
                                     for item in result.operations]
             if result.status in {"PASS", "WARN"}:
                 try:
-                    receipt, selected, snapshot, _ = verify_public_scan_packet(root / "out", repo=repo, commit=commit)
+                    receipt, selected, snapshot, raw = verify_public_scan_packet(root / "out", repo=repo, commit=commit)
                     report["packet"] = receipt
                     report["comparison"] = compare_code_sets(reference, snapshot) | {
                         "reference_kind": "CNINFO_DISCLOSURE_DIRECTORY_NOT_EXCHANGE_LISTING"}
@@ -66,6 +67,8 @@ def main() -> int:
                     report["status"] = "WARN"
                     report["actual_packet_bytes_observed_in_runner"] = True
                     report["actual_packet_bytes_durably_retained"] = False
+                    report["selected_price_diagnostic"] = run_selected_price_diagnostic(
+                        raw, receipt, reference, root=root / "selected-diagnostic", repo=repo, commit=commit)
                 except (ValueError, KeyError, TypeError, OSError) as exc:
                     report["packet_blocker"] = (str(exc) if str(exc).startswith(("PUBLIC_SCAN_", "INPUT_ARTIFACT_"))
                                                 else type(exc).__name__)
