@@ -1,11 +1,5 @@
 name: Bounded public corporate action reconciliation
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/investment_evidence_engine/action_reference.py'
-      - 'scripts/action_reference_smoke.py'
-      - '.github/workflows/action-reference-smoke.yml'
   workflow_dispatch:
 permissions:
   contents: read

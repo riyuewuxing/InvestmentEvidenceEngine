@@ -33,6 +33,8 @@ DOCS = {
     "cancellation": ("2025-10-30/1224764617.PDF", "TY2025-43", "关于回购股份完成注销暨", (0,)),
     "registration": ("2025-12-05/1224850081.PDF", "TY2025-51", "关于完成注册资本工商变更登记的公告", (0,)),
 }
+INITIAL_DOCS = tuple(DOCS)
+DOCS["cash_2026"] = ("2026-08-14/1225471266.PDF", "TY2026-37", "2025年年度权益分派实施公告", (0, 2))
 MAX_BYTES = 1024 * 1024
 
 
@@ -63,6 +65,21 @@ def parse_pages(kind: str, pages: dict[int, str]) -> dict:
             gross_per_share=Decimal("0.0352"), declared_total_cash=Decimal("84058753.47"),
             declared_reference_deduction=Decimal("0.0336129"))
         return terms.checked() | {"delegated_payment_scheduled_date": "2025-08-06",
+                                  "actual_payment_verified": False}
+    if kind == "cash_2026":
+        _require(first, ("股权登记日:2026年8月19日", "除权除息日:2026年8月20日",
+                         "除权前总股本:2,388,032,769股", "无回购股份及其他不参与分红的股份",
+                         "每10股派息(含税):0.36元", "现金分红总额:85,969,179.68元",
+                         "除权后总股本:2,388,032,769股",
+                         "计算的每10股派息(含税):0.36元"))
+        _require(pages[2], ("代派的A股股东现金红利将于2026年8月20日",
+                            "中国天楹股份有限公司董事会", "2026年8月14日"))
+        terms = CashEntitlementTerms(symbol="000035", disclosed_date=date(2026, 8, 14),
+            record_date=date(2026, 8, 19), ex_date=date(2026, 8, 20),
+            source_locator=ROOT+suffix, total_shares=2388032769, excluded_shares=0,
+            gross_per_share=Decimal("0.036"), declared_total_cash=Decimal("85969179.68"),
+            declared_reference_deduction=Decimal("0.036"))
+        return terms.checked() | {"delegated_payment_scheduled_date": "2026-08-20",
                                   "actual_payment_verified": False}
     if kind == "cancellation":
         _require(first, ("112,750,413股", "总股本由2,500,783,182股变更为2,388,032,769股",
@@ -135,7 +152,7 @@ def observe(kind: str, folder: Path) -> dict:
 
 
 def reconcile(receipts: list[dict]) -> dict:
-    if (len(receipts) != len(DOCS) or {r["kind"] for r in receipts} != set(DOCS)
+    if (len(receipts) != len(INITIAL_DOCS) or {r["kind"] for r in receipts} != set(INITIAL_DOCS)
             or any(r["status"] != "OBSERVED" for r in receipts)):
         raise ValueError("ENTITLEMENT_INCOMPLETE_DOCUMENTS")
     by = {r["kind"]: r["fields"] for r in receipts}
@@ -173,7 +190,7 @@ def main() -> int:
               "historical_availability_verified": False, "raw_body_retained": False,
               "pit_safe": False, "decision_authority": False, "execution_allowed": False}
     with TemporaryDirectory() as temp:
-        report["documents"] = [observe(kind, Path(temp)) for kind in DOCS]
+        report["documents"] = [observe(kind, Path(temp)) for kind in INITIAL_DOCS]
     try:
         report["reconciliation"] = reconcile(report["documents"])
         report["status"] = "WARN"

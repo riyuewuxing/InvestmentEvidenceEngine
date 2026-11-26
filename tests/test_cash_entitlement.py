@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -8,6 +8,8 @@ from investment_evidence_engine.cash_entitlement import (
     CashEntitlementTerms,
     conditional_reference_price,
     reconcile_treasury_cancellation,
+    terms_from_mapping,
+    terms_to_mapping,
 )
 
 
@@ -55,3 +57,36 @@ def test_cancellation_is_not_split_or_registration_date():
         reconcile_treasury_cancellation(**(params | {"after": 2388032770}))
     with pytest.raises(ValueError):
         reconcile_treasury_cancellation(**(params | {"registration_completed": date(2025, 10, 27)}))
+
+
+def test_no_excluded_shares_uses_direct_rate_not_rounded_total_division():
+    x = replace(terms(), total_shares=2388032769, excluded_shares=0,
+                gross_per_share=Decimal("0.036"), declared_total_cash=Decimal("85969179.68"),
+                declared_reference_deduction=Decimal("0.036"))
+    assert x.checked()["reference_deduction_per_share_cny"] == "0.036"
+    assert x.checked()["rounding_profile"] == "TOTAL_CENT_HALF_UP_ALL_SHARES_DIRECT_RATE"
+    with pytest.raises(ValueError, match="REFERENCE_RECONCILIATION"):
+        replace(x, declared_reference_deduction=Decimal("0.0359999")).checked()
+
+
+def test_decimal_computation_is_independent_of_ambient_precision():
+    expected = terms().checked()
+    with localcontext() as ctx:
+        ctx.prec = 4
+        assert terms().checked() == expected
+        assert conditional_reference_price(Decimal("5.00"), Decimal("0.0336129")) == Decimal("4.97")
+
+
+@pytest.mark.parametrize("key,value", [
+    ("gross_per_share", 0.0352), ("gross_per_share", "3.52e-2"),
+    ("gross_per_share", "00.0352"), ("gross_per_share", "0.0352000000000"),
+    ("ex_date", "20250806"), ("record_date", "2025-8-5"), ("total_shares", True),
+    ("total_shares", "2500783182"), ("extra", True),
+])
+def test_serialized_terms_refuse_coercions_and_unexpected_fields(key, value):
+    with pytest.raises(ValueError):
+        terms_from_mapping(terms_to_mapping(terms()) | {key: value})
+
+
+def test_serialized_terms_roundtrip():
+    assert terms_from_mapping(terms_to_mapping(terms())) == terms()

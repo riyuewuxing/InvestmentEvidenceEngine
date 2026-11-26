@@ -1,0 +1,47 @@
+{
+  "run_id": 45856529066,
+  "job_id": 140036250613,
+  "executor_commit": "64df59cc4799bf81e6d6f68ef40b2bf49f48ac0d",
+  "derived_receipt_not_original_pdf": true,
+  "receipt": {
+    "elapsed_seconds": 2.975,
+    "fields": {
+      "actual_payment_verified": false,
+      "corporate_action_coverage_verified": false,
+      "decision_authority": false,
+      "declared_total_cash_cny": "84058753.47",
+      "delegated_payment_scheduled_date": "2025-08-06",
+      "disclosed_date": "2025-07-30",
+      "eligible_shares": 2388032769,
+      "entitlement_minus_reference_cny": "0.0015871",
+      "ex_date": "2025-08-06",
+      "excluded_shares": 112750413,
+      "gross_entitlement_per_share_cny": "0.0352",
+      "historical_availability_verified": false,
+      "record_date": "2025-08-05",
+      "reference_deduction_per_share_cny": "0.0336129",
+      "rounding_profile": "TOTAL_CENT_HALF_UP_REFERENCE_7DP_TRUNCATE",
+      "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF",
+      "symbol": "000035",
+      "total_shares": 2500783182
+    },
+    "historical_availability_verified": false,
+    "kind": "cash_2025",
+    "page_count": 4,
+    "page_text_sha256": {
+      "1": "7084bd9de3889c32be26af8a9be1f6c4bbb63a2398efb3c4e83a9a19ac584908",
+      "3": "4f4bf5c9e82188146a1f1777afcb64423bf0644918f67a126d56a43fee1590e4",
+      "4": "401af899a6a04cdf22c6a9ed8823071364fbb8795dfb516cdb842c0f79c2bea2"
+    },
+    "parent_rehash": "MATCH",
+    "raw_body_retained": false,
+    "retrieved_at": "2026-11-26T16:12:43.677282+00:00",
+    "source_bytes": 439046,
+    "source_sha256": "18ad09cf3d97f04fdff90b2ee0bee63380a021862098caefbbd9455cc97b15e8",
+    "started_at": "2026-11-26T16:12:40.824035+00:00",
+    "status": "OBSERVED",
+    "temporary_rehash": "MATCH",
+    "url": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF",
+    "worker_status": "OK"
+  }
+}
