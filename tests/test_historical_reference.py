@@ -5,6 +5,7 @@ import pytest
 from investment_evidence_engine.historical_reference import (
     DailyClose,
     HistoricalCloseSeries,
+    event_price_window_reference,
     historical_pair_reference,
 )
 
@@ -82,3 +83,45 @@ def test_model_copy_cannot_bypass_finite_positive_values():
     bad = b.model_copy(update={"closes": b.closes[:-1]+(b.closes[-1].model_copy(update={"close": 0.0}),)})
     with pytest.raises(ValueError):
         historical_pair_reference(a, bad, last_completed_session=DAYS[-1])
+
+
+def event_fixture():
+    days = tuple(START + timedelta(days=i) for i in range(70))
+    event_index = 45
+    a, b = [100.], [100.]
+    for index in range(1, len(days)):
+        r = .005 if index % 2 else -.004
+        shock = .04 if index == event_index else -.01 if index == event_index+1 else 0.
+        # The gap must not leak into the fit.
+        if event_index-5 <= index < event_index:
+            shock = .10
+        b.append(b[-1]*(1+r))
+        a.append(a[-1]*(1+.001+1.5*r+shock))
+    return days, event_index, series("A",a,days=days), series("B",b,days=days)
+
+
+def test_event_reference_fit_excludes_event_and_gap():
+    days, index, a, b = event_fixture()
+    report = event_price_window_reference(a,b,sessions=days,event_session=days[index])
+    assert report["alpha_daily_decimal"] == pytest.approx(.001)
+    assert report["beta"] == pytest.approx(1.5)
+    assert report["estimation_first_return_session"] == days[index-35].isoformat()
+    assert report["estimation_last_return_session"] == days[index-6].isoformat()
+    assert [x["market_model_arithmetic_car_pct"] for x in report["windows"]] == pytest.approx([4,3,3])
+    assert report["windows"][0]["candidate_close_return_pct"] == pytest.approx(
+        (a.closes[index].close/a.closes[index-1].close-1)*100)
+    assert not report["causal_effect_estimated"] and not report["historical_vintage_verified"]
+    assert not report["open_prices_available"] and not report["decision_authority"]
+
+
+def test_event_reference_missing_sessions_or_insufficient_estimation_blocks():
+    days, index, a, b = event_fixture()
+    for wrong in (days[1:], days[:-1], days[:10]+days[11:]):
+        with pytest.raises(ValueError):
+            event_price_window_reference(a,b,sessions=wrong,event_session=days[index])
+    for bad in (days[35], days[-4], days[-1]+timedelta(days=1)):
+        with pytest.raises(ValueError):
+            event_price_window_reference(a,b,sessions=days,event_session=bad)
+    with pytest.raises(ValueError, match="BENCHMARK_FLAT"):
+        event_price_window_reference(a,series("B",[100]*len(days),days=days),
+                                     sessions=days,event_session=days[index])

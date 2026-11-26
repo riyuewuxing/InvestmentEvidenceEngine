@@ -15,6 +15,7 @@ import sys
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, time
+from itertools import combinations
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -263,7 +264,7 @@ def summarize_observed_pair(candidate: PublicSecurity, alternative: PublicSecuri
         "research_only": True, "execution_allowed": False, "raw_provider_bytes_retained": False}
     if not left or not right:
         return summary | {"status": "BLOCKED", "error_code": "MISSING_ASSET_HISTORY"}
-    if any(not sources_agree(group[0], series) for group in (left, right) for series in group[1:]):
+    if any(not sources_agree(a, b) for group in (left, right) for a, b in combinations(group, 2)):
         return summary | {"status": "BLOCKED", "crosscheck": "CONFLICT", "error_code": "SOURCE_CONFLICT"}
     try:
         ref = historical_pair_reference(left[0], right[0], last_completed_session=end)

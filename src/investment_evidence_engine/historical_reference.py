@@ -140,3 +140,65 @@ def historical_pair_reference(
         candidate=_statistics(left, lr), alternative=_statistics(right, rr),
         daily_return_correlation=corr,
     )
+
+
+def event_price_window_reference(candidate: HistoricalCloseSeries,
+                                 benchmark: HistoricalCloseSeries, *,
+                                 sessions: tuple[date, ...], event_session: date) -> dict:
+    """Retrospective price-only event-window and market-model diagnostic.
+
+    Fixed 30 estimation returns, five-session gap, 1/3/5-session event windows.
+    Caller must establish the calendar and event reference session. No use of
+    event-window observations to fit the model. Not causal, PIT, total-return,
+    trading simulation or forecast evidence; no open-price decomposition.
+    """
+    if not sessions or type(event_session) is not date or any(type(d) is not date for d in sessions):
+        raise ValueError("EVENT_EXPLICIT_SESSION_REQUIRED")
+    reference = historical_pair_reference(candidate, benchmark, last_completed_session=sessions[-1])
+    if reference.currency != "CNY" or reference.price_basis != "RAW_CLOSE":
+        raise ValueError("EVENT_RAW_CNY_PRICE_REQUIRED")
+    if tuple(row.session for row in candidate.closes) != sessions:
+        raise ValueError("EVENT_SESSION_COVERAGE_INCOMPLETE")
+    if event_session not in sessions:
+        raise ValueError("EVENT_SESSION_NOT_IN_CALENDAR")
+    index = sessions.index(event_session)
+    estimation_count, gap = 30, 5
+    first, last = index-gap-estimation_count, index-gap-1
+    if first < 1 or index+4 >= len(sessions):
+        raise ValueError("EVENT_WINDOW_HISTORY_INSUFFICIENT")
+    a_prices, a_returns = _changes(candidate)
+    b_prices, b_returns = _changes(benchmark)
+    a_fit, b_fit = a_returns[first-1:last], b_returns[first-1:last]
+    assert len(a_fit) == len(b_fit) == estimation_count
+    mean_a, mean_b = math.fsum(a_fit)/estimation_count, math.fsum(b_fit)/estimation_count
+    variance = math.fsum((b-mean_b)**2 for b in b_fit)
+    if variance <= 0 or not math.isfinite(variance):
+        raise ValueError("EVENT_ESTIMATION_BENCHMARK_FLAT_OR_INVALID")
+    beta = math.fsum((a-mean_a)*(b-mean_b) for a,b in zip(a_fit,b_fit))/variance
+    alpha = mean_a-beta*mean_b
+    abnormal = [a_returns[t-1] - (alpha+beta*b_returns[t-1]) for t in range(index,index+5)]
+    rows = []
+    for horizon in (1, 3, 5):
+        end = index+horizon-1
+        a = (a_prices[end]/a_prices[index-1]-1)*100
+        b = (b_prices[end]/b_prices[index-1]-1)*100
+        rows.append({"sessions": horizon, "end_session": sessions[end].isoformat(),
+            "candidate_close_return_pct": a, "benchmark_close_return_pct": b,
+            "close_return_difference_pp": a-b,
+            "market_model_arithmetic_car_pct": math.fsum(abnormal[:horizon])*100})
+    values = [alpha, beta, *abnormal, *(v for row in rows for v in row.values() if isinstance(v,float))]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("EVENT_NONFINITE_DIAGNOSTIC")
+    return {"status": "RETROSPECTIVE_EVENT_PRICE_DIAGNOSTIC_ONLY",
+        "candidate_subject_id": candidate.subject_id, "benchmark_subject_id": benchmark.subject_id,
+        "event_session": event_session.isoformat(), "prior_close_session": sessions[index-1].isoformat(),
+        "estimation_first_return_session": sessions[first].isoformat(),
+        "estimation_last_return_session": sessions[last].isoformat(),
+        "estimation_return_count": estimation_count, "estimation_gap_sessions": gap,
+        "alpha_daily_decimal": alpha, "beta": beta, "windows": rows,
+        "price_basis": "RAW_CLOSE_WITHOUT_DISTRIBUTIONS",
+        "supplied_session_set_matched": True, "calendar_independently_verified": False,
+        "corporate_action_coverage_verified": False, "historical_vintage_verified": False,
+        "open_prices_available": False, "causal_effect_estimated": False,
+        "statistical_significance_estimated": False, "future_return_estimated": False,
+        "decision_authority": False, "research_only": True, "execution_allowed": False}

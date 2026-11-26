@@ -63,6 +63,11 @@ DEFAULT_OFFICIAL_SOURCES: dict[str, OfficialSourceSpec] = {
     ),
 }
 
+FED_FIXED_STATEMENT_URLS = frozenset({
+    "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250917a.htm",
+    "https://www.federalreserve.gov/newsevents/pressreleases/monetary20251210a.htm",
+})
+
 _ALLOWED_HOST_SUFFIXES = (
     "sse.com.cn",
     "szse.cn",
@@ -79,6 +84,8 @@ def validate_official_url(url: str) -> str:
             or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment):
         raise ValueError("official source URL must be HTTPS")
     host = parsed.hostname.lower()
+    if url in FED_FIXED_STATEMENT_URLS:
+        return url
     if not any(host == suffix or host.endswith("." + suffix) for suffix in _ALLOWED_HOST_SUFFIXES):
         raise ValueError(f"official source host is not allowlisted: {host}")
     return url
@@ -128,6 +135,8 @@ class OfficialRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Regulatory HTML/DOCX sources may legitimately redirect within the
         # approved official domains. Validate before issuing the next request.
+        if req.full_url in FED_FIXED_STATEMENT_URLS:
+            raise ValueError("fixed Federal Reserve control must not redirect")
         validate_official_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 

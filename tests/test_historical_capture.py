@@ -97,3 +97,17 @@ def test_all_provider_failures_do_not_emit_prices(monkeypatch):
     summary, found = observe_pair(A, B, START, END)
     assert summary["status"] == "BLOCKED" and found == ()
     assert len(summary["failures"]) == 7 and "reference" not in summary
+
+
+def test_crosscheck_requires_every_pair_not_only_first_provider():
+    # Each outer source matches the middle source at 0.09%, but the outer
+    # pair conflicts at about 0.18%. The result cannot depend on input order.
+    middle, low, high = (series(A, "sina"), series(A, "baostock", .9991),
+                         series(A, "tencent", 1.0009))
+    etf = series(B, "sina")
+    assert sources_agree(middle, low) and sources_agree(middle, high)
+    assert not sources_agree(low, high)
+    for ordered in ((middle, low, high, etf), (low, middle, high, etf),
+                    (high, middle, low, etf)):
+        result = summarize_observed_pair(A, B, ordered, START, END)
+        assert result["status"] == "BLOCKED" and result["error_code"] == "SOURCE_CONFLICT"

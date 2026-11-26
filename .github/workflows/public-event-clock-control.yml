@@ -1,0 +1,35 @@
+name: Fixed public cross-market event clock and price observation
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/public_event_clock_control.py'
+      - '.github/workflows/public-event-clock-control.yml'
+      - 'src/investment_evidence_engine/evidence_time_guard.py'
+      - 'src/investment_evidence_engine/historical_reference.py'
+      - 'src/investment_evidence_engine/historical_capture.py'
+      - 'src/investment_evidence_engine/sources.py'
+permissions:
+  contents: read
+concurrency:
+  group: public-event-clock-control-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fixed-public-control:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Observe two fixed official releases and public price controls
+        timeout-minutes: 4
+        run: timeout --signal=TERM --kill-after=5s 205s python scripts/public_event_clock_control.py
