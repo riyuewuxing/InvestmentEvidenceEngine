@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .contracts import ExecutionRequest, ExecutionResult, ExecutorStamp, OperationResult
 from .dispatch import run_operation
+from .input_binding import observe_scan_input
 from .snapshot_integrity import strict_json_loads
 from .transport_integrity import observe_artifact_file, read_contract_bytes, result_transport_errors
 from .workers import WorkerContext
@@ -52,6 +53,7 @@ def execute_request(
     output_dir: Path,
     executor_repo: str,
     executor_commit: str,
+    input_root: Path | None = None,
 ) -> ExecutionResult:
     request_bytes = read_contract_bytes(request_path)
     request = ExecutionRequest.model_validate(strict_json_loads(request_bytes))
@@ -60,10 +62,23 @@ def execute_request(
 
     if output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
         raise ValueError("EXECUTION_OUTPUT_DIRECTORY_MUST_BE_EMPTY")
+    # Verify attachments before any worker is dispatched. The trusted caller
+    # owns input_root; real source/vintage admission is a separate control.
+    observed = []
+    retained = []
+    for ref in request.input_artifacts:
+        receipt, raw = observe_scan_input(input_root or Path.cwd(), ref)
+        observed.append(receipt)
+        retained.append((ref.materialized_path, raw))
     output_dir.mkdir(parents=True, exist_ok=True)
+    for relative, raw in retained:
+        target = output_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
     (output_dir / "execution_request.json").write_bytes(request_bytes)
     started = datetime.now(UTC)
-    context = WorkerContext(output_dir=output_dir, request_as_of=request.as_of)
+    context = WorkerContext(output_dir=output_dir, request_as_of=request.as_of,
+                            input_artifacts={item.input_id: ref for item, ref in zip(observed, request.input_artifacts)})
     results: list[OperationResult] = []
     statuses: dict[str, str] = {}
     for operation in request.operations:
@@ -129,6 +144,8 @@ def execute_request(
         request_sha256=request.request_sha256,
         status=overall,
         operations=results,
+        as_of=request.as_of if observed else None,
+        observed_input_artifacts=observed,
     ).seal()
     (output_dir / "execution_result.json").write_text(
         result.model_dump_json(indent=2),
@@ -152,6 +169,9 @@ def execute_request(
         ],
         "decision_authority": False,
     }
+    if observed:
+        manifest["observed_input_artifacts"] = [item.model_dump(mode="json") for item in observed]
+        manifest["as_of"] = request.as_of
     (output_dir / "run_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",

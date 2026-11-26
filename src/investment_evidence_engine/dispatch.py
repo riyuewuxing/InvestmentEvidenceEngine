@@ -17,7 +17,16 @@ from .supplemental_workers import run_ownership_flow, run_portfolio_math
 from .workers import WORKERS as BASE_WORKERS
 from .workers import WorkerContext
 
+def run_research(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
+    """Fail closed until actual point-in-time source vintage and research profile exist."""
+    return OperationResult(
+        operation_id=operation.operation_id, status="BLOCK", exit_code=2,
+        errors=["RESEARCH_POINT_IN_TIME_SOURCE_VINTAGE_AND_PROFILE_NOT_ADMITTED"],
+    )
+
+
 EXTRA_WORKERS = {
+    "RESEARCH": run_research,
     "MARKET_UNIVERSE": run_market_universe,
     "MARKET_DATA": run_market_data_resilient,
     "FUNDAMENTAL_HISTORY": run_fundamental_with_pit_guard,

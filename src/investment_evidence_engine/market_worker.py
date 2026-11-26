@@ -195,8 +195,14 @@ def run_market_data_resilient(
         if (type(tolerance) not in {int, float} or not math.isfinite(tolerance)
                 or not 0 <= tolerance <= 0.1):
             raise ValueError("MARKET_TOLERANCE_INVALID")
-        if parameters.get("input_artifact_ids"):
-            raise ValueError("MARKET_INPUT_ARTIFACT_BINDING_NOT_IMPLEMENTED")
+        if "input_artifact_ids" in parameters:
+            ids = parameters["input_artifact_ids"]
+            if (not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str)
+                    or ids[0] not in context.input_artifacts):
+                raise ValueError("MARKET_INPUT_ARTIFACT_NOT_OBSERVED")
+            ref = context.input_artifacts[ids[0]]
+            if ref.selector.value != symbol or ref.as_of != parameters["as_of"]:
+                raise ValueError("MARKET_INPUT_ARTIFACT_SCOPE_MISMATCH")
     except (ValueError, TypeError, OverflowError) as exc:
         return OperationResult(operation_id=operation.operation_id, status="BLOCK",
                                exit_code=2, errors=[str(exc)])

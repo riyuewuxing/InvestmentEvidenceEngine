@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from .contracts import ArtifactRef, ExecutionOperation, OperationResult
+from .contracts import ArtifactRef, ExecutionOperation, InputArtifactRef, OperationResult
 from .providers import AKShareProvider, AKShareResearchProvider, BaoStockProvider, ProviderError, normalize_ohlcv
 from .sources import DEFAULT_OFFICIAL_SOURCES, fetch_text
 
@@ -25,6 +25,7 @@ class WorkerContext:
     completed_operations: dict[str, dict[str, object]] = field(default_factory=dict)
     providers: dict[str, object] = field(default_factory=dict)
     request_as_of: str | None = None
+    input_artifacts: dict[str, InputArtifactRef] = field(default_factory=dict)
     clock: Callable[[], datetime] = field(default_factory=lambda: lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
 
 
