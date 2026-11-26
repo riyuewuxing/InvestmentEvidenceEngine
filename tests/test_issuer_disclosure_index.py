@@ -42,3 +42,19 @@ def test_directory_identity():
     assert select_org(b'{"stockList":[{"code":"000035","orgId":"org1"}]}') == "org1"
     with pytest.raises(ValueError):
         select_org(b'{"stockList":[{"code":"000035","orgId":"org1"},{"code":"000035","orgId":"org2"}]}')
+
+
+def test_directory_entry_uses_nonempty_worker_argument(monkeypatch):
+    from investment_evidence_engine import issuer_disclosure_index as index
+    from investment_evidence_engine.bounded_worker import WorkerResult
+
+    def fake_worker(command, **kwargs):
+        assert all(command)
+        assert command[-2:] == ("directory", "-")
+        return WorkerResult("WATCHDOG_TIMEOUT")
+
+    monkeypatch.setattr(index, "run_json_worker", fake_worker)
+    report = index.run_control()
+    assert report["status"] == "BLOCK"
+    assert len(report["observations"]) == 1
+    assert report["observations"][0]["worker_status"] == "WATCHDOG_TIMEOUT"

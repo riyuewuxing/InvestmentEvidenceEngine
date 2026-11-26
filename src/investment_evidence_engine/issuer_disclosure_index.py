@@ -185,7 +185,7 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
 
 
 def run_control() -> dict:
-    first, org = observe("directory", "")
+    first, org = observe("directory", "-")
     observations = [first]
     if first["status"] == "OBSERVED":
         for index in range(len(WINDOWS)):

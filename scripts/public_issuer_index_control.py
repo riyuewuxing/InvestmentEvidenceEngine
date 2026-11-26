@@ -1,4 +1,4 @@
-"""Public issuer disclosure metadata observation."""
+"""Public issuer disclosure metadata observation; nonempty directory sentinel."""
 from __future__ import annotations
 
 import json
