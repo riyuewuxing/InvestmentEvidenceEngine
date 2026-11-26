@@ -11,12 +11,19 @@ import hashlib
 import io
 import json
 import re
+import sys
+import time as monotonic_clock
+import unicodedata
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
+import httpx
+from pypdf import PdfReader
+
 from investment_evidence_engine.evidence_time_guard import source_visible
+from investment_evidence_engine.official_pdf_transport import read_bounded_pdf
 from investment_evidence_engine.sources import fetch_official_url
 
 NY = ZoneInfo("America/New_York")
@@ -50,10 +57,14 @@ class VisibleText(HTMLParser):
 def bls_fields(html, release_day, report_month):
     parser = VisibleText()
     parser.feed(html)
-    text = " ".join(" ".join(parser.parts).split())
+    return bls_fields_from_text(" ".join(parser.parts), release_day, report_month)
+
+
+def bls_fields_from_text(raw_text, release_day, report_month):
+    text = " ".join(unicodedata.normalize("NFKC", raw_text).replace("−", "-").split())
     identity = f"8:30 a.m. (ET) {release_day.strftime('%A, %B')} {release_day.day}, {release_day.year}"
     if identity not in text or not re.search(
-            rf"THE EMPLOYMENT SITUATION\s*[-–—]+\s*{report_month} 2025", text):
+            rf"THE EMPLOYMENT SITUATION\s*[-–—]+\s*{report_month} 2025", text, re.IGNORECASE):
         raise ValueError("BLS_RELEASE_IDENTITY")
     if report_month == "AUGUST":
         hits = re.findall(r"Total nonfarm payroll employment changed little in August \(\+([0-9,]+)\)", text)
@@ -163,5 +174,60 @@ def main():
     return 0 if status == "MATCH" else 2
 
 
+# Exact alternative archival copies, reviewed page by page. Never use arbitrary URLs.
+FRASER_MONTHS = ("202508", "202509", "202511")
+
+
+def fraser_only():
+    records = []
+    for (day, _, month, expected), archive_month in zip(VINTAGES, FRASER_MONTHS):
+        url = f"https://fraser.stlouisfed.org/files/docs/releases/bls/bls_employnews_{archive_month}.pdf"
+        try:
+            deadline = monotonic_clock.monotonic() + 20
+            with httpx.Client(timeout=6.0, follow_redirects=False) as client:
+                with client.stream("GET", url, headers={
+                    "Accept": "application/pdf", "Accept-Encoding": "identity",
+                }) as response:
+                    raw = read_bounded_pdf(response, deadline)
+            observed = datetime.now(UTC)
+            reader = PdfReader(io.BytesIO(raw), strict=True)
+            if len(reader.pages) < 3:
+                raise ValueError("FRASER_PDF_TOO_SHORT")
+            pages = [reader.pages[i].extract_text() or "" for i in range(3)]
+            fields = bls_fields_from_text(" ".join(pages), day, month)
+            if fields["august_change_jobs"] != expected:
+                raise ValueError("FRASER_VALUE_CONFLICT")
+            item = fields | {
+                "source_url": url, "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "byte_length": len(raw), "retrieved_at": observed.isoformat(),
+                "page_count": len(reader.pages), "examined_pages": [1, 2, 3],
+                "extracted_page_sha256": [hashlib.sha256(p.encode()).hexdigest() for p in pages],
+                "raw_body_retained": False, "historical_capture_verified": False,
+                "decision_authority": False,
+            }
+            records.append(item)
+            print("PUBLIC_FRASER_VINTAGE " + json.dumps(item, sort_keys=True), flush=True)
+        except Exception as exc:
+            print("PUBLIC_FRASER_BLOCKED " + json.dumps({
+                "source_url": url, "error_type": type(exc).__name__,
+                "error": str(exc)[:200],
+            }), flush=True)
+    matched = (len(records) == 3
+               and records[0]["previous_august_change_jobs"] is None
+               and records[1]["previous_august_change_jobs"] == records[0]["august_change_jobs"]
+               and records[2]["previous_august_change_jobs"] == records[1]["august_change_jobs"]
+               and records[0]["original_october3_schedule_observed"]
+               and records[1]["october_release_not_published_observed"])
+    print("PUBLIC_FRASER_SUMMARY " + json.dumps({
+        "status": "ARCHIVE_CHAIN_MATCH" if matched else "BLOCKED",
+        "observed_count": len(records), "same_original_bls_upstream": True,
+        "alfred_verified": False, "historical_capture_verified": False,
+        "decision_authority": False, "execution_allowed": False,
+    }), flush=True)
+    return 0 if matched else 2
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.argv[1:] not in ([], ["--fraser-only"]):
+        raise SystemExit("unknown control mode")
+    raise SystemExit(fraser_only() if sys.argv[1:] else main())

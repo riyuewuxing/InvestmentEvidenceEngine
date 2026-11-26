@@ -26,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Observe fixed BLS and ALFRED vintages
+      - name: Observe alternate FRASER archived releases (no BLS or ALFRED retry)
         timeout-minutes: 2
-        run: timeout --signal=TERM --kill-after=5s 105s python scripts/public_payroll_vintage_control.py
+        run: timeout --signal=TERM --kill-after=5s 105s python scripts/public_payroll_vintage_control.py --fraser-only
