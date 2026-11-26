@@ -116,7 +116,12 @@ def pairs_from_body(raw: bytes, scope: str) -> tuple[list[tuple], dict]:
 def summarize(raw: bytes, scope: str, observed_day: date) -> dict:
     pairs, meta = pairs_from_body(raw, scope)
     exchange = "sh" if scope == "sse_delisted" else "sz"
-    seen = set()
+    key_counts = Counter()
+    for value, _, _, _ in pairs:
+        try:
+            key_counts[code_value(value, numeric=scope == "szse_delisted")] += 1
+        except ValueError:
+            continue
     valid = {}
     excluded = Counter()
     years = Counter()
@@ -127,9 +132,9 @@ def summarize(raw: bytes, scope: str, observed_day: date) -> dict:
         except ValueError:
             excluded["invalid_code"] += 1
             continue
-        if code in seen:
-            raise ValueError("DELIST_DUPLICATE_DIRECTORY_KEY")
-        seen.add(code)
+        if key_counts[code] != 1:
+            excluded["ambiguous_duplicate_key_rows"] += 1
+            continue
         if stock_code(exchange + "." + code, require_exchange=True) is None:
             excluded["non_a_prefix_or_unknown"] += 1
             continue
@@ -154,9 +159,12 @@ def summarize(raw: bytes, scope: str, observed_day: date) -> dict:
                              "status": "MATCH" if actual == expected else "DIFFERENT_DATE_SEMANTICS"}
         elif code not in anchors:
             anchors[code] = {"status": "ABSENT_OR_EXCLUDED", "announced_removal": expected}
+    duplicate_keys = sum(n > 1 for n in key_counts.values())
     if not valid:
         raise ValueError("DELIST_NO_VALID_INTERVALS")
     return meta | {"valid_a_prefix_intervals": len(valid), "excluded": dict(excluded),
+                   "ambiguous_duplicate_directory_keys": duplicate_keys,
+                   "all_duplicate_key_rows_excluded": True,
                    "observed_directory_end_year_counts": dict(sorted(years.items())),
                    "retrospective_interval_membership_counts": {
                        cut: sum(first <= date.fromisoformat(cut) < last for first, last in valid.values())
@@ -219,6 +227,10 @@ def observe(scope: str) -> dict:
             raise ValueError("DELIST_RECEIPT_SCOPE")
         out |= {"observed_at": b.isoformat(), "sha256": p["sha256"], "bytes": len(raw),
                 "parent_rehash": "MATCH"}
+        # Same-version retry only. No other source or changed body is substituted.
+        expected = os.environ.get("DELIST_EXPECTED_SSE_SHA256")
+        if expected and (scope != "sse_delisted" or p["sha256"] != expected):
+            raise ValueError("DELIST_PRIOR_VERSION_MISMATCH")
         from zoneinfo import ZoneInfo
 
         out["summary"] = summarize(raw, scope, b.astimezone(ZoneInfo("Asia/Shanghai")).date())
@@ -230,13 +242,15 @@ def observe(scope: str) -> dict:
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
-    results = [observe(s) for s in SCOPES]
-    report = {"executor_commit": os.environ["GITHUB_SHA"], "status": "WARN" if all(
+    scopes = ("sse_delisted",) if os.environ.get("DELIST_EXPECTED_SSE_SHA256") else SCOPES
+    results = [observe(s) for s in scopes]
+    report = {"executor_commit": os.environ["GITHUB_SHA"], "status": "WARN" if len(results) == len(SCOPES) and all(
         r["status"] == "WARN" for r in results) else "BLOCK", "observations": results,
+        "attempted_scopes": list(scopes),
         "historical_universe_admitted": False, "decision_authority": False, "execution_allowed": False,
         "pit_safe": False}
     print("PUBLIC_DELIST_DIRECTORY " + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
-    return 0 if report["status"] == "WARN" else 2
+    return 0 if all(r["status"] == "WARN" for r in results) else 2
 
 
 if __name__ == "__main__":

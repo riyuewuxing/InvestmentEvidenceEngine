@@ -25,6 +25,8 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Two documented official delisting directory routes, no retry
+      - name: Exact prior SSE body only, exclude every ambiguous key row
+        env:
+          DELIST_EXPECTED_SSE_SHA256: d5e5dec58882aef4aba8be707087e9c3483ee1be9c2d1fcb6070e1ae9abc8990
         timeout-minutes: 2
         run: timeout --signal=TERM --kill-after=5s 80s python -m investment_evidence_engine.delisting_directory

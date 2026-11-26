@@ -32,8 +32,14 @@ def test_directory_truncation_and_duplicate_block():
     r = row("600462", "2025-07-21")
     with pytest.raises(ValueError, match="TRUNCATED"):
         summarize(body([r], total=2), "sse_delisted", date(2026, 11, 26))
-    with pytest.raises(ValueError, match="DUPLICATE"):
+    with pytest.raises(ValueError, match="NO_VALID_INTERVALS"):
         summarize(body([r, r]), "sse_delisted", date(2026, 11, 26))
+    result = summarize(body([r, r, row("600837", "2025-03-04")]),
+                       "sse_delisted", date(2026, 11, 26))
+    assert result["ambiguous_duplicate_directory_keys"] == 1
+    assert result["excluded"]["ambiguous_duplicate_key_rows"] == 2
+    assert result["valid_a_prefix_intervals"] == 1
+    assert result["anchors"]["600462"]["status"] == "ABSENT_OR_EXCLUDED"
 
 
 def test_xlsx_a_b_identity_separate():
