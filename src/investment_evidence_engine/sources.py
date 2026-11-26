@@ -176,7 +176,12 @@ def fetch_official_spec(spec: OfficialSourceSpec, timeout: float = 20.0) -> tupl
     failures: list[str] = []
     for url in (spec.url, *spec.fallback_urls):
         try:
-            return fetch_official_url(url, timeout=timeout), failures
+            fetched = fetch_official_url(url, timeout=timeout)
+            normalized = normalized_document_text(fetched.text)
+            if any(normalized_document_text(token) not in normalized for token in spec.expected_tokens):
+                failures.append(f"{url}::EXPECTED_IDENTITY_TOKENS_MISSING")
+                continue
+            return fetched, failures
         except Exception as exc:  # noqa: BLE001 - resilient official-source boundary
             failures.append(f"{url}::{type(exc).__name__}:{exc}")
     raise RuntimeError("all official source URLs failed: " + " | ".join(failures))
