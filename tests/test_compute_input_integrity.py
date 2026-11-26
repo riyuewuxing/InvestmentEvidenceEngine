@@ -119,3 +119,15 @@ def test_compute_cannot_include_future_or_same_day_unknown_time(tmp_path, kind, 
     result = run_operation(op, ctx)
     assert result.status == "BLOCK"
     assert result.errors == ["COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF"]
+
+
+def test_prior_day_labels_allowed_under_precise_later_cutoff(tmp_path):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of="2026-01-03T10:00:00+08:00")
+    op = ExecutionOperation(operation_id="compute", kind="BACKTEST", parameters={
+        "inline_records": [{"date": "2026-01-01", "return": 0, "weight": 1},
+                           {"date": "2026-01-02", "return": .01, "weight": 0}],
+        "cost_bps": 10})
+    result = run_operation(op, ctx)
+    assert result.status == "PASS"
+    assert ctx.payloads["compute"]["time_label_order_verified"]
+    assert not ctx.payloads["compute"]["pit_safe"]

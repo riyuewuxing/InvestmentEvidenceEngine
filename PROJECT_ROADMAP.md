@@ -134,3 +134,9 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Exact Q3 alias, two official originals and original/restated comparative values; consolidated balance/flow reconciliation.
 - [x] Three fixed public-domain BLS originals content-addressed; independent byte rehash, offline actual-byte regression (verify exact final SHA).
 - [ ] SEC network 403, official SZSE coverage, historical first availability, independent vintage data and formal RESEARCH/private dual gates. Do not equate current archive observation with historical availability.
+
+## 2026-11-26 — Turn 06 continuation
+- [x] Actual official SZSE aggregate (different scope, not full A-share list), alternate first-page HTTPS attempted and blocked.
+- [x] Actual 000035/510300 two-source-per-asset date sensitivity, retrospective only.
+- [x] Existing factor/backtest integrity and exact-byte public/consumer guards; explicit revision-chain offline real-original replay.
+- [ ] Full official listing, genuinely time-visible historical evidence, formal RESEARCH profile and private same-SHA gates. Do not repeat completed probes.
