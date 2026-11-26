@@ -17,9 +17,12 @@ from pypdf import PdfReader
 
 from .bounded_worker import run_json_worker, write_worker_result
 from .issuer_disclosure_index import NoRedirect
+from .official_pdf_transport import validate_pdf_shape
 from .sse_lifecycle_control import VisibleHTML, normalized
 
 MAX_BYTES = 4 * 1024 * 1024
+PDF_MAX_BYTES = 8 * 1024 * 1024
+PDF_KEYS = ("sponsor", "risk")
 SOURCES = {
     "broker_a": "https://www.citics.com/newsite/tzgg/ywgg/202508/t20250807_1200880.html",
     "broker_b": "https://www.citics.com/newsite/tzgg/ywgg/202508/t20250807_1200881.html",
@@ -114,10 +117,10 @@ def event_state(day: date, *, entry_verified: bool) -> str:
 
 
 def parse_body(key: str, body: bytes) -> dict:
-    require(0 < len(body) <= MAX_BYTES, "TRANSFER_BODY_LIMIT")
-    if key in ("sponsor", "risk"):
-        require(body.startswith(b"%PDF-") and b"%%EOF" in body[-4096:],
-                "TRANSFER_PDF_SCOPE")
+    limit = PDF_MAX_BYTES if key in PDF_KEYS else MAX_BYTES
+    require(0 < len(body) <= limit, "TRANSFER_BODY_LIMIT")
+    if key in PDF_KEYS:
+        validate_pdf_shape(body, max_bytes=limit)
         pdf = PdfReader(io.BytesIO(body), strict=True)
         require(not pdf.is_encrypted and 1 <= len(pdf.pages) <= 250,
                 "TRANSFER_PDF_PAGE_LIMIT")
@@ -136,21 +139,54 @@ def parse_body(key: str, body: bytes) -> dict:
     return parse_text(key, value)
 
 
-def child(key: str, path: Path) -> None:
+def pdf_declared_length(value: str | None) -> int | None:
+    if value is None or not value.isascii() or not value.isdecimal() or len(value) > 12:
+        return None
+    n = int(value)
+    # Only new evidence of the previous 4 MiB limit being insufficient
+    # authorizes a single bounded GET; ambiguous metadata does not.
+    return n if MAX_BYTES < n <= PDF_MAX_BYTES else None
+
+
+def child(key: str, path: Path, *, size_probe: bool = False) -> None:
     url = SOURCES[key]
     started = datetime.now(UTC)
+    metadata = {}
+    limit = MAX_BYTES
     try:
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept-Encoding": "identity"})
-        with build_opener(NoRedirect()).open(request, timeout=12) as response:
+        headers = {"User-Agent": "Mozilla/5.0", "Accept-Encoding": "identity"}
+        opener = build_opener(NoRedirect())
+        if size_probe:
+            require(key in PDF_KEYS, "TRANSFER_PDF_PROBE_SCOPE")
+            with opener.open(Request(url, headers=headers, method="HEAD"), timeout=8) as head:
+                length = head.headers.get("Content-Length")
+                scope_ok = (head.status == 200 and head.geturl() == url
+                            and head.headers.get("Content-Range") is None
+                            and head.headers.get("Content-Encoding", "identity").lower() in ("", "identity"))
+                declared = pdf_declared_length(length) if scope_ok else None
+                metadata = {"head_status": head.status,
+                            "head_content_length": length if length is not None and length.isdecimal()
+                            and len(length) <= 12 else None,
+                            "head_observed_at": datetime.now(UTC).isoformat(),
+                            "larger_get_authorized": declared is not None}
+            if declared is None:
+                write_worker_result(path, {"key": key, "error": "TRANSFER_NO_NEW_SIZE_EVIDENCE", **metadata})
+                return
+            limit = declared
+        request = Request(url, headers=headers)
+        with opener.open(request, timeout=12) as response:
             require(response.status == 200 and response.geturl() == url
                     and response.headers.get("Content-Range") is None
                     and response.headers.get("Content-Encoding", "identity").lower() in ("", "identity"),
                     "TRANSFER_HTTP_SCOPE")
-            body = response.read(MAX_BYTES + 1)
             length = response.headers.get("Content-Length")
-            require(0 < len(body) <= MAX_BYTES and (length is None or int(length) == len(body)),
-                    "TRANSFER_BODY_LIMIT")
-        result = {"key": key, "url": url, "started_at": started.isoformat(),
+            if size_probe:
+                require(length is not None and pdf_declared_length(length) == limit,
+                        "TRANSFER_GET_LENGTH_CHANGED")
+            body = response.read(limit + 1)
+            require(0 < len(body) <= limit and (length is None or int(length) == len(body))
+                    and (not size_probe or len(body) == limit), "TRANSFER_BODY_LIMIT")
+        result = {"key": key, "url": url, "started_at": started.isoformat(), **metadata,
                   "observed_at": datetime.now(UTC).isoformat(),
                   "sha256": hashlib.sha256(body).hexdigest(),
                   "body": base64.b64encode(body).decode("ascii")}
@@ -163,30 +199,40 @@ def child(key: str, path: Path) -> None:
     except Exception as exc:
         reason = str(exc)
         result = {"key": key, "error": reason if re.fullmatch(r"TRANSFER_[A-Z_]+", reason)
-                  else type(exc).__name__,
+                  else type(exc).__name__, **metadata,
                   "http_status": exc.code if isinstance(exc, HTTPError) else None}
     write_worker_result(path, result)
 
 
-def observe(key: str) -> dict:
+def observe(key: str, *, size_probe: bool = False) -> dict:
     url = SOURCES[key]
     out = {"key": key, "url": url, "status": "BLOCK", "raw_body_retained": False}
     worker = run_json_worker((sys.executable, "-m", "investment_evidence_engine.transfer_control",
-                              "--child", key), timeout_seconds=25, max_bytes=6 * 1024 * 1024)
+                              "--pdf-child" if size_probe else "--child", key),
+                             timeout_seconds=40 if size_probe else 25,
+                             max_bytes=(12 if size_probe else 6) * 1024 * 1024)
     out |= {"worker_status": worker.status, "elapsed_seconds": worker.elapsed_seconds}
     if worker.status != "OK" or worker.payload is None:
         return out
     try:
         p = worker.payload
         require(p["key"] == key, "TRANSFER_RECEIPT_KEY")
+        if size_probe:
+            out |= {k: p[k] for k in ("head_status", "head_content_length", "head_observed_at",
+                                     "larger_get_authorized") if k in p}
         if "error" in p:
             return out | {"error": p["error"], "http_status": p.get("http_status")}
         a, b = datetime.fromisoformat(p["started_at"]), datetime.fromisoformat(p["observed_at"])
         raw = base64.b64decode(p["body"], validate=True)
         digest = hashlib.sha256(raw).hexdigest()
+        limit = PDF_MAX_BYTES if size_probe else MAX_BYTES
         require(p["url"] == url and a.utcoffset() is not None and b.utcoffset() is not None
                 and a <= b <= datetime.now(UTC) and digest == p["sha256"]
-                and 0 < len(raw) <= MAX_BYTES, "TRANSFER_RECEIPT_SCOPE")
+                and 0 < len(raw) <= limit, "TRANSFER_RECEIPT_SCOPE")
+        if size_probe:
+            require(p.get("larger_get_authorized") is True
+                    and pdf_declared_length(p.get("head_content_length")) == len(raw),
+                    "TRANSFER_RECEIPT_HEAD_SCOPE")
         evidence = out | {"bytes": len(raw), "sha256": digest,
                           "parent_rehash": "MATCH", "observed_at": b.isoformat()}
         if "parse_error" in p:
@@ -199,9 +245,18 @@ def observe(key: str) -> dict:
                       else type(exc).__name__}
 
 
-def main() -> int:
+def main(*, size_probe: bool = False) -> int:
     if os.environ["GITHUB_REPOSITORY"] != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
+    if size_probe:
+        reports = [observe(key, size_probe=True) for key in PDF_KEYS]
+        complete = all(r["status"] == "OBSERVED" for r in reports)
+        report = {"status": "WARN" if complete else "BLOCK",
+                  "executor_commit": os.environ["GITHUB_SHA"], "reports": reports,
+                  "pit_safe": False, "decision_authority": False, "execution_allowed": False,
+                  "research_only": True}
+        print("TRANSFER_PDF_SIZE_PROBE " + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0 if complete else 2
     reports = [observe(key) for key in SOURCES]
     observed = {row["key"] for row in reports if row["status"] == "OBSERVED"}
     complete = observed == set(SOURCES)
@@ -221,6 +276,10 @@ def main() -> int:
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--child" and sys.argv[2] in SOURCES:
         child(sys.argv[2], Path(sys.argv[3]))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--pdf-child" and sys.argv[2] in PDF_KEYS:
+        child(sys.argv[2], Path(sys.argv[3]), size_probe=True)
+    elif len(sys.argv) == 2 and sys.argv[1] == "--pdf-size-probe":
+        raise SystemExit(main(size_probe=True))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:

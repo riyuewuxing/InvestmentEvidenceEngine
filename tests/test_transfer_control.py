@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from investment_evidence_engine.transfer_control import event_state, parse_text
+from investment_evidence_engine.transfer_control import event_state, parse_text, pdf_declared_length
 
 A_NOTICE = ("关于锦州港股份有限公司A股股份确权的提示性公告 2025-08-07 "
             "锦州港股份有限公司A股（证券简称：退市锦港，证券代码：600190，确权证券代码：400280）"
@@ -65,3 +65,13 @@ def test_duplicate_class_row_and_reverse_class_order_rejected():
     reversed_classes = value.replace("公司A股", "公司X股").replace("公司B股", "公司A股").replace("公司X股", "公司B股")
     with pytest.raises(ValueError, match="TRANSFER_RISK_CLASS_SCOPE"):
         parse_text("risk", reversed_classes)
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "-1", "abc", "4194304", "8388609", "9999999999999"])
+def test_pdf_size_probe_denies_ambiguous_or_out_of_range_metadata(value):
+    assert pdf_declared_length(value) is None
+
+
+def test_pdf_size_probe_only_allows_new_bounded_size():
+    assert pdf_declared_length("4194305") == 4194305
+    assert pdf_declared_length("8388608") == 8388608

@@ -1,5 +1,9 @@
 name: Public transfer-event control
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-transfer-control.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Fixed public source evidence, bounded no retry
+      - name: Only new PDF HEAD size evidence permits a single bounded GET
         timeout-minutes: 3
-        run: timeout --signal=TERM --kill-after=5s 165s python -m investment_evidence_engine.transfer_control
+        run: timeout --signal=TERM --kill-after=5s 95s python -m investment_evidence_engine.transfer_control --pdf-size-probe
