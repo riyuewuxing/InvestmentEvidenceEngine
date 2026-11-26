@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 
@@ -18,6 +19,29 @@ def raw_snapshot_matches(observed: Mapping[str, bytes], expected: Mapping[str, s
                 or hashlib.sha256(body).hexdigest() != digest):
             return False
     return True
+
+
+def strict_json_loads(raw: bytes) -> object:
+    """Reject ambiguous JSON, including duplicate keys and non-finite numbers."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("REPORT_DUPLICATE_JSON_KEY")
+            result[key] = value
+        return result
+
+    def invalid_constant(_):
+        raise ValueError("REPORT_NONFINITE_JSON")
+
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("REPORT_NONFINITE_JSON")
+        return number
+
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
+                      parse_constant=invalid_constant, parse_float=finite_float)
 
 
 def verify_json_snapshot_fields(
@@ -36,19 +60,7 @@ def verify_json_snapshot_fields(
     if not fields:
         raise ValueError("REPORT_FIELDS_REQUIRED")
 
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("REPORT_DUPLICATE_JSON_KEY")
-            result[key] = value
-        return result
-
-    def invalid_constant(_):
-        raise ValueError("REPORT_NONFINITE_JSON")
-
-    document = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
-                          parse_constant=invalid_constant)
+    document = strict_json_loads(raw)
     if not isinstance(document, dict):
         raise ValueError("REPORT_OBJECT_REQUIRED")
     for path, expected in fields.items():

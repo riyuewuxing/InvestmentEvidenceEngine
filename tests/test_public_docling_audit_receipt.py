@@ -86,3 +86,15 @@ def test_invalid_inventory_rejected(inventory):
 def test_invalid_audit_rejected(audit):
     with pytest.raises(ValueError):
         verify_audit(b"example-pkg==1.0\n", audit)
+
+
+@pytest.mark.parametrize("audit", [
+    b'{"dependencies":[{"name":"example-pkg","version":"1.0","vulns":[{"id":"x"}],"vulns":[]}],"fixes":[]}',
+    b'{"dependencies":[],"dependencies":[{"name":"example-pkg","version":"1.0","vulns":[]}],"fixes":[]}',
+    b'{"dependencies":[{"name":"example-pkg","version":"1.0","vulns":[]}],"fixes":[{}],"fixes":[]}',
+    b'{"dependencies":[{"name":"example-pkg","version":"1.0","vulns":[]}],"fixes":[],"metadata":NaN}',
+    b'{"dependencies":[{"name":"example-pkg","version":"1.0","vulns":[]}],"fixes":[],"metadata":1e9999}',
+])
+def test_ambiguous_audit_json_cannot_pass(audit):
+    with pytest.raises(ValueError):
+        verify_audit(b"example-pkg==1.0\n", audit)

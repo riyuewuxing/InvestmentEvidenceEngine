@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
+
+from .snapshot_integrity import strict_json_loads
 
 
 def canonical_name(name: str) -> str:
@@ -26,7 +27,7 @@ def parse_pins(raw: bytes) -> dict[str, str]:
 
 
 def parse_audit(audit: bytes) -> dict[str, str]:
-    report = json.loads(audit)
+    report = strict_json_loads(audit)
     if not isinstance(report, dict) or report.get("fixes") != []:
         raise ValueError("AUDIT_SCHEMA_OR_FIXES")
     records = report.get("dependencies")

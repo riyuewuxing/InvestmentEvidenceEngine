@@ -45,6 +45,7 @@ def test_runtime_json_snapshot_requires_actual_version_and_source():
     b'{"status":"PASS","nested":{"x":0,"x":1}}',
     b'{"status":"PASS","number":NaN}',
     b'{"status":"PASS","number":Infinity}',
+    b'{"status":"PASS","number":1e9999}',
     b'["PASS"]',
     b'not-json',
 ])
