@@ -4,6 +4,7 @@ import pytest
 
 from investment_evidence_engine.historical_capture import PublicSecurity
 from investment_evidence_engine.historical_receipt import (
+    HistoricalCaptureFailure,
     HistoricalReceipt,
     load_receipt,
     persist_receipt,
@@ -24,9 +25,12 @@ def series(subject, provider, scale):
 
 
 def receipt(*extra):
+    observed = (series(A,"baostock",1),series(B,"sina",2),*extra)
+    failures = () if extra else (HistoricalCaptureFailure(provider="sina", asset_type="STOCK",
+                                                          error_code="SYNTHETIC_UNAVAILABLE"),)
     return HistoricalReceipt(candidate=A, alternative=B, first_requested=START, last_completed=END,
         observed_at=NOW-timedelta(minutes=1), akshare_version="synthetic",
-        series=(series(A,"baostock",1),series(B,"sina",2),*extra))
+        attempted_providers=("sina", "baostock"), failures=failures, series=observed)
 
 
 def test_normalized_receipt_exact_bytes_and_recomputed_result(tmp_path):
@@ -35,6 +39,7 @@ def test_normalized_receipt_exact_bytes_and_recomputed_result(tmp_path):
     loaded = load_receipt(tmp_path,A,B,END,now=NOW)
     assert loaded["normalized_observation_sha256"] == digest and loaded["normalized_observation_rehashed"]
     assert loaded["reference"] == result["reference"]
+    assert loaded["failures"] == [{"provider":"sina", "asset_type":"STOCK", "error_code":"SYNTHETIC_UNAVAILABLE"}]
     assert not loaded["reference"]["decision_authority"]
     assert persist_receipt(tmp_path,receipt())[0] == digest
     assert len(list(tmp_path.glob("*.json"))) == 1
@@ -73,3 +78,13 @@ def test_latest_conflict_does_not_fall_back_to_old_success(tmp_path):
     conflict = receipt(series(A,"sina",2)).model_copy(update={"observed_at": NOW})
     persist_receipt(tmp_path,conflict)
     assert load_receipt(tmp_path,A,B,END,now=NOW)["error_code"] == "SOURCE_CONFLICT"
+
+
+def test_missing_or_double_counted_provider_attempt_rejected(tmp_path):
+    good = receipt()
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path, good.model_copy(update={"failures": ()}))
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path, good.model_copy(update={"failures": good.failures + good.failures}))
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path, good.model_copy(update={"attempted_providers": ("sina", "baostock", "tencent")}))

@@ -17,11 +17,18 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from .historical_capture import PublicSecurity, summarize_observed_pair, validate_window
+from .historical_capture import PROVIDERS, PublicSecurity, summarize_observed_pair, validate_window
 from .historical_reference import HistoricalCloseSeries
 
 MAX_BYTES = 2 * 1024 * 1024
 MAX_CAPTURES_PER_PAIR_DAY = 128
+
+
+class HistoricalCaptureFailure(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    provider: Literal["sina", "baostock", "tencent", "eastmoney"]
+    asset_type: Literal["STOCK", "ETF"]
+    error_code: str = Field(pattern=r"^[A-Za-z0-9_:]{1,160}$")
 
 
 class HistoricalReceipt(BaseModel):
@@ -34,6 +41,8 @@ class HistoricalReceipt(BaseModel):
     last_completed: date
     observed_at: AwareDatetime
     akshare_version: str = Field(min_length=1, max_length=100)
+    attempted_providers: tuple[str, ...] = Field(min_length=1, max_length=4)
+    failures: tuple[HistoricalCaptureFailure, ...] = Field(default=(), max_length=8)
     series: tuple[HistoricalCloseSeries, ...] = Field(min_length=1, max_length=8)
     raw_provider_bytes_retained: Literal[False] = False
     research_only: Literal[True] = True
@@ -57,8 +66,25 @@ def _read(path: Path) -> bytes:
 
 def _summary(receipt: HistoricalReceipt) -> dict:
     validate_window(receipt.first_requested, receipt.last_completed, receipt.observed_at)
-    return summarize_observed_pair(receipt.candidate, receipt.alternative, receipt.series,
-                                  receipt.first_requested, receipt.last_completed)
+    if (len(set(receipt.attempted_providers)) != len(receipt.attempted_providers)
+            or any(provider not in PROVIDERS for provider in receipt.attempted_providers)):
+        raise ValueError("invalid attempted provider scope")
+    # This receipt currently supports the product's stock-vs-ETF reference.
+    # Distinct asset classes make a per-provider/asset coverage record unambiguous.
+    if (receipt.candidate.asset_type, receipt.alternative.asset_type) != ("STOCK", "ETF"):
+        raise ValueError("receipt requires stock candidate and ETF alternative")
+    expected = {(p, asset) for p in receipt.attempted_providers for asset in ("STOCK", "ETF")
+                if p != "baostock" or asset == "STOCK"}
+    kinds = {receipt.candidate.symbol: "STOCK", receipt.alternative.symbol: "ETF"}
+    successes = [(series.source_label, kinds.get(series.subject_id)) for series in receipt.series]
+    failures = [(failure.provider, failure.asset_type) for failure in receipt.failures]
+    observed = successes + failures
+    if len(set(observed)) != len(observed) or set(observed) != expected:
+        raise ValueError("incomplete or contradictory source attempt coverage")
+    result = summarize_observed_pair(receipt.candidate, receipt.alternative, receipt.series,
+                                     receipt.first_requested, receipt.last_completed)
+    return result | {"attempted_providers": list(receipt.attempted_providers),
+                     "failures": [failure.model_dump(mode="json") for failure in receipt.failures]}
 
 
 def persist_receipt(directory: Path, receipt: HistoricalReceipt) -> tuple[str, dict]:
@@ -76,8 +102,9 @@ def persist_receipt(directory: Path, receipt: HistoricalReceipt) -> tuple[str, d
     if not path.resolve().is_relative_to(folder):
         raise ValueError("receipt path escape")
     if not path.exists():
-        if len(list(folder.iterdir())) >= MAX_CAPTURES_PER_PAIR_DAY:
-            raise ValueError("capture bound exceeded")
+        for count, _entry in enumerate(folder.iterdir(), start=1):
+            if count >= MAX_CAPTURES_PER_PAIR_DAY:
+                raise ValueError("capture bound exceeded")
         fd, temp = tempfile.mkstemp(prefix=".capture-", dir=folder)
         try:
             with os.fdopen(fd, "wb") as handle:

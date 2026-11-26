@@ -10,7 +10,12 @@ from tempfile import TemporaryDirectory
 from zoneinfo import ZoneInfo
 
 from investment_evidence_engine.historical_capture import PublicSecurity, observe_pair
-from investment_evidence_engine.historical_receipt import HistoricalReceipt, load_receipt, persist_receipt
+from investment_evidence_engine.historical_receipt import (
+    HistoricalCaptureFailure,
+    HistoricalReceipt,
+    load_receipt,
+    persist_receipt,
+)
 
 
 def main() -> int:
@@ -28,7 +33,10 @@ def main() -> int:
     if sources:
         receipt = HistoricalReceipt(candidate=candidate, alternative=alternative,
             first_requested=start, last_completed=end, observed_at=datetime.fromisoformat(summary["observed_at"]),
-            akshare_version=summary["provider_package_version"], series=sources)
+            akshare_version=summary["provider_package_version"],
+            attempted_providers=tuple(summary["attempted_providers"]),
+            failures=tuple(HistoricalCaptureFailure.model_validate(f) for f in summary["failures"]),
+            series=sources)
         with TemporaryDirectory() as temp:
             folder = Path(temp)
             digest, computed = persist_receipt(folder, receipt)
@@ -37,6 +45,8 @@ def main() -> int:
             assert loaded["normalized_observation_rehashed"] is True
             assert loaded["status"] == computed["status"] == summary["status"]
             assert loaded.get("reference") == computed.get("reference") == summary.get("reference")
+            assert loaded["failures"] == summary["failures"]
+            assert loaded["attempted_providers"] == summary["attempted_providers"]
             summary["normalized_receipt_sha256"] = digest
             summary["normalized_receipt_rehash"] = "MATCH"
     print(json.dumps(summary, ensure_ascii=False))

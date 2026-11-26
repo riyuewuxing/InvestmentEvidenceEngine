@@ -299,7 +299,8 @@ def observe_pair(candidate: PublicSecurity, alternative: PublicSecurity, start: 
                     "error_code": str(exc)[:160] if type(exc) is ValueError and re.fullmatch(r"[A-Za-z0-9_:]{1,160}", str(exc))
                     else type(exc).__name__})
     summary = summarize_observed_pair(candidate, alternative, tuple(found), start, end)
-    summary.update(observed_at=datetime.now(SH).isoformat(), failures=failures)
+    summary.update(observed_at=datetime.now(SH).isoformat(), failures=failures,
+                   attempted_providers=list(providers))
     return summary, tuple(found)
 
 
