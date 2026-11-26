@@ -68,3 +68,12 @@ def test_manager_exact_route():
 def test_manager_route_rejects_other_paths(url):
     with pytest.raises(ValueError):
         official_pdf_route(url)
+
+
+def test_exact_observed_szse_download_path():
+    url = SZSE.replace("/disc/", "/download/disc/")
+    assert canonical_official_pdf_url(url) == url
+    for bad in (url.replace("/download/", "/download/download/"),
+                url.replace("/download/", "/download/../"), url+"?download=1"):
+        with pytest.raises(ValueError):
+            canonical_official_pdf_url(bad)
