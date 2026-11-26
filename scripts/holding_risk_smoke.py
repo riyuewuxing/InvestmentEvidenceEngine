@@ -22,6 +22,11 @@ from investment_evidence_engine.historical_receipt import (
 )
 from investment_evidence_engine.holding_risk import CashDistribution, CashDistributionInputs
 from investment_evidence_engine.market_calendar import acquire_calendar
+from investment_evidence_engine.portfolio_stress import (
+    PortfolioStressInputs,
+    StressPosition,
+    historical_cash_substitution_stress,
+)
 
 START=date(2025,11,25)
 END=date(2026,11,25)
@@ -77,11 +82,21 @@ def main() -> int:
         assert risk["raw_price_windows"][-1]["status"]=="DESCRIPTIVE_ONLY"
         assert not risk["corporate_action_coverage_verified"]
         assert not risk["historical_vintage_verified"] and not risk["decision_authority"]
+        # Independent public synthetic account; no private positions or account IDs.
+        selected=tuple(next(s for s in receipt.series if s.subject_id==symbol)
+                       for symbol in (candidate.symbol,alternative.symbol))
+        stress=historical_cash_substitution_stress(PortfolioStressInputs(
+            initial_equity_cny=100000.,cash_cny=40000.,notional_cny=20000.,
+            positions=(StressPosition(subject_id=candidate.symbol,market_value_cny=60000.),),
+            candidate_id=candidate.symbol,alternative_id=alternative.symbol),
+            selected,cal,first=START,last=END,cutoff=receipt.observed_at)
+        assert stress["windows"][-1]["status"]=="DESCRIPTIVE_ONLY"
+        assert not stress["decision_authority"]
         print(json.dumps({"status":"OBSERVED_REFERENCE_ONLY","crosscheck":loaded["crosscheck"],
             "normalized_receipt_sha256":digest,"normalized_receipt_rehash":"MATCH",
             "observed_at":loaded["observed_at"],"candidate_providers":loaded["candidate_providers"],
             "alternative_providers":loaded["alternative_providers"],"failures":loaded["failures"],
-            "holding_reference":risk}))
+            "holding_reference":risk,"synthetic_portfolio_stress":stress}))
     return 0
 
 
