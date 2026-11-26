@@ -1,0 +1,1088 @@
+{
+  "run_id": 45860749145,
+  "job_id": 140050813661,
+  "derived_receipt_not_original_market": true,
+  "receipt": {
+    "calculation": {
+      "actual_cash_payment_verified": false,
+      "actual_costs_verified": false,
+      "actual_trade_feasibility_verified": false,
+      "cash_convention": "PRIOR_RECORD_CLOSE_HOLDING_NOMINAL_GROSS_SEPARATE_NOT_SPENDABLE",
+      "complete_corporate_action_history_verified": false,
+      "decision_authority": false,
+      "each_segment_starts_flat": true,
+      "execution_allowed": false,
+      "explicit_events_excluded_by_input_window": [],
+      "explicit_terms": [
+        {
+          "actual_payment_verified": false,
+          "corporate_action_coverage_verified": false,
+          "decision_authority": false,
+          "declared_total_cash_cny": "84058753.47",
+          "disclosed_date": "2025-07-30",
+          "eligible_shares": 2388032769,
+          "entitlement_minus_reference_cny": "0.0015871",
+          "ex_date": "2025-08-06",
+          "excluded_shares": 112750413,
+          "gross_entitlement_per_share_cny": "0.0352",
+          "historical_availability_verified": false,
+          "record_date": "2025-08-05",
+          "reference_deduction_per_share_cny": "0.0336129",
+          "rounding_profile": "TOTAL_CENT_HALF_UP_REFERENCE_7DP_TRUNCATE",
+          "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF",
+          "symbol": "000035",
+          "total_shares": 2500783182
+        },
+        {
+          "actual_payment_verified": false,
+          "corporate_action_coverage_verified": false,
+          "decision_authority": false,
+          "declared_total_cash_cny": "85969179.68",
+          "disclosed_date": "2026-08-14",
+          "eligible_shares": 2388032769,
+          "entitlement_minus_reference_cny": "0.000",
+          "ex_date": "2026-08-20",
+          "excluded_shares": 0,
+          "gross_entitlement_per_share_cny": "0.036",
+          "historical_availability_verified": false,
+          "record_date": "2026-08-19",
+          "reference_deduction_per_share_cny": "0.036",
+          "rounding_profile": "TOTAL_CENT_HALF_UP_ALL_SHARES_DIRECT_RATE",
+          "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF",
+          "symbol": "000035",
+          "total_shares": 2388032769
+        }
+      ],
+      "first_segment_starts_flat": true,
+      "historical_vintage_verified": false,
+      "included_events_outside_independent_segments": [],
+      "model_selection_performed": false,
+      "observations": 459,
+      "pit_safe": false,
+      "price_only_baseline": {
+        "actual_trade_feasibility_verified": false,
+        "calendar_independently_verified": false,
+        "calendar_reference": "SSE_SZSE_2025_2026_ANNUAL_NOTICES_V1",
+        "corporate_actions_verified": false,
+        "cost_source": "GENERIC_ASSUMPTION_NOT_ACTUAL_ACCOUNT",
+        "decision_authority": false,
+        "eligible_intervals_before_split": 437,
+        "embargo": 1,
+        "execution_allowed": false,
+        "forecast_validated": false,
+        "historical_vintage_verified": false,
+        "model_selection_performed": false,
+        "observations": 459,
+        "pit_safe": false,
+        "purge": 1,
+        "purged_or_embargoed_intervals": 4,
+        "research_only": true,
+        "return_interval": "NEXT_OPEN_TO_FOLLOWING_OPEN",
+        "schedule_dates_match": true,
+        "segments": [
+          {
+            "first_entry_open": "2025-02-10",
+            "intervals": 261,
+            "segment": "train_reference",
+            "stress": [
+              {
+                "constant_invested": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.430861723446998,
+                  "net_price_change_pct": 68.34530907127407,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 10,
+                "signal_rule": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 26.38968643983912,
+                  "net_price_change_pct": 16.220661946049407,
+                  "unit_weight_turnover": 40
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.430861723446954,
+                  "net_price_change_pct": 68.00845010799125,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 20,
+                "signal_rule": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 27.849436228565004,
+                  "net_price_change_pct": 11.656874556885644,
+                  "unit_weight_turnover": 40
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.43086172344701,
+                  "net_price_change_pct": 67.67192850971897,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 30,
+                "signal_rule": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 29.281658099549023,
+                  "net_price_change_pct": 7.267991300331844,
+                  "unit_weight_turnover": 40
+                }
+              }
+            ],
+            "terminal_open": "2026-03-09"
+          },
+          {
+            "first_entry_open": "2026-03-11",
+            "intervals": 85,
+            "segment": "validation_reference",
+            "stress": [
+              {
+                "constant_invested": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.472019464720205,
+                  "net_price_change_pct": -43.55874494382024,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 10,
+                "signal_rule": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 19.220535301417506,
+                  "net_price_change_pct": -17.185618898561085,
+                  "unit_weight_turnover": 8
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.47201946472019,
+                  "net_price_change_pct": -43.67168389513109,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 20,
+                "signal_rule": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 19.7848606429338,
+                  "net_price_change_pct": -17.84647832408813,
+                  "unit_weight_turnover": 8
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.47201946472022,
+                  "net_price_change_pct": -43.78450973782774,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 30,
+                "signal_rule": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 20.34580342625706,
+                  "net_price_change_pct": -18.502718683063858,
+                  "unit_weight_turnover": 8
+                }
+              }
+            ],
+            "terminal_open": "2026-07-15"
+          },
+          {
+            "first_entry_open": "2026-07-17",
+            "intervals": 87,
+            "segment": "test_reference",
+            "stress": [
+              {
+                "constant_invested": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.600190839694694,
+                  "net_price_change_pct": -15.553761538461563,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 10,
+                "signal_rule": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 15.74672305975856,
+                  "net_price_change_pct": -11.614091383627612,
+                  "unit_weight_turnover": 6
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.673664122137364,
+                  "net_price_change_pct": -15.722738461538398,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 20,
+                "signal_rule": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 16.16756775680914,
+                  "net_price_change_pct": -12.143611009136013,
+                  "unit_weight_turnover": 6
+                }
+              },
+              {
+                "constant_invested": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.747137404580123,
+                  "net_price_change_pct": -15.891546153846125,
+                  "unit_weight_turnover": 2
+                },
+                "flat_cash_assumed_zero_interest": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "one_way_bps": 30,
+                "signal_rule": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 16.586729077601724,
+                  "net_price_change_pct": -12.67048436583833,
+                  "unit_weight_turnover": 6
+                }
+              }
+            ],
+            "terminal_open": "2026-11-25"
+          }
+        ],
+        "signal": "PRIOR_CLOSE_20_SESSION_RETURN_GT_ZERO",
+        "split_percent": [
+          60,
+          20,
+          20
+        ],
+        "status": "RETROSPECTIVE_PRICE_DIAGNOSTIC_ONLY",
+        "test_segment_evaluations": 1,
+        "total_return": false
+      },
+      "segments": [
+        {
+          "first_entry_open": "2025-02-10",
+          "intervals": 261,
+          "segment": "train_reference",
+          "stress": [
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.0075949892008639235,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7594989200863923,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.430861723446998,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.430861723446998,
+                  "net_price_change_pct": 68.34530907127407,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 69.10480799136047
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 10,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.006604390020560145,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.6604390020560145,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 25.769553884326555,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 26.38968643983912,
+                  "net_price_change_pct": 16.220661946049407,
+                  "unit_weight_turnover": 40
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 16.88110094810542
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.007587386609071271,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.758738660907127,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.430861723446954,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.430861723446954,
+                  "net_price_change_pct": 68.00845010799125,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 68.76718876889838
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 20,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.0064928985105836634,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.6492898510583663,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 27.237937900064544,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 27.849436228565004,
+                  "net_price_change_pct": 11.656874556885644,
+                  "unit_weight_turnover": 40
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 12.30616440794401
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.007579784017278613,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7579784017278612,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.43086172344701,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 261,
+                  "max_observed_open_drawdown_pct": 15.43086172344701,
+                  "net_price_change_pct": 67.67192850971897,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 68.42990691144684
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 30,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2025-08-06",
+                    "gross_cash_per_share_cny": "0.0352",
+                    "gross_entitlement_per_initial_cny": 0.006383180185679951,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2025-08-05",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2025-07-30/1224330035.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.6383180185679951,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 28.678682257620935,
+                "price_only": {
+                  "interval_count": 261,
+                  "invested_intervals": 158,
+                  "max_observed_open_drawdown_pct": 29.281658099549023,
+                  "net_price_change_pct": 7.267991300331844,
+                  "unit_weight_turnover": 40
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 7.90630931889984
+              }
+            }
+          ],
+          "terminal_open": "2026-03-09"
+        },
+        {
+          "first_entry_open": "2026-03-11",
+          "intervals": 85,
+          "segment": "validation_reference",
+          "stress": [
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 46.472019464720205,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.472019464720205,
+                  "net_price_change_pct": -43.55874494382024,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -43.55874494382024
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 10,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 19.220535301417506,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 19.220535301417506,
+                  "net_price_change_pct": -17.185618898561085,
+                  "unit_weight_turnover": 8
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -17.185618898561085
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 46.47201946472019,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.47201946472019,
+                  "net_price_change_pct": -43.67168389513109,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -43.67168389513109
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 20,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 19.7848606429338,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 19.7848606429338,
+                  "net_price_change_pct": -17.84647832408813,
+                  "unit_weight_turnover": 8
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -17.84647832408813
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 46.47201946472022,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 85,
+                  "max_observed_open_drawdown_pct": 46.47201946472022,
+                  "net_price_change_pct": -43.78450973782774,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -43.78450973782774
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 30,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 20.34580342625706,
+                "price_only": {
+                  "interval_count": 85,
+                  "invested_intervals": 18,
+                  "max_observed_open_drawdown_pct": 20.34580342625706,
+                  "net_price_change_pct": -18.502718683063858,
+                  "unit_weight_turnover": 8
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -18.502718683063858
+              }
+            }
+          ],
+          "terminal_open": "2026-07-15"
+        },
+        {
+          "first_entry_open": "2026-07-17",
+          "intervals": 87,
+          "segment": "test_reference",
+          "stress": [
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.00790417582417582,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7904175824175821,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 25.913167938931338,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.600190839694694,
+                  "net_price_change_pct": -15.553761538461563,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -14.763343956043984
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 10,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.007207214428857711,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7207214428857711,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.059700158995204,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 15.74672305975856,
+                  "net_price_change_pct": -11.614091383627612,
+                  "unit_weight_turnover": 6
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -10.893369940741838
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.007896263736263735,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7896263736263734,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 25.986641221374008,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.673664122137364,
+                  "net_price_change_pct": -15.722738461538398,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -14.933112087912026
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 20,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.007199999999999995,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7199999999999994,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.480544856045785,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 16.16756775680914,
+                  "net_price_change_pct": -12.143611009136013,
+                  "unit_weight_turnover": 6
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -11.423611009136014
+              }
+            },
+            {
+              "constant_invested": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.007888351648351643,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.7888351648351644,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 26.060114503816767,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 87,
+                  "max_observed_open_drawdown_pct": 26.747137404580123,
+                  "net_price_change_pct": -15.891546153846125,
+                  "unit_weight_turnover": 2
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -15.102710989010959
+              },
+              "flat_cash_assumed_zero_interest": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0,
+                    "held_at_previous_record_close": false,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 0,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 0,
+                  "max_observed_open_drawdown_pct": 0,
+                  "net_price_change_pct": 0,
+                  "unit_weight_turnover": 0
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": 0
+              },
+              "one_way_bps": 30,
+              "signal_rule": {
+                "actual_costs_verified": false,
+                "actual_payment_verified": false,
+                "complete_corporate_action_history_verified": false,
+                "decision_authority": false,
+                "events": [
+                  {
+                    "ex_date": "2026-08-20",
+                    "gross_cash_per_share_cny": "0.036",
+                    "gross_entitlement_per_initial_cny": 0.0071927855711422795,
+                    "held_at_previous_record_close": true,
+                    "record_date": "2026-08-19",
+                    "source_locator": "https://static.cninfo.com.cn/finalpage/2026-08-14/1225471266.PDF"
+                  }
+                ],
+                "gross_entitlement_increment_pp": 0.719278557114228,
+                "gross_entitlement_reinvested": false,
+                "max_conditional_marked_open_drawdown_pct": 15.899706176838379,
+                "price_only": {
+                  "interval_count": 87,
+                  "invested_intervals": 34,
+                  "max_observed_open_drawdown_pct": 16.586729077601724,
+                  "net_price_change_pct": -12.67048436583833,
+                  "unit_weight_turnover": 6
+                },
+                "price_plus_nominal_gross_entitlement_change_pct": -11.951205808724108
+              }
+            }
+          ],
+          "terminal_open": "2026-11-25"
+        }
+      ],
+      "shareholder_tax_verified": false,
+      "signal_price_basis": "UNCHANGED_RAW_CLOSE_PRICE_ONLY",
+      "status": "CONDITIONAL_SEGREGATED_GROSS_ENTITLEMENT_SENSITIVITY",
+      "subject": "000035",
+      "total_return_certified": false
+    },
+    "decision_authority": false,
+    "execution_allowed": false,
+    "executor_commit": "b18eca6f4d4249bb51d44b9a38aecaa998246e99",
+    "first": "2025-01-02",
+    "last": "2026-11-25",
+    "observed_signal_rows_sha256": "4cfa27ad4f03e5877d5a06e14e90a814240bb41c532ec5631a7c4d33c593e4e3",
+    "pit_safe": false,
+    "prior_baseline_sha256": "b6424c54dc79fa3575f74c8657a3a8a9decf8c7ae2aa9ed81dd1e15dd27170ae",
+    "prior_event_receipts": [
+      {
+        "derived_receipt_sha256": "fdf46e5df5f44cfe4b243038e74cb7d4ccd7e25a46c33f32d05f3773ac8ac2ec",
+        "job": 140036250613,
+        "run": 45856529066,
+        "source_sha256": "18ad09cf3d97f04fdff90b2ee0bee63380a021862098caefbbd9455cc97b15e8",
+        "year": 2025
+      },
+      {
+        "derived_receipt_sha256": "2a5e6cc7c5dceb25ca568b33b62c3476d36946ee3fc37e6fc95b84f40dae40d2",
+        "job": 140037820223,
+        "run": 45856977986,
+        "source_sha256": "206b923f9f1e0d12b6e5b20d77dc3b39eb57058da141b5358c2dd49952d540af",
+        "year": 2026
+      }
+    ],
+    "prior_exact_price_baseline_recomputed": "MATCH",
+    "prior_full_market_version_match_claimed": false,
+    "prior_signal_projection_match": true,
+    "prior_signal_rows_sha256": "4cfa27ad4f03e5877d5a06e14e90a814240bb41c532ec5631a7c4d33c593e4e3",
+    "raw_provider_bytes_retained": false,
+    "status": "WARN",
+    "subject": "000035",
+    "temporary_projection_rehash": "MATCH",
+    "tencent": {
+      "elapsed_seconds": 1.87,
+      "excluded_outside_window": 297,
+      "provider": "tencent_direct",
+      "raw_body_bytes": 69797,
+      "raw_body_parent_rehash": "MATCH",
+      "raw_body_sha256": "5800c6ac1caf28425fa4d9e7aa676dc70c26f91ebf522cfcba305d89b82db02a",
+      "retrieved_at": "2026-11-26T16:39:48.828777+00:00",
+      "rows": 459,
+      "started_at": "2026-11-26T16:39:47.323445+00:00",
+      "status": "OBSERVED",
+      "url": "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?param=sz000035%2Cday%2C2025-01-02%2C2026-11-25%2C756%2C",
+      "worker_status": "OK"
+    }
+  }
+}
