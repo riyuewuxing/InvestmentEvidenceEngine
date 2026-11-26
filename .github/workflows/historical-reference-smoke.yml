@@ -1,0 +1,37 @@
+name: Bounded public historical price reference smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/historical-reference-smoke.yml'
+      - 'scripts/historical_reference_smoke.py'
+      - 'src/investment_evidence_engine/historical_reference.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-reference-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-controls:
+    if: ${{ github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Bounded fixed public controls
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 140s python scripts/historical_reference_smoke.py
