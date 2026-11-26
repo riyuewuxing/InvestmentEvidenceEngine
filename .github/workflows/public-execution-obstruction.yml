@@ -1,9 +1,6 @@
 name: Public execution obstruction
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-execution-obstruction.yml'
 permissions:
   contents: read
 concurrency:

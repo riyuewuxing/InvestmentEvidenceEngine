@@ -3,7 +3,11 @@ from decimal import Decimal
 
 import pytest
 
-from investment_evidence_engine.execution_obstruction import inspect_status_rows, ordinary_limits, tick_price
+from investment_evidence_engine.execution_obstruction import (
+    inspect_status_rows,
+    ordinary_limits,
+    tick_price,
+)
 from investment_evidence_engine.market_calendar import scheduled_days
 
 
