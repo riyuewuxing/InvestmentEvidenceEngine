@@ -6,6 +6,7 @@ Individual data-source failure is reported, never silently called success.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from investment_evidence_engine.bounded_worker import run_json_worker, write_worker_result
+from investment_evidence_engine.sina_statement_adapter import call_sina_statement
 from investment_evidence_engine.table_wire import pack_frame, unpack_frame
 
 SYMBOL = "600519"
@@ -30,7 +32,7 @@ def child(kind: str, output: Path) -> int:
         if kind == "indicator":
             frame = ak.stock_financial_analysis_indicator_em(symbol=SYMBOL + ".SH")
         elif kind in STATEMENTS:
-            frame = ak.stock_financial_report_sina(stock="sh" + SYMBOL, symbol=STATEMENTS[kind])
+            frame = call_sina_statement(ak.stock_financial_report_sina, "sh" + SYMBOL, STATEMENTS[kind])
         elif kind == "disclosures":
             end = datetime.now(SHANGHAI).date()
             frame = ak.stock_zh_a_disclosure_report_cninfo(
@@ -104,7 +106,10 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=4) as pool:
         reports = list(pool.map(observe, SOURCES))
     observed = sum(r["source_status"] == "OBSERVED_TRANSPORT_ONLY" for r in reports)
-    summary = {"symbol": SYMBOL, "observed_at": datetime.now(SHANGHAI).isoformat(),
+    import akshare as ak
+
+    summary = {"sina_parameter_names": list(inspect.signature(ak.stock_financial_report_sina).parameters),
+               "symbol": SYMBOL, "observed_at": datetime.now(SHANGHAI).isoformat(),
                "akshare_version": version("akshare"), "attempted": len(SOURCES), "observed": observed,
                "reports": reports, "raw_vendor_body_archived": False,
                "pit_verified": False, "decision_authority": False}
