@@ -129,3 +129,8 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual CNINFO metadata ID/attachment/timestamp check, PIT replay sealed-cutoff / dependency guard.
 - [ ] Latest Q3 actual report, complete revision universe, captured historical vintages, durable permitted source bytes and formal PIT RESEARCH.
 - [ ] Official full SZSE active listing / private dual gates; keep frozen prospective control until its existing due time.
+
+## 2026-11-26 continuation — actual Q3 and permitted retention
+- [x] Exact Q3 alias, two official originals and original/restated comparative values; consolidated balance/flow reconciliation.
+- [x] Three fixed public-domain BLS originals content-addressed; independent byte rehash, offline actual-byte regression (verify exact final SHA).
+- [ ] SEC network 403, official SZSE coverage, historical first availability, independent vintage data and formal RESEARCH/private dual gates. Do not equate current archive observation with historical availability.

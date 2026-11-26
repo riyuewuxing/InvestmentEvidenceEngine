@@ -1,9 +1,6 @@
 name: Public BLS two remaining revision originals
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-bls-revision-retention.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
