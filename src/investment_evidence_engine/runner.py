@@ -114,8 +114,8 @@ def execute_request(
         raise ValueError("EXECUTION_TRANSPORT_INVALID:" + ";".join(transport_errors))
     for item in results:
         for artifact in item.artifacts:
-            observed, _ = observe_artifact_file(output_dir, artifact.path, artifact.size_bytes)
-            if observed != artifact.sha256:
+            artifact_digest, _ = observe_artifact_file(output_dir, artifact.path, artifact.size_bytes)
+            if artifact_digest != artifact.sha256:
                 raise ValueError("EXECUTION_ARTIFACT_HASH_MISMATCH:" + artifact.path)
     finished = datetime.now(UTC)
     result = ExecutionResult(
