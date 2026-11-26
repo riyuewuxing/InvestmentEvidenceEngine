@@ -25,6 +25,11 @@ URL = ("https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/rea
        "data-files/xlsx/employ_level_first_second_third.xlsx?hash=038598EEF20022DF3CAE6801113BDF87&sc_lang=en")
 SOURCE = "https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/employ"
 MAX_BYTES = 1024 * 1024
+EXPECTED_SHA256 = "da5f3a884e5092c94bb53a8b5af828e111ccb25fdf8f39050769ca5ecd0dd406"
+EXPECTED_BYTES = 30749
+DATE_FORMAT_DOC = ("https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/"
+                   "real-time-data/data-files/employ/specific_documentation_employ.pdf"
+                   "?hash=E4B6E855FAC21EE005FACC703B02B63C&la=en")
 
 
 def row_fields(rows) -> dict:
@@ -44,7 +49,9 @@ def row_fields(rows) -> dict:
                 if i >= 12:
                     raise ValueError("PHILLY_HEADER")
             continue
-        if isinstance(cells[0], str) and re.fullmatch(r"2025:M0?8", cells[0].strip()):
+        # Official EMPLOY notes page 1 specifies yyyy:mm observation labels.
+        # Retain explicit legacy aliases but never select between duplicates.
+        if isinstance(cells[0], str) and cells[0].strip() in {"2025:08", "2025:M8", "2025:M08"}:
             matches.append(cells)
     caption = " ".join(metadata).lower()
     if not header or "employ" not in caption or "thousand" not in caption or "change" not in caption:
@@ -60,7 +67,8 @@ def row_fields(rows) -> dict:
         else:
             raise ValueError("PHILLY_VALUE_SCHEMA")
     return {"period": "2025-08", "series": "EMPLOY", "unit": "JOBS",
-            "release_values": values, "latest_revision_not_used": True}
+            "release_values": values, "target_date_label": matches[0][0].strip(),
+            "latest_revision_not_used": True}
 
 
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -205,6 +213,7 @@ def main() -> int:
     result = {"status": "BLOCK", "source": SOURCE, "url": URL,
               "executor_commit": os.environ["GITHUB_SHA"], "worker_status": task.status,
               "elapsed_seconds": task.elapsed_seconds, "original_values_jobs": expected,
+              "date_format_documentation": DATE_FORMAT_DOC, "expected_prior_sha256": EXPECTED_SHA256,
               "original_source_sha256": [r.raw_sha256 for r in originals],
               "raw_body_retained": False, "historical_capture_verified": False,
               "source_independence_verified": False, "intraday_availability_verified": False,
@@ -224,6 +233,8 @@ def main() -> int:
                     raise ValueError("PHILLY_RECEIPT")
                 result |= {"sha256": digest, "bytes": len(raw), "parent_rehash": "MATCH",
                            "retrieved_at": b.isoformat()}
+                if len(raw) != EXPECTED_BYTES or digest != EXPECTED_SHA256:
+                    raise ValueError("PHILLY_EXACT_PRIOR_VERSION_MISMATCH")
                 fields = parse(raw)
                 values = fields["release_values"]
                 matches = [None if x is None else x == y for x, y in zip(values, expected, strict=True)]

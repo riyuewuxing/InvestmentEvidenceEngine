@@ -62,3 +62,17 @@ def test_bounded_workbook_values_and_no_formula(control):
     assert control.parse(workbook())["release_values"] == [22000, -4000, -26000]
     with pytest.raises(ValueError, match="FORMULA"):
         control.parse(workbook("<f>1+21</f>"))
+
+
+def test_documented_colon_month_label_and_alias_collision(control):
+    prefix = [("Nonfarm Payroll Employment (EMPLOY)", None, None, None, None),
+              ("M/M Change, Thousands of Employees", None, None, None, None),
+              ("Date", "First", "Second", "Third", "Most_Recent")]
+    actual = ("2025:08", 22, -4, -26, 999)
+    result = control.row_fields(prefix + [actual])
+    assert result["target_date_label"] == "2025:08"
+    assert result["release_values"] == [22000, -4000, -26000]
+    with pytest.raises(ValueError, match="TARGET_SCOPE"):
+        control.row_fields(prefix + [actual, ("2025:M08", 22, -4, -26, 999)])
+    with pytest.raises(ValueError, match="TARGET_SCOPE"):
+        control.row_fields(prefix + [("2025:09", 22, -4, -26, 999)])

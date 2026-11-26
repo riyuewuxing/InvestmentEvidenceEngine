@@ -17,7 +17,7 @@ from statistics import median
 from .contracts import ExecutionOperation, OperationResult
 from .evidence_time_guard import aware, validate_event_cutoff
 from .transport_integrity import read_verified_artifact
-from .twse_revenue_control import AMOUNTS, PERCENTS, REQUIRED, percent, pct, round_to
+from .twse_revenue_control import AMOUNTS, PERCENTS, REQUIRED, pct, percent, round_to
 from .workers import WorkerContext, _artifact, _write_json
 
 PROFILE = "TWSE_RETAINED_REVENUE_202610"

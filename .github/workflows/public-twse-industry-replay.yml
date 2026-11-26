@@ -1,9 +1,6 @@
 name: Public TWSE retained industry replay
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-twse-industry-replay.yml"
 permissions:
   contents: read
 concurrency:

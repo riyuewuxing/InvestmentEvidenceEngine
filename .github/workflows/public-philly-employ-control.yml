@@ -1,6 +1,9 @@
 name: Public Philadelphia Fed release control
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/public-philly-employ-control.yml"
 permissions:
   contents: read
 concurrency:
@@ -22,6 +25,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e .
-      - name: Resolve unique release worksheet from official workbook
+      - name: Verify documented yyyy:mm label against exact prior workbook
         timeout-minutes: 2
         run: timeout --signal=TERM --kill-after=5s 85s python scripts/public_philly_employ_control.py
