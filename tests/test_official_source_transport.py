@@ -5,6 +5,8 @@ from urllib.request import Request
 import pytest
 
 from investment_evidence_engine.sources import (
+    ALFRED_FIXED_VINTAGE_URLS,
+    BLS_FIXED_RELEASE_URLS,
     FED_FIXED_STATEMENT_URLS,
     OfficialRedirectHandler,
     read_official_body,
@@ -66,5 +68,19 @@ def test_fed_fixed_event_source_scope_only():
     for url in ("https://www.federalreserve.gov/",
                 "https://data.federalreserve.gov/newsevents/pressreleases/monetary20250917a.htm",
                 "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250918a.htm"):
+        with pytest.raises(ValueError):
+            validate_official_url(url)
+
+
+def test_fixed_payroll_routes_only():
+    for url in BLS_FIXED_RELEASE_URLS | ALFRED_FIXED_VINTAGE_URLS:
+        assert validate_official_url(url) == url
+        with pytest.raises(ValueError):
+            OfficialRedirectHandler().redirect_request(
+                Request(url), None, 302, "redirect", Message(), "https://www.sse.com.cn/a")
+        with pytest.raises(ValueError):
+            validate_official_url(url+"x")
+    for url in ("https://www.bls.gov/", "https://alfred.stlouisfed.org/",
+                "https://fred.stlouisfed.org/graph/fredgraph.csv?id=PAYEMS"):
         with pytest.raises(ValueError):
             validate_official_url(url)

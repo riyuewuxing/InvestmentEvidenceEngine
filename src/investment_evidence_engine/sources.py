@@ -68,6 +68,18 @@ FED_FIXED_STATEMENT_URLS = frozenset({
     "https://www.federalreserve.gov/newsevents/pressreleases/monetary20251210a.htm",
 })
 
+BLS_FIXED_RELEASE_URLS = frozenset({
+    "https://www.bls.gov/news.release/archives/empsit_09052025.htm",
+    "https://www.bls.gov/news.release/archives/empsit_11202025.htm",
+    "https://www.bls.gov/news.release/archives/empsit_12162025.htm",
+})
+ALFRED_FIXED_VINTAGE_URLS = frozenset({
+    "https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=PAYEMS&vintage_date=2025-09-05&cosd=2025-07-01&coed=2025-08-01",
+    "https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=PAYEMS&vintage_date=2025-11-20&cosd=2025-07-01&coed=2025-08-01",
+    "https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=PAYEMS&vintage_date=2025-12-16&cosd=2025-07-01&coed=2025-08-01",
+})
+FIXED_US_CONTROL_URLS = FED_FIXED_STATEMENT_URLS | BLS_FIXED_RELEASE_URLS | ALFRED_FIXED_VINTAGE_URLS
+
 _ALLOWED_HOST_SUFFIXES = (
     "sse.com.cn",
     "szse.cn",
@@ -84,7 +96,7 @@ def validate_official_url(url: str) -> str:
             or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment):
         raise ValueError("official source URL must be HTTPS")
     host = parsed.hostname.lower()
-    if url in FED_FIXED_STATEMENT_URLS:
+    if url in FIXED_US_CONTROL_URLS:
         return url
     if not any(host == suffix or host.endswith("." + suffix) for suffix in _ALLOWED_HOST_SUFFIXES):
         raise ValueError(f"official source host is not allowlisted: {host}")
@@ -135,8 +147,8 @@ class OfficialRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Regulatory HTML/DOCX sources may legitimately redirect within the
         # approved official domains. Validate before issuing the next request.
-        if req.full_url in FED_FIXED_STATEMENT_URLS:
-            raise ValueError("fixed Federal Reserve control must not redirect")
+        if req.full_url in FIXED_US_CONTROL_URLS:
+            raise ValueError("fixed US official control must not redirect")
         validate_official_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 

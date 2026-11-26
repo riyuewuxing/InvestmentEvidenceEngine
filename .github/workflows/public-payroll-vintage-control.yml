@@ -1,0 +1,31 @@
+name: Public payroll revision vintage control
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/public_payroll_vintage_control.py'
+      - '.github/workflows/public-payroll-vintage-control.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-payroll-vintage-control-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-control:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Observe fixed BLS and ALFRED vintages
+        timeout-minutes: 2
+        run: timeout --signal=TERM --kill-after=5s 105s python scripts/public_payroll_vintage_control.py
