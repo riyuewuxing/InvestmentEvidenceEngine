@@ -13,6 +13,7 @@ from investment_evidence_engine.risk_evidence_guards import (
     growth_pct,
     high_risk,
     period_day,
+    positive_ratio_minus_one,
 )
 
 
@@ -82,3 +83,20 @@ def test_cache_age_and_exchange_day_boundary():
     assert not fresh_observation_epoch(stamp, stamp-1, ttl_seconds=60)
     assert not fresh_observation_epoch(stamp, stamp+61, ttl_seconds=60)
     assert not fresh_observation_epoch(float("nan"), stamp, ttl_seconds=60)
+
+
+def test_positive_reference_ratio():
+    assert positive_ratio_minus_one(99, 100) == pytest.approx(-0.01)
+    assert positive_ratio_minus_one(100, 100) == 0
+    assert positive_ratio_minus_one(200, 100, denominator_scale=2) == 0
+
+
+@pytest.mark.parametrize("args", [
+    (0, 100, 1), (100, 0, 1), (-1, 1, 1), (1, 1, 0),
+    (math.inf, 1, 1), (1, math.inf, 1), (1, 1, math.nan),
+    (1, 1e308, 1e308), (1, 1e-308, 1e-308), (1e308, 1e-308, 1),
+    (None, 1, 1), (True, 1, 1),
+])
+def test_invalid_reference_ratio_is_unknown(args):
+    num, den, scale = args
+    assert positive_ratio_minus_one(num, den, denominator_scale=scale) is None

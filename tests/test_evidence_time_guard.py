@@ -2,7 +2,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from investment_evidence_engine.evidence_time_guard import decision_ref_eligible, source_visible
+from investment_evidence_engine.evidence_time_guard import (
+    decision_ref_eligible,
+    observed_measurement_visible,
+    reference_age_seconds,
+    source_visible,
+)
 
 CUT = datetime(2026, 11, 26, 7, tzinfo=UTC)
 BEFORE = CUT - timedelta(hours=1)
@@ -46,3 +51,19 @@ def test_reference_classes():
     assert not decision_ref_eligible("CLAIM", False)
     assert not decision_ref_eligible("SOURCE", True)
     assert not decision_ref_eligible("OUTCOME", True)
+
+
+def test_completed_measurement_requires_observation_by_cutoff():
+    args = dict(effective_at=EARLIER, available_at=BEFORE, ingested_at=CUT, cutoff=CUT)
+    assert observed_measurement_visible(**args)
+    assert not observed_measurement_visible(**(args | {"ingested_at": CUT + timedelta(seconds=1)}))
+    assert not observed_measurement_visible(**(args | {"effective_at": CUT}))
+    assert not observed_measurement_visible(**(args | {"effective_at": EARLIER.replace(tzinfo=None)}))
+    assert not observed_measurement_visible(**(args | {"cutoff": CUT.replace(tzinfo=None)}))
+
+
+def test_reference_age_is_directional_and_aware():
+    assert reference_age_seconds(market_at=CUT, reference_at=BEFORE) == 3600
+    assert reference_age_seconds(market_at=CUT, reference_at=CUT) == 0
+    assert reference_age_seconds(market_at=BEFORE, reference_at=CUT) is None
+    assert reference_age_seconds(market_at=CUT, reference_at=BEFORE.replace(tzinfo=None)) is None

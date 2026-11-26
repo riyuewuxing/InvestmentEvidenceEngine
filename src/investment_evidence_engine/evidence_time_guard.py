@@ -28,3 +28,21 @@ def source_visible(*, available_at: datetime | None, retrieved_at: datetime | No
 
 def decision_ref_eligible(kind: str, pit_eligible: bool) -> bool:
     return pit_eligible is True and kind in {"OBSERVATION", "COMPUTATION_OUTPUT", "EVIDENCE", "CLAIM"}
+
+
+def observed_measurement_visible(*, effective_at: datetime, available_at: datetime,
+                                 ingested_at: datetime, cutoff: datetime) -> bool:
+    """A completed measurement must actually be observed by the cutoff.
+
+    Not for scheduled future events or methodology changes announced in advance.
+    """
+    return (aware(effective_at) and source_visible(available_at=available_at,
+            retrieved_at=ingested_at, published_at=None, cutoff=cutoff)
+            and effective_at <= available_at)
+
+
+def reference_age_seconds(*, market_at: datetime, reference_at: datetime) -> float | None:
+    """A reference effective after its market quote cannot be used as contemporaneous."""
+    if not aware(market_at) or not aware(reference_at) or reference_at > market_at:
+        return None
+    return (market_at - reference_at).total_seconds()

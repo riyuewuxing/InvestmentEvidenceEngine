@@ -116,3 +116,15 @@ def fresh_observation_epoch(fetched: object, now: object, *, ttl_seconds: float)
                 == datetime.fromtimestamp(last, UTC).astimezone(tz).date())
     except (OSError, ValueError, OverflowError):
         return False
+
+
+def positive_ratio_minus_one(numerator: object, denominator: object,
+                             *, denominator_scale: object = 1.0) -> float | None:
+    """Fractional premium/discount; reject nonpositive, nonfinite or overflowed inputs."""
+    num, den, scale = finite(numerator), finite(denominator), finite(denominator_scale)
+    if any(v is None or v <= 0 for v in (num, den, scale)):
+        return None
+    converted = finite(den * scale)
+    if converted is None or converted <= 0:
+        return None
+    return finite(num / converted - 1.0)
