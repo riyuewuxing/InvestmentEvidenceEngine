@@ -198,7 +198,8 @@ def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> l
     return _records(operation, context)
 
 
-def _chronological_rows(records: list[dict], parameters: dict, *, required: bool) -> bool:
+def _chronological_rows(records: list[dict], parameters: dict, *, required: bool,
+                        request_as_of: str | None = None) -> bool:
     """Date/instant label order only, not actual availability or market calendar proof."""
     explicit = parameters.get("time_field")
     if explicit is not None and (not isinstance(explicit, str) or not explicit.strip()):
@@ -224,6 +225,22 @@ def _chronological_rows(records: list[dict], parameters: dict, *, required: bool
     dates = [stamp for stamp, _ in stamps]
     if dates != sorted(set(dates)):
         raise ValueError("COMPUTE_TIME_ORDER_OR_DUPLICATE")
+    # Enforce both declared operation and sealed request ceilings. A date-only
+    # observation on the day of an exact cutoff has unknown intraday timing.
+    for scope in (request_as_of, parameters.get("as_of")):
+        if scope is None:
+            continue
+        cutoff, day_scope = validate_event_cutoff(scope)
+        for stamp, day in stamps:
+            if day_scope:
+                local_day = stamp.date() if day else stamp.astimezone(SHANGHAI).date()
+                outside = local_day > cutoff.date()
+            elif day:
+                outside = stamp.date() >= cutoff.astimezone(SHANGHAI).date()
+            else:
+                outside = stamp > cutoff
+            if outside:
+                raise ValueError("COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF")
     return True
 
 
@@ -252,7 +269,8 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
     chronology = False
     if temporal:
         try:
-            chronology = _chronological_rows(records, operation.parameters, required=True)
+            chronology = _chronological_rows(records, operation.parameters, required=True,
+                                             request_as_of=context.request_as_of)
         except ValueError as exc:
             return _compute_block(operation, str(exc))
         key = "periods" if transform == "PCT_CHANGE" else "window"
@@ -295,6 +313,7 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
         "missing_input_count": int(values.isna().sum()),
         "undefined_output_count": int(factor.isna().sum()),
         "missing_values_filled": False, "time_label_order_verified": chronology,
+        "lookback_basis": "ORDERED_INPUT_ROWS_NOT_VERIFIED_SESSIONS" if temporal else None,
         "historical_vintage_verified": False, "pit_safe": False, "decision_authority": False,
     }
     path = context.output_dir / f"{operation.operation_id}.json"
@@ -320,7 +339,8 @@ def run_backtest(operation: ExecutionOperation, context: WorkerContext) -> Opera
         if not records:
             return _compute_block(operation, "NO_BACKTEST_INPUT_RECORDS")
         chronology = _chronological_rows(records, parameters,
-                                         required="depends_on_operation_ids" in parameters)
+                                         required="depends_on_operation_ids" in parameters,
+                                         request_as_of=context.request_as_of)
     except ValueError as exc:
         return _compute_block(operation, str(exc))
     return_field = parameters.get("return_field", "return")

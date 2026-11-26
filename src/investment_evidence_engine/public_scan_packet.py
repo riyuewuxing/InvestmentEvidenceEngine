@@ -10,7 +10,11 @@ from .contracts import ExecutionRequest, ExecutionResult, canonical_sha256
 from .dispatch import run_operation
 from .input_binding import select_scan_record
 from .snapshot_integrity import strict_json_loads
-from .transport_integrity import read_contract_bytes, read_verified_artifact, result_transport_errors
+from .transport_integrity import (
+    read_contract_bytes,
+    read_verified_artifact,
+    result_transport_errors,
+)
 from .workers import WorkerContext
 
 

@@ -101,3 +101,21 @@ def test_explicit_annualization_is_assumed_not_certified(tmp_path):
     assert result.metrics["total_return"] == pytest.approx(.999 * 1.099 - 1)
     assert not payload["assumptions"]["annualization_cadence_verified"]
     json.dumps(payload, allow_nan=False)
+
+
+@pytest.mark.parametrize("kind", ["BACKTEST", "FACTOR_COMPUTE"])
+@pytest.mark.parametrize("cutoff,day", [
+    ("2026-01-01", "2026-01-02"),
+    ("2026-01-02T10:00:00+08:00", "2026-01-02"),
+    ("2026-01-02T10:00:00+08:00", "2026-01-02T10:01:00+08:00"),
+])
+def test_compute_cannot_include_future_or_same_day_unknown_time(tmp_path, kind, cutoff, day):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of=cutoff)
+    op = ExecutionOperation(operation_id="compute", kind=kind, parameters={
+        "inline_records": [{"date": day, "close": 10, "return": 0, "weight": 0}],
+        "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1},
+        "cost_bps": 10,
+    })
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.errors == ["COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF"]
