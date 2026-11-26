@@ -13,8 +13,10 @@ from investment_evidence_engine.public_prediction_pilot import (
 )
 from investment_evidence_engine.public_prediction_settlement import (
     DEADLINE,
+    FROZEN_PUBLIC_SHA256,
     MATURITY,
     assess,
+    load_pinned_freeze,
     outcome_observation,
     verify_outcome,
 )
@@ -77,3 +79,19 @@ def test_refuse_tampering_and_wrong_external_pin():
     with pytest.raises(ValueError):
         assess(f, o, expected_freeze_sha256=sha256(f), expected_outcome_sha256=sha256(o),
                now=MATURITY - timedelta(seconds=1))
+
+
+def test_actual_frozen_public_receipt_pin_and_tamper(tmp_path):
+    f = load_pinned_freeze()
+    assert sha256(f) == FROZEN_PUBLIC_SHA256
+    assert f["direction"] == "UP"
+    path = tmp_path / "wrong.json"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="PINNED_FREEZE_BYTES_MISMATCH"):
+        load_pinned_freeze(path)
+    # Hypothetical outcome strictly for contract testing, never a real outcome.
+    o = observe([row("9")])
+    report = assess(f, o, expected_freeze_sha256=FROZEN_PUBLIC_SHA256,
+                    expected_outcome_sha256=sha256(o), now=MATURITY)
+    assert report["assessment"]["observed_selected_accuracy"] == 0
+    assert report["first_run_provenance_verification_by_caller_required"]

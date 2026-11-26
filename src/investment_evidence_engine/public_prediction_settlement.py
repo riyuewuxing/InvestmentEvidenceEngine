@@ -6,10 +6,20 @@ self-recomputed SHA values do not authenticate their observation history.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, date, datetime, time
+from decimal import Decimal
+from pathlib import Path
 
 from .historical_capture import SH
-from .prospective_assessment import DailyAssessmentBatch, DailyAssessmentRow, assess_daily_cohort
+from .prospective_assessment import (
+    THRESHOLD,
+    DailyAssessmentBatch,
+    DailyAssessmentRow,
+    actual_direction,
+    assess_daily_cohort,
+)
 from .public_prediction_pilot import (
     FIELDS,
     PILOT_ID,
@@ -21,6 +31,9 @@ from .public_prediction_pilot import (
     sha256,
     verify_frozen,
 )
+
+FROZEN_PUBLIC_SHA256 = "1501bc46dc9fd0fbc5212ec774bee6759666162be469ff1d663ab1995204fd0b"
+FROZEN_PUBLIC_PATH = Path("pilot-receipts/public-control-20261127-frozen.json")
 
 MATURITY = datetime.combine(TARGET, time(15, 30), SH)
 DEADLINE = datetime.combine(date(2026, 11, 30), time(23, 59, 59), SH)
@@ -97,12 +110,19 @@ def assess(frozen: dict, outcome: dict, *, expected_freeze_sha256: str,
         raise ValueError("PILOT_EXTERNAL_RECEIPT_HASH_MISMATCH")
     if now.utcoffset() is None or now < datetime.fromisoformat(outcome["observed_at"]):
         raise ValueError("PILOT_ASSESSMENT_BEFORE_OBSERVATION")
+    value = outcome["raw_intraday_return"]
+    number = float(value) if value is not None else None
+    if value is not None:
+        exact = Decimal(value)
+        direction = "UP" if exact > THRESHOLD else "DOWN" if exact < -THRESHOLD else "FLAT"
+        if actual_direction(number) != direction:
+            raise ValueError("PILOT_OUTCOME_LABEL_PRECISION_MISMATCH")
     result = assess_daily_cohort(
         TARGET, TARGET, (SYMBOL,),
         (DailyAssessmentBatch(session=TARGET, rows=(DailyAssessmentRow(
             subject_id=SYMBOL, disposition="SELECTED", direction=frozen["direction"],
             outcome_status=outcome["status"],
-            observed_return=float(outcome["raw_intraday_return"]) if outcome["status"] == "OBSERVED" else None,
+            observed_return=number,
         ),)),), now=now,
     )
     return {
@@ -138,14 +158,28 @@ def collect() -> dict:
     return result
 
 
+def load_pinned_freeze(path: Path = FROZEN_PUBLIC_PATH) -> dict:
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != FROZEN_PUBLIC_SHA256:
+        raise ValueError("PILOT_PINNED_FREEZE_BYTES_MISMATCH")
+    receipt = json.loads(raw)
+    verify_frozen(receipt)
+    return receipt
+
+
 def main() -> int:
     try:
+        frozen = load_pinned_freeze()
         receipt = collect()
+        assessment = assess(frozen, receipt, expected_freeze_sha256=FROZEN_PUBLIC_SHA256,
+                            expected_outcome_sha256=sha256(receipt), now=datetime.now(UTC))
     except Exception as exc:
         print("PUBLIC_PILOT_OUTCOME_BLOCKED " + type(exc).__name__)
         return 2
     print("PUBLIC_PILOT_OUTCOME_RECEIPT " + canonical_bytes(receipt).decode("utf-8"))
     print("PUBLIC_PILOT_OUTCOME_SHA256 " + sha256(receipt))
+    print("PUBLIC_PILOT_ASSESSMENT " + canonical_bytes(assessment).decode("utf-8"))
+    print("PUBLIC_PILOT_ASSESSMENT_SHA256 " + sha256(assessment))
     return 0
 
 

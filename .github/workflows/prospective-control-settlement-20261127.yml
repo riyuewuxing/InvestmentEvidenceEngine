@@ -19,10 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 2
           persist-credentials: false
       - name: Verify one public activation marker
         timeout-minutes: 1
-        run: test "$(cat pilot-triggers/public-control-20261127-settle.txt)" = "public_daily_control_20261127_v1"
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          test "$(git rev-parse HEAD^)" = "$BEFORE_SHA"
+          test "$(git diff --name-status "$BEFORE_SHA" HEAD)" = "$(printf 'A\tpilot-triggers/public-control-20261127-settle.txt')"
+          test ! -L pilot-triggers/public-control-20261127-settle.txt
+          test "$(cat pilot-triggers/public-control-20261127-settle.txt)" = "public_daily_control_20261127_v1"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
