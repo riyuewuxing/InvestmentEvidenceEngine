@@ -37,3 +37,13 @@ def test_retained_complete_revision_chain():
     assert [r["august_change_jobs"] for r in results] == [22000, -4000, -26000]
     assert [r["previous_august_change_jobs"] for r in results] == [None, 22000, -4000]
     assert results[1]["october_release_not_published_observed"]
+
+
+def test_real_retained_archive_declared_and_observed_views():
+    from replay_bls_archive import run_replay
+
+    report = run_replay(datetime(2026, 11, 26, 13, tzinfo=UTC))
+    assert report["actual_files_reopened_and_parsed"] == 3
+    assert [r.get("value") for r in report["declared_release_views"]] == [None, "22000", "-4000", "-26000"]
+    assert [r.get("value") for r in report["durable_observed_views"]] == [None, "22000", "-26000"]
+    assert not report["pit_safe"]
