@@ -26,20 +26,32 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 def child(kind: str, output: Path) -> int:
     import akshare as ak
 
-    if kind == "indicator":
-        frame = ak.stock_financial_analysis_indicator_em(symbol=SYMBOL + ".SH")
-    elif kind in STATEMENTS:
-        frame = ak.stock_financial_report_sina(stock="sh" + SYMBOL, symbol=STATEMENTS[kind])
-    elif kind == "disclosures":
-        end = datetime.now(SHANGHAI).date()
-        frame = ak.stock_zh_a_disclosure_report_cninfo(
-            symbol=SYMBOL, market="沪深京", keyword="", category="",
-            start_date=(end - timedelta(days=90)).strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-        )
-    else:
-        return 2
-    write_worker_result(output, {"source": kind, "symbol": SYMBOL, "table": pack_frame(frame)})
+    try:
+        if kind == "indicator":
+            frame = ak.stock_financial_analysis_indicator_em(symbol=SYMBOL + ".SH")
+        elif kind in STATEMENTS:
+            frame = ak.stock_financial_report_sina(stock="sh" + SYMBOL, symbol=STATEMENTS[kind])
+        elif kind == "disclosures":
+            end = datetime.now(SHANGHAI).date()
+            frame = ak.stock_zh_a_disclosure_report_cninfo(
+                symbol=SYMBOL, market="沪深京", keyword="", category="",
+                start_date=(end - timedelta(days=90)).strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+            )
+        else:
+            return 2
+    except Exception as exc:
+        write_worker_result(output, {"source": kind, "symbol": SYMBOL, "table": None,
+                                    "stage": "FETCH_FAILED", "error_type": type(exc).__name__})
+        return 0
+    try:
+        table = pack_frame(frame)
+    except Exception as exc:
+        write_worker_result(output, {"source": kind, "symbol": SYMBOL, "table": None,
+                                    "stage": "ENCODE_FAILED", "error_type": type(exc).__name__})
+        return 0
+    write_worker_result(output, {"source": kind, "symbol": SYMBOL, "table": table,
+                                "stage": "TABLE_RETURNED", "error_type": None})
     return 0
 
 
@@ -51,10 +63,14 @@ def observe(kind: str) -> dict:
     if result.status != "OK":
         return row
     payload = result.payload
-    if not isinstance(payload, dict) or set(payload) != {"source", "symbol", "table"}:
+    if not isinstance(payload, dict) or set(payload) != {"source", "symbol", "table", "stage", "error_type"}:
         return row | {"source_status": "INVALID_ENVELOPE"}
     if payload["source"] != kind or payload["symbol"] != SYMBOL:
         return row | {"source_status": "IDENTITY_MISMATCH"}
+    if payload["stage"] in {"FETCH_FAILED", "ENCODE_FAILED"}:
+        return row | {"source_status": payload["stage"], "error_type": payload["error_type"]}
+    if payload["stage"] != "TABLE_RETURNED" or payload["error_type"] is not None:
+        return row | {"source_status": "INVALID_STAGE"}
     try:
         frame = unpack_frame(payload["table"])
         if frame is None or frame.empty:

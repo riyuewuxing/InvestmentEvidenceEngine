@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/bounded-provider-control.yml'
+      - 'scripts/bounded_provider_control.py'
 permissions:
   contents: read
 jobs:
