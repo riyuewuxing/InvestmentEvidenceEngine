@@ -1,5 +1,5 @@
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -52,3 +52,25 @@ def test_intended_buy_at_limit_is_not_fill():
     assert first["open_adverse_limit_count"] == 1
     assert first["full_day_adverse_one_price_count"] == 1
     assert first["flagged_intents"][0]["day"] == dates[21].isoformat()
+
+def test_missing_session_and_row_together_cannot_evade_calendar():
+    dates, rows = fixture()
+    with pytest.raises(ValueError, match="STATUS_COVERAGE"):
+        inspect_status_rows(rows[:50] + rows[51:], identity="sz.000035",
+                            sessions=dates[:50] + dates[51:], event_references={})
+
+
+def test_decimal_context_and_noncanonical_inputs():
+    with localcontext() as ctx:
+        ctx.prec = 3
+        assert ordinary_limits(Decimal("4.35")) == (Decimal("3.92"), Decimal("4.79"))
+    for value in ("NaN", "1e1", " 4.00", "4_000", "0"):
+        with pytest.raises(ValueError):
+            tick_price(value)
+
+
+def test_event_reference_requires_typed_exact_cents():
+    dates, rows = fixture()
+    for value in (4.0, Decimal("4.001")):
+        with pytest.raises(ValueError):
+            inspect_status_rows(rows, identity="sz.000035", sessions=dates, event_references={dates[50]: value})

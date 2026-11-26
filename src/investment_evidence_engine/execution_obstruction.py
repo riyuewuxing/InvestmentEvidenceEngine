@@ -5,9 +5,11 @@ A price at a limit is not proof that any particular order could not fill.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 
+from .market_calendar import scheduled_days
 from .momentum_profile import WINDOW, momentum_profile
 
 TICK = Decimal("0.01")
@@ -20,19 +22,23 @@ REVIEWED_END = date(2026, 11, 25)
 
 
 def tick_price(value: str) -> Decimal:
-    if type(value) is not str or not 0 < len(value) <= 24:
+    if type(value) is not str or not 0 < len(value) <= 24 or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value):
         raise ValueError("PRICE_TYPE")
     x = Decimal(value)
-    if not x.is_finite() or not TICK <= x <= Decimal("1000000") or x != x.quantize(TICK):
-        raise ValueError("PRICE_NOT_POSITIVE_CENT")
+    with localcontext() as ctx:
+        ctx.prec = 32
+        if not TICK <= x <= Decimal("1000000") or x != x.quantize(TICK):
+            raise ValueError("PRICE_NOT_POSITIVE_CENT")
     return x
 
 
 def ordinary_limits(reference: Decimal) -> tuple[Decimal, Decimal]:
     reference = tick_price(str(reference))
-    up = (reference * Decimal("1.10")).quantize(TICK, rounding=ROUND_HALF_UP)
-    down = (reference * Decimal("0.90")).quantize(TICK, rounding=ROUND_HALF_UP)
-    return max(TICK, min(down, reference - TICK)), max(up, reference + TICK)
+    with localcontext() as ctx:
+        ctx.prec = 32
+        up = (reference * Decimal("1.10")).quantize(TICK, rounding=ROUND_HALF_UP)
+        down = (reference * Decimal("0.90")).quantize(TICK, rounding=ROUND_HALF_UP)
+        return max(TICK, min(down, reference - TICK)), max(up, reference + TICK)
 
 
 def inspect_status_rows(rows: list, *, identity: str, sessions: tuple[date, ...],
@@ -40,22 +46,30 @@ def inspect_status_rows(rows: list, *, identity: str, sessions: tuple[date, ...]
     """Reject unsupported regime or inconsistency; never impute missing days."""
     if (not identity.startswith(("sz.000", "sz.001", "sz.002", "sz.003"))
             or len(identity) != 9 or not identity[3:].isdigit()
-            or not sessions or sessions != tuple(sorted(set(sessions)))
+            or not isinstance(sessions, tuple) or not sessions or any(type(d) is not date for d in sessions)
+            or sessions != tuple(sorted(set(sessions)))
             or sessions[0] < REVIEWED_START or sessions[-1] > REVIEWED_END):
         raise ValueError("UNSUPPORTED_SCOPE")
-    if len(rows) != len(sessions):
+    expected_sessions = tuple(r.day for r in scheduled_days(sessions[0], sessions[-1]) if r.is_trading_day)
+    if sessions != expected_sessions or len(rows) != len(sessions):
         raise ValueError("STATUS_COVERAGE")
-    if not set(event_references) <= set(sessions[1:]):
+    if (not isinstance(event_references, dict) or not set(event_references) <= set(sessions[1:])
+            or any(type(d) is not date or type(v) is not Decimal for d, v in event_references.items())):
         raise ValueError("EVENT_SCOPE")
+    for value in event_references.values():
+        tick_price(str(value))
     bars = []
     for i, (day, row) in enumerate(zip(sessions, rows, strict=True)):
-        if len(row) != 11 or row[0] != day.isoformat() or row[1] != identity or row[8] != "3":
+        if (not isinstance(row, (list, tuple)) or len(row) != 11 or any(type(v) is not str for v in row)
+                or row[0] != day.isoformat() or row[1] != identity or row[8] != "3"):
             raise ValueError("STATUS_IDENTITY_DATE_BASIS")
         if row[9] != "1" or row[10] != "0":
             raise ValueError("NONORDINARY_OR_UNKNOWN_DAILY_STATUS")
         opening, high, low, close, ref = map(tick_price, row[2:7])
+        if not 0 < len(row[7]) <= 32 or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", row[7]):
+            raise ValueError("VOLUME_INVALID")
         volume = Decimal(row[7])
-        if not volume.is_finite() or volume <= 0 or volume != volume.to_integral_value():
+        if volume <= 0 or volume != volume.to_integral_value():
             raise ValueError("VOLUME_INVALID")
         if i and ref != event_references.get(day, bars[-1]["close"]):
             raise ValueError("UNRECONCILED_DAILY_REFERENCE")

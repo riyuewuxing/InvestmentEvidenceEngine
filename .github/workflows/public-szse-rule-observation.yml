@@ -1,9 +1,6 @@
 name: Public SZSE rule observation
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-szse-rule-observation.yml'
 permissions:
   contents: read
 concurrency:
