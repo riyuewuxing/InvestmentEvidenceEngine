@@ -108,3 +108,10 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [ ] Obtain actual admissible public candidate bytes and original-source receipts with publication/retrieval provenance; independent listing/price checks remain open.
 - [ ] Implement and validate genuine PIT research profile with chronological splits/cost stress; do not invent available_at from bar dates.
 - [ ] Private consumer complete same-SHA dual gates under public-only boundary. Historical pins remain frozen.
+
+## 2026-11-26 continuation — observed research diagnostics
+- [x] Actual two-route unadjusted OHLC control and fixed retrospective cost stress (459 bars; no historical PIT proof).
+- [x] Production raw secondary crosscheck (38 bars, WARN).
+- [x] Official SSE main/STAR listing observed and raw rehash (1700 + 619, scope only); exact packet replay synthetic tests.
+- [ ] SZSE official transport and full independent listing coverage, actual public candidate packet; no forced full scan while gate BLOCK.
+- [ ] Genuine historical availability, corporate actions/cost/execution proof, real research profile and formal private same-SHA admission.

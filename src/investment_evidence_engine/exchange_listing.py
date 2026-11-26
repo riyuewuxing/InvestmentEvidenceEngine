@@ -51,7 +51,7 @@ def _listing_day(value: object) -> date:
             return date.fromisoformat(value)
         if re.fullmatch(r"[0-9]{8}", value):
             return datetime.strptime(value, "%Y%m%d").date()
-        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:\\.0+)?", value):
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:[.]0+)?", value):
             return datetime.fromisoformat(value).date()
     raise ValueError("LISTING_DATE_INVALID")
 
@@ -75,7 +75,7 @@ def _date_shape_summary(raw: bytes, scope: str) -> dict:
                 counts["iso_date"] += 1
             elif isinstance(value, str) and re.fullmatch(r"[0-9]{8}", value):
                 counts["compact_date"] += 1
-            elif isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:\\.0+)?", value):
+            elif isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]00:00:00(?:[.]0+)?", value):
                 counts["iso_midnight"] += 1
             else:
                 counts["other"] += 1
