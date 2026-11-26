@@ -25,6 +25,8 @@ WINDOWS = (
 )
 MAX_BYTES = 4 * 1024 * 1024
 PAGE_SIZE = 100
+Q3_WINDOW = ("2026-10-01", "2026-11-26")
+OBSERVED_ORG_ID = "gssz0000035"  # Exact directory receipt, run 45816874081.
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -111,12 +113,54 @@ def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime) -> d
     return {"returned_count": total, "target_records": found, "revision_universe_complete": False}
 
 
+def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
+    """Bounded metadata only. Never choose between distinct reports or corrections."""
+    body = decode_object(raw)
+    rows, total = body.get("announcements"), body.get("totalAnnouncement")
+    if (type(total) is not int or not isinstance(rows, list)
+            or not 0 <= total <= PAGE_SIZE or len(rows) != total):
+        raise ValueError("INDEX_PAGE_COUNT_OR_COVERAGE")
+    candidates, seen = [], set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("secCode") != SUBJECT or row.get("orgId") != org:
+            raise ValueError("INDEX_SUBJECT_MISMATCH")
+        aid = row.get("announcementId")
+        if type(aid) is int:
+            aid = str(aid)
+        if not isinstance(aid, str) or not re.fullmatch(r"[0-9]{1,24}", aid) or aid in seen:
+            raise ValueError("INDEX_ANNOUNCEMENT_ID")
+        seen.add(aid)
+        title = row.get("announcementTitle")
+        if not isinstance(title, str):
+            raise ValueError("INDEX_TITLE_MISMATCH")
+        if "2026年第三季度报告" not in "".join(title.split()):
+            continue
+        url = row.get("adjunctUrl")
+        if not isinstance(url, str) or not re.fullmatch(
+                r"finalpage/[0-9]{4}-[0-9]{2}-[0-9]{2}/" + aid + r"\.PDF", url):
+            raise ValueError("INDEX_ATTACHMENT_MISMATCH")
+        millis = row.get("announcementTime")
+        if type(millis) is not int or not 0 < millis < 4_102_444_800_000:
+            raise ValueError("INDEX_TIME_FIELD")
+        stamp = datetime.fromtimestamp(millis / 1000, tz=UTC)
+        local = stamp.astimezone(SHANGHAI)
+        if not Q3_WINDOW[0] <= local.date().isoformat() <= Q3_WINDOW[1] or stamp > observed_at:
+            raise ValueError("INDEX_TIME_SCOPE")
+        # Path day and platform time remain separate; don't infer a first disclosure clock.
+        candidates.append({"announcement_id": aid, "title": title[:160], "attachment": url,
+                           "platform_time_shanghai": local.isoformat(), "announcement_time_ms": millis,
+                           "first_availability_verified": False})
+    return {"returned_count": total, "candidates": candidates, "candidate_count": len(candidates),
+            "body_observed": False, "revision_universe_complete": False,
+            "query_window": list(Q3_WINDOW)}
+
+
 def _child(mode: str, org: str, path: Path) -> None:
     started = datetime.now(UTC)
     if mode == "directory":
         url, data = DIRECTORY, None
     else:
-        start, end, _ = WINDOWS[int(mode)]
+        start, end = Q3_WINDOW if mode == "q3" else WINDOWS[int(mode)][:2]
         url = QUERY
         data = urlencode({
             "pageNum": "1", "pageSize": str(PAGE_SIZE), "column": "szse",
@@ -175,6 +219,8 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
         if mode == "directory":
             org = select_org(raw)
             out["org_id"] = org
+        elif mode == "q3":
+            out |= discover_q3(raw, org, end)
         else:
             out |= parse_index(raw, org, WINDOWS[int(mode)], end)
     except Exception as exc:  # noqa: BLE001
