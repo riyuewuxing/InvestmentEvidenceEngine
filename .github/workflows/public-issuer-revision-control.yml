@@ -1,0 +1,31 @@
+name: Public issuer accounting revision evidence
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-issuer-revision-control.yml'
+      - 'scripts/public_issuer_revision_control.py'
+permissions:
+  contents: read
+concurrency:
+  group: public-issuer-revision-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Four bounded issuer PDF observations and revision check
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 155s python scripts/public_issuer_revision_control.py
