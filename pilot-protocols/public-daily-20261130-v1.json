@@ -1,0 +1,22 @@
+{
+  "protocol_id": "public_daily_controls_20261130_v1",
+  "registered_at": "2026-11-26T06:32:55Z",
+  "first": "2026-11-30",
+  "last": "2026-12-25",
+  "symbols": [
+    "600519",
+    "600000"
+  ],
+  "strategy": "daily_intraday_persistence_5",
+  "strategy_version": "1.0",
+  "threshold": "0.001",
+  "benchmark": "FLAT",
+  "label": "RAW_OPEN_TO_CLOSE_GROSS_NOT_EXECUTABLE_TRADE",
+  "planning_rule": "PREVIOUS_CALENDAR_DAY_EXCLUDE_PLANNING_DAY",
+  "source": "baostock_unadjusted_daily",
+  "calendar_version": "SSE_SZSE_2025_2026_ANNUAL_NOTICES_V1",
+  "first_attempt_only": true,
+  "no_backfill": true,
+  "research_only": true,
+  "execution_allowed": false
+}
