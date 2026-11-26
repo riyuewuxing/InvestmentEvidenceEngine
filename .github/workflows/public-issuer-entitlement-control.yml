@@ -1,0 +1,31 @@
+name: Public issuer entitlement control
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-issuer-entitlement-control.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-issuer-entitlement-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Verify newly selected original issuer documents
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 165s python -m investment_evidence_engine.issuer_entitlement_control
