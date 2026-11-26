@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .contracts import ExecutionRequest, ExecutionResult, ExecutorStamp, OperationResult
 from .dispatch import run_operation
+from .transport_integrity import result_transport_errors
 from .workers import WorkerContext
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -84,6 +85,13 @@ def execute_request(
             context.payloads.pop(operation.operation_id, None)
         statuses[operation.operation_id] = item.status
         results.append(item)
+    overall = _overall_status([item.status for item in results])
+    transport_errors = result_transport_errors(
+        [item.model_dump(mode="json") for item in request.operations],
+        [item.model_dump(mode="json") for item in results], overall,
+    )
+    if transport_errors:
+        raise ValueError("EXECUTION_TRANSPORT_INVALID:" + ";".join(transport_errors))
     finished = datetime.now(UTC)
     result = ExecutionResult(
         job_id=request.job_id,
@@ -109,7 +117,7 @@ def execute_request(
             finished_at=finished,
         ),
         request_sha256=request.request_sha256,
-        status=_overall_status([item.status for item in results]),
+        status=overall,
         operations=results,
     ).seal()
     (output_dir / "execution_result.json").write_text(

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+from .transport_integrity import request_chain_errors, safe_operation_id
 
 OperationKind = Literal[
     "MARKET_DATA",
@@ -87,8 +88,7 @@ class ExecutionOperation(BaseModel):
 
     @model_validator(mode="after")
     def validate_public_boundary(self) -> ExecutionOperation:
-        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", self.operation_id)
-                or self.operation_id.lower() in {"execution_request", "execution_result", "run_manifest"}):
+        if not safe_operation_id(self.operation_id):
             raise ValueError("unsafe or reserved operation_id")
         private_path = _find_private_parameter(self.parameters)
         if private_path:
@@ -114,17 +114,9 @@ class ExecutionRequest(BaseModel):
     def validate_request(self) -> ExecutionRequest:
         if not self.operations:
             raise ValueError("execution request requires at least one operation")
-        ids = [item.operation_id for item in self.operations]
-        if len(ids) != len({item.lower() for item in ids}):
-            raise ValueError("duplicate operation_id")
-        prior: set[str] = set()
-        for operation in self.operations:
-            dependencies = operation.parameters.get("depends_on_operation_ids", [])
-            if (not isinstance(dependencies, list)
-                    or any(not isinstance(dep, str) or dep not in prior for dep in dependencies)
-                    or len(dependencies) != len(set(dependencies))):
-                raise ValueError("dependencies must be unique earlier operation IDs")
-            prior.add(operation.operation_id)
+        errors = request_chain_errors([item.model_dump(mode="json") for item in self.operations])
+        if errors:
+            raise ValueError(";".join(errors))
         if any(ref.strip().lower().startswith(_PRIVATE_REF_PREFIXES) for ref in self.input_refs):
             raise ValueError("private input refs are forbidden")
         return self

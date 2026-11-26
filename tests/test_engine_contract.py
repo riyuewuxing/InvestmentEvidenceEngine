@@ -111,7 +111,7 @@ def test_dependency_requires_unique_earlier_operations(dependencies) -> None:
 ])
 def test_runner_propagates_dependency_status(tmp_path, monkeypatch, upstream_status, expected) -> None:
     from investment_evidence_engine import runner
-    from investment_evidence_engine.contracts import OperationResult
+    from investment_evidence_engine.contracts import ArtifactRef, OperationResult
 
     operations = [
         ExecutionOperation(operation_id="first", kind="MARKET_DATA"),
@@ -130,7 +130,8 @@ def test_runner_propagates_dependency_status(tmp_path, monkeypatch, upstream_sta
         if operation.operation_id == "first":
             context.payloads["first"] = {"diagnostic": True}
             return OperationResult(operation_id="first", status=upstream_status)
-        return OperationResult(operation_id=operation.operation_id, status="PASS")
+        return OperationResult(operation_id=operation.operation_id, status="PASS",
+                               artifacts=[ArtifactRef(path=operation.operation_id + ".json", sha256="a" * 64)])
 
     monkeypatch.setattr(runner, "run_operation", fake_worker)
     result = execute_request(path, output_dir=tmp_path / "out",
