@@ -75,3 +75,25 @@ def test_pdf_size_probe_denies_ambiguous_or_out_of_range_metadata(value):
 def test_pdf_size_probe_only_allows_new_bounded_size():
     assert pdf_declared_length("4194305") == 4194305
     assert pdf_declared_length("8388608") == 8388608
+
+
+def test_board_trade_notice_is_not_class_specific_return_or_account_execution():
+    value = ("证券代码：400280/420280 锦州港股份有限公司股票交易异常波动公告 "
+             "最近3个有成交的交易日（2025年9月19日、2025年9月22日、2025年9月24日）"
+             "以内收盘价跌幅累计达到13.64% 锦州港股份有限公司董事会2025年9月24日")
+    row = parse_text("trading", value)
+    assert row["reported_trade_sessions"] == ["2025-09-19", "2025-09-22", "2025-09-24"]
+    assert not row["class_specific_return_verified"] and not row["account_execution_verified"]
+    with pytest.raises(ValueError):
+        parse_text("trading", value.replace("13.64", "13.65"))
+
+
+def test_board_pause_announcement_is_class_specific_and_not_current_status():
+    value = ("公告编号：2026-007 证券代码：400280 证券简称：锦州港 A3 "
+             "锦州港股份有限公司股票暂停转让公告 法院已受理 "
+             "本公司股票自2026年2月27日起暂停转让。 锦州港股份有限公司董事会2026年2月26日")
+    row = parse_text("pause_a", value)
+    assert row["announced_pause_from"] == "2026-02-27"
+    assert not row["resumption_verified"] and not row["current_status_verified"]
+    with pytest.raises(ValueError, match="TRANSFER_PAUSE_IDENTITY"):
+        parse_text("pause_b", value)

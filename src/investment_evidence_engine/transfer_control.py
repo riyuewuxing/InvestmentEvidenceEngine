@@ -33,6 +33,14 @@ SOURCES = {
     "annual": ("https://vip.stock.finance.sina.com.cn/corp/view/"
                "vCB_AllBulletinDetail.php?id=12260296&stockid=600190"),
 }
+INITIAL_KEYS = tuple(SOURCES)
+FOLLOWUP_SOURCES = {
+    "trading": ("https://money.finance.sina.com.cn/corp/view/"
+                "vCB_AllBulletinDetail.php?id=11478589&stockid=600190"),
+    "pause_a": "https://xinsanban.eastmoney.com/Article/NoticeContent?id=AN202602261820067259",
+    "pause_b": "https://xinsanban.eastmoney.com/Article/NoticeContent?id=AN202602261820067260",
+}
+SOURCES.update(FOLLOWUP_SOURCES)
 MAPPING = {"A": ("600190", "400280"), "B": ("900952", "420280")}
 REMOVAL = "2025-07-25"
 LAST = "2025-07-18"
@@ -100,6 +108,31 @@ def parse_text(key: str, value: str) -> dict:
                 "codes": ["400280", "420280"], "reported_weekly_frequency": 3,
                 "reported_market_mode": "CALL_AUCTION",
                 "historical_availability_verified": False}
+    if key == "trading":
+        require("证券代码:400280/420280" in text and "股票交易异常波动公告" in text
+                and "锦州港股份有限公司董事会2025年9月24日" in text,
+                "TRANSFER_TRADING_NOTICE_IDENTITY")
+        require(re.search(r"最近3个有成交的交易日\(2025年9月19日、2025年9月22日、"
+                          r"2025年9月24日\)以内收盘价跌幅累计达到13\.64%", text) is not None,
+                "TRANSFER_TRADING_SESSIONS")
+        return {"reported_trade_sessions": ["2025-09-19", "2025-09-22", "2025-09-24"],
+                "reported_cumulative_close_decline_pct": 13.64,
+                "class_specific_return_verified": False,
+                "individual_daily_prices_verified": False,
+                "first_trade_day_verified": False, "account_execution_verified": False}
+    if key in ("pause_a", "pause_b"):
+        share_class = key[-1].upper()
+        code = MAPPING[share_class][1]
+        require(f"证券代码:{code}证券简称:锦州港{share_class}3" in text
+                and "公告编号:2026-007" in text and "股票暂停转让公告" in text,
+                "TRANSFER_PAUSE_IDENTITY")
+        require("本公司股票自2026年2月27日起暂停转让。" in text
+                and "锦州港股份有限公司董事会2026年2月26日" in text
+                and "法院已受理" in text, "TRANSFER_PAUSE_DATE")
+        return {"share_class": share_class, "confirmation_code": code,
+                "declared_notice_day": "2026-02-26", "announced_pause_from": "2026-02-27",
+                "resumption_verified": False, "current_status_verified": False,
+                "historical_availability_verified": False}
     raise ValueError("TRANSFER_UNKNOWN_SOURCE")
 
 
@@ -130,7 +163,7 @@ def parse_body(key: str, body: bytes) -> dict:
         try:
             decoded = body.decode("utf-8-sig", errors="strict")
         except UnicodeError:
-            if key != "annual":
+            if key not in ("annual", "trading"):
                 raise
             decoded = body.decode("gb18030", errors="strict")
         parser.feed(decoded)
@@ -245,9 +278,20 @@ def observe(key: str, *, size_probe: bool = False) -> dict:
                       else type(exc).__name__}
 
 
-def main(*, size_probe: bool = False) -> int:
+def main(*, size_probe: bool = False, board_followup: bool = False) -> int:
     if os.environ["GITHUB_REPOSITORY"] != "riyuewuxing/InvestmentEvidenceEngine":
         raise SystemExit("public repository required")
+    if board_followup:
+        reports = [observe(key) for key in FOLLOWUP_SOURCES]
+        complete = all(r["status"] == "OBSERVED" for r in reports)
+        report = {"status": "WARN" if complete else "BLOCK",
+                  "executor_commit": os.environ["GITHUB_SHA"], "reports": reports,
+                  "independent_exchange_trade_tape_verified": False,
+                  "current_board_tradability_verified": False,
+                  "account_execution_verified": False, "pit_safe": False,
+                  "decision_authority": False, "execution_allowed": False, "research_only": True}
+        print("TRANSFER_BOARD_FOLLOWUP " + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0 if complete else 2
     if size_probe:
         reports = [observe(key, size_probe=True) for key in PDF_KEYS]
         complete = all(r["status"] == "OBSERVED" for r in reports)
@@ -257,9 +301,9 @@ def main(*, size_probe: bool = False) -> int:
                   "research_only": True}
         print("TRANSFER_PDF_SIZE_PROBE " + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
         return 0 if complete else 2
-    reports = [observe(key) for key in SOURCES]
+    reports = [observe(key) for key in INITIAL_KEYS]
     observed = {row["key"] for row in reports if row["status"] == "OBSERVED"}
-    complete = observed == set(SOURCES)
+    complete = observed == set(INITIAL_KEYS)
     entry_verified = "annual" in observed
     days = (LAST, "2025-07-19", REMOVAL, "2025-07-28", "2025-09-16", ENTRY, EXPECTED)
     report = {"status": "WARN" if complete else "BLOCK", "executor_commit": os.environ["GITHUB_SHA"],
@@ -280,6 +324,8 @@ if __name__ == "__main__":
         child(sys.argv[2], Path(sys.argv[3]), size_probe=True)
     elif len(sys.argv) == 2 and sys.argv[1] == "--pdf-size-probe":
         raise SystemExit(main(size_probe=True))
+    elif len(sys.argv) == 2 and sys.argv[1] == "--board-followup":
+        raise SystemExit(main(board_followup=True))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:
