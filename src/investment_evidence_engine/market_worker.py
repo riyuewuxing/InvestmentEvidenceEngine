@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, timedelta
+import math
+import re
+import sys
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from .akshare_daily_adapter import call_akshare_daily, call_sina_stock_daily
+from .bounded_worker import run_json_worker, write_worker_result
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
+from .evidence_time_guard import SHANGHAI, aware, validate_event_cutoff
 from .providers import BaoStockProvider, ProviderError, normalize_ohlcv
+from .table_wire import pack_frame, unpack_frame
 from .workers import WorkerContext
 
 
@@ -30,17 +37,38 @@ def _artifact(path: Path) -> ArtifactRef:
 
 
 def _symbol(parameters: dict[str, object]) -> str:
-    values = parameters.get("subject_ids") or []
-    if not isinstance(values, list) or not values:
-        raise ValueError("MARKET_DATA requires subject_ids")
-    return str(values[0]).strip().zfill(6)
+    values = parameters.get("subject_ids")
+    if (not isinstance(values, list) or len(values) != 1
+            or not isinstance(values[0], str) or re.fullmatch(r"[0-9]{6}", values[0]) is None):
+        raise ValueError("MARKET_DATA_REQUIRES_ONE_EXACT_SYMBOL")
+    return values[0]
 
 
-def _as_of(parameters: dict[str, object]) -> date:
+def _window(parameters: dict[str, object], context: WorkerContext) -> tuple[date, date, int]:
     raw = parameters.get("as_of")
-    if raw is None:
-        raise ValueError("MARKET_DATA requires as_of")
-    return date.fromisoformat(str(raw)[:10])
+    if not isinstance(raw, str) or (context.request_as_of is not None and raw != context.request_as_of):
+        raise ValueError("MARKET_AS_OF_MISSING_OR_MISMATCH")
+    cutoff, day_scope = validate_event_cutoff(raw)
+    now = context.clock()
+    if cutoff is None or not aware(now):
+        raise ValueError("MARKET_AWARE_CLOCK_REQUIRED")
+    now = now.astimezone(SHANGHAI)
+    local = cutoff if day_scope else cutoff.astimezone(SHANGHAI)
+    if local.date() > now.date() or (not day_scope and local > now):
+        raise ValueError("MARKET_FUTURE_CUTOFF")
+    days = parameters.get("history_days", 450)
+    offset = parameters.get("history_end_offset_days", 0)
+    if type(days) is not int or not 30 <= days <= 3650:
+        raise ValueError("MARKET_HISTORY_DAYS_OUT_OF_RANGE")
+    if type(offset) is not int or not 0 <= offset <= 30:
+        raise ValueError("MARKET_HISTORY_OFFSET_OUT_OF_RANGE")
+    end = local.date() - timedelta(days=offset)
+    # A date-only historical scope is not an intraday availability claim.
+    # Today's unfinished daily bar and precise pre-close cutoffs are excluded.
+    effective = now if day_scope and local.date() == now.date() else local
+    if (not day_scope or local.date() == now.date()) and effective.time() < time(15, 30):
+        end = min(end, local.date() - timedelta(days=1))
+    return end - timedelta(days=days), end, offset
 
 
 def _sina_code(symbol: str) -> str:
@@ -53,74 +81,66 @@ def _sina_code(symbol: str) -> str:
     raise ProviderError(f"Sina fallback cannot infer exchange for {symbol}")
 
 
-def _akshare_daily_resilient(
-    symbol: str,
-    start: date,
-    end: date,
-    adjust: str,
-) -> tuple[pd.DataFrame, str, list[str]]:
-    try:
+def _bounded_frame(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
+    frame = normalize_ohlcv(frame, strict=True)
+    if not frame["date"].dt.date.between(start, end).all():
+        raise ProviderError("MARKET_PROVIDER_RETURNED_OUTSIDE_REQUEST_WINDOW")
+    return frame
+
+
+def _child(source: str, symbol: str, start: date, end: date, adjust: str, path: Path) -> None:
+    if source == "baostock":
+        frame = BaoStockProvider().get_daily_bars(symbol, start, end, adjust, strict=True)
+    else:
         import akshare as ak
-    except ImportError as exc:
-        raise ProviderError("akshare is not installed") from exc
 
-    errors: list[str] = []
-    try:
-        raw = ak.stock_zh_a_hist(
-            symbol=symbol,
-            period="daily",
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-            adjust=adjust,
-        )
-        if raw is not None and not raw.empty:
-            mapping = {
-                "日期": "date",
-                "开盘": "open",
-                "最高": "high",
-                "最低": "low",
-                "收盘": "close",
-                "成交量": "volume",
-                "成交额": "amount",
-                "换手率": "turnover",
-            }
-            frame = normalize_ohlcv(raw.rename(columns=mapping))
-            return frame, "eastmoney", errors
-        errors.append("eastmoney:empty")
-    except Exception as exc:  # noqa: BLE001 - third-party provider boundary
-        errors.append(f"eastmoney:{type(exc).__name__}:{exc}")
-
-    try:
-        raw = ak.stock_zh_a_daily(
-            symbol=_sina_code(symbol),
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-            adjust=adjust,
-        )
+        kwargs = dict(symbol=symbol if source == "eastmoney" else _sina_code(symbol),
+                      start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"),
+                      adjust=adjust)
+        if source == "eastmoney":
+            raw = call_akshare_daily(ak, period="daily", **kwargs)
+        elif source == "sina":
+            raw = call_sina_stock_daily(ak, **kwargs)
+        else:
+            raise ValueError("unknown provider")
         if raw is None or raw.empty:
-            raise ProviderError("Sina upstream returned no rows")
-        mapping = {
-            "日期": "date",
-            "开盘": "open",
-            "最高": "high",
-            "最低": "low",
-            "收盘": "close",
-            "成交量": "volume",
-            "成交额": "amount",
-            "换手率": "turnover",
-        }
-        frame = normalize_ohlcv(raw.rename(columns=mapping))
-        frame = frame[
-            (frame["date"].dt.date >= start) & (frame["date"].dt.date <= end)
-        ].reset_index(drop=True)
-        if frame.empty:
-            raise ProviderError("Sina fallback had no rows in requested range")
-        return frame, "sina", errors
-    except Exception as exc:  # noqa: BLE001 - third-party provider boundary
-        errors.append(f"sina:{type(exc).__name__}:{exc}")
-        raise ProviderError(
-            "AKShare Eastmoney and Sina upstreams both failed: " + " | ".join(errors)
-        ) from exc
+            raise ProviderError("MARKET_PROVIDER_EMPTY")
+        frame = raw.rename(columns={
+            "日期": "date", "开盘": "open", "最高": "high", "最低": "low", "收盘": "close",
+            "成交量": "volume", "成交额": "amount", "换手率": "turnover",
+        })
+    frame = _bounded_frame(frame, start, end)
+    write_worker_result(path, {"source": source, "symbol": symbol, "start": start.isoformat(),
+                               "end": end.isoformat(), "adjust": adjust,
+                               "retrieved_at": datetime.now(UTC).isoformat(),
+                               "frame": pack_frame(frame)})
+
+
+def _observe(source: str, symbol: str, start: date, end: date, adjust: str):
+    result = run_json_worker(
+        (sys.executable, "-m", "investment_evidence_engine.market_worker", "--child",
+         source, symbol, start.isoformat(), end.isoformat(), adjust or "none"),
+        timeout_seconds=30,
+    )
+    info = {"provider": "baostock" if source == "baostock" else "akshare",
+            "upstream": source, "status": "BLOCK", "worker_status": result.status,
+            "elapsed_seconds": result.elapsed_seconds}
+    if result.status != "OK" or result.payload is None:
+        return None, info
+    p = result.payload
+    try:
+        if (p["source"], p["symbol"], p["start"], p["end"], p["adjust"]) != (
+                source, symbol, start.isoformat(), end.isoformat(), adjust):
+            raise ValueError("MARKET_WORKER_IDENTITY_MISMATCH")
+        retrieved = datetime.fromisoformat(p["retrieved_at"])
+        if not aware(retrieved) or retrieved > datetime.now(UTC):
+            raise ValueError("MARKET_WORKER_INVALID_RETRIEVAL_TIME")
+        frame = _bounded_frame(unpack_frame(p["frame"]), start, end)
+    except (ValueError, TypeError, KeyError, AttributeError, ProviderError) as exc:
+        return None, {**info, "worker_status": "PAYLOAD_INVALID", "error_type": type(exc).__name__}
+    return frame, {**info, "status": "OBSERVED", "retrieved_at": retrieved.isoformat(),
+                   "rows": len(frame), "first_date": str(frame["date"].iloc[0].date()),
+                   "last_date": str(frame["date"].iloc[-1].date())}
 
 
 def _crosscheck(
@@ -147,7 +167,10 @@ def _crosscheck(
         if not diff.empty:
             max_diff = max(max_diff, float(diff.max()))
     return {
-        "status": "MATCH" if max_diff <= tolerance else "WARN",
+        "status": ("PRICE_CONFLICT" if max_diff > tolerance else "DATE_COVERAGE_MISMATCH"
+                   if set(a["date"]) != set(b["date"]) else "MATCH_OBSERVED_ROWS"),
+        "left_only_dates": len(set(a["date"]) - set(b["date"])),
+        "right_only_dates": len(set(b["date"]) - set(a["date"])),
         "overlap_rows": len(merged),
         "max_relative_price_diff": max_diff,
         "latest_common_date": str(pd.Timestamp(merged["date"].max()).date()),
@@ -160,60 +183,33 @@ def run_market_data_resilient(
     context: WorkerContext,
 ) -> OperationResult:
     parameters = operation.parameters
-    symbol = _symbol(parameters)
-    end = _as_of(parameters)
-    history_days = max(30, min(int(parameters.get("history_days") or 450), 3650))
-    start = end - timedelta(days=history_days)
-    adjust = str(parameters.get("adjust") or "qfq")
-    tolerance = float(parameters.get("price_tolerance") or 0.005)
+    try:
+        symbol = _symbol(parameters)
+        start, end, offset = _window(parameters, context)
+        adjust = parameters.get("adjust", "qfq")
+        if adjust == "none":
+            adjust = ""
+        if not isinstance(adjust, str) or adjust not in {"", "qfq", "hfq"}:
+            raise ValueError("MARKET_ADJUST_INVALID")
+        tolerance = parameters.get("price_tolerance", 0.005)
+        if (type(tolerance) not in {int, float} or not math.isfinite(tolerance)
+                or not 0 <= tolerance <= 0.1):
+            raise ValueError("MARKET_TOLERANCE_INVALID")
+        if parameters.get("input_artifact_ids"):
+            raise ValueError("MARKET_INPUT_ARTIFACT_BINDING_NOT_IMPLEMENTED")
+    except (ValueError, TypeError, OverflowError) as exc:
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                               exit_code=2, errors=[str(exc)])
 
     successes: list[tuple[str, str, pd.DataFrame]] = []
     provider_status: list[dict[str, object]] = []
-
-    try:
-        frame, upstream, prior_errors = _akshare_daily_resilient(symbol, start, end, adjust)
-        successes.append(("akshare", upstream, frame))
-        provider_status.append(
-            {
-                "provider": "akshare",
-                "upstream": upstream,
-                "status": "PASS",
-                "rows": len(frame),
-                "first_date": str(frame["date"].iloc[0].date()),
-                "last_date": str(frame["date"].iloc[-1].date()),
-                "fallback_errors": prior_errors,
-            }
-        )
-    except Exception as exc:  # noqa: BLE001 - provider boundary
-        provider_status.append(
-            {
-                "provider": "akshare",
-                "status": "BLOCK",
-                "error": f"{type(exc).__name__}:{exc}",
-            }
-        )
-
-    try:
-        frame = BaoStockProvider().get_daily_bars(symbol, start, end, adjust)
-        successes.append(("baostock", "baostock", frame))
-        provider_status.append(
-            {
-                "provider": "baostock",
-                "upstream": "baostock",
-                "status": "PASS",
-                "rows": len(frame),
-                "first_date": str(frame["date"].iloc[0].date()),
-                "last_date": str(frame["date"].iloc[-1].date()),
-            }
-        )
-    except Exception as exc:  # noqa: BLE001 - provider boundary
-        provider_status.append(
-            {
-                "provider": "baostock",
-                "status": "BLOCK",
-                "error": f"{type(exc).__name__}:{exc}",
-            }
-        )
+    for source in ("eastmoney", "sina", "baostock"):
+        if source == "sina" and successes:
+            continue
+        frame, info = _observe(source, symbol, start, end, adjust)
+        provider_status.append(info)
+        if frame is not None:
+            successes.append((str(info["provider"]), source, frame))
 
     if not successes:
         return OperationResult(
@@ -241,6 +237,12 @@ def run_market_data_resilient(
         "start": start.isoformat(),
         "end": end.isoformat(),
         "adjust": adjust,
+        "as_of": parameters["as_of"],
+        "history_end_offset_days": offset,
+        "pit_safe": False,
+        "historical_vintage_verified": False,
+        "source_independence_verified": False,
+        "raw_provider_bytes_retained": False,
         "primary_provider": primary_name,
         "primary_upstream": primary_upstream,
         "providers": provider_status,
@@ -255,11 +257,13 @@ def run_market_data_resilient(
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, details)
 
-    status = "PASS" if crosscheck["status"] == "MATCH" else "WARN"
-    warnings = [] if status == "PASS" else [f"MARKET_{crosscheck['status']}"]
+    # Agreement of normalized rows is not proof of historical publication or vintage.
+    status = "WARN"
+    warnings = ["MARKET_HISTORICAL_VINTAGE_UNVERIFIED", "MARKET_SOURCE_INDEPENDENCE_UNVERIFIED"]
+    if crosscheck["status"] != "MATCH_OBSERVED_ROWS":
+        warnings.append(f"MARKET_{crosscheck['status']}")
     if primary_name == "akshare" and primary_upstream != "eastmoney":
         warnings.append(f"AKSHARE_UPSTREAM_FALLBACK:{primary_upstream}")
-        status = "WARN" if status == "PASS" else status
     return OperationResult(
         operation_id=operation.operation_id,
         status=status,
@@ -274,3 +278,11 @@ def run_market_data_resilient(
         },
         warnings=warnings,
     )
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 8 or sys.argv[1] != "--child":
+        raise SystemExit(2)
+    _child(sys.argv[2], sys.argv[3], date.fromisoformat(sys.argv[4]),
+           date.fromisoformat(sys.argv[5]), "" if sys.argv[6] == "none" else sys.argv[6],
+           Path(sys.argv[7]))

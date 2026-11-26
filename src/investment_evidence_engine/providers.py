@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from .akshare_daily_adapter import call_akshare_daily
@@ -12,15 +13,30 @@ class ProviderError(RuntimeError):
     pass
 
 
-def normalize_ohlcv(frame: pd.DataFrame) -> pd.DataFrame:
+def normalize_ohlcv(frame: pd.DataFrame, *, strict: bool = False) -> pd.DataFrame:
     required = {"date", "open", "high", "low", "close", "volume"}
     missing = required - set(frame.columns)
     if missing:
         raise ProviderError(f"missing OHLCV columns: {sorted(missing)}")
     out = frame.copy()
-    out["date"] = pd.to_datetime(out["date"], errors="raise").dt.normalize()
+    if strict and (not out.columns.is_unique or out.empty):
+        raise ProviderError("MARKET_EMPTY_OR_DUPLICATE_COLUMNS")
+    parsed = pd.to_datetime(out["date"], errors="raise", format="mixed")
+    if strict and (parsed.isna().any() or parsed.dt.tz is not None
+                   or not parsed.eq(parsed.dt.normalize()).all() or parsed.duplicated().any()):
+        raise ProviderError("MARKET_INVALID_OR_DUPLICATE_DAILY_DATE")
+    out["date"] = parsed.dt.normalize()
     for column in ("open", "high", "low", "close", "volume"):
+        if strict and out[column].map(lambda value: isinstance(value, (bool, np.bool_))).any():
+            raise ProviderError("MARKET_BOOLEAN_OHLCV")
         out[column] = pd.to_numeric(out[column], errors="coerce")
+    if strict:
+        price = out[["open", "high", "low", "close"]]
+        if (not np.isfinite(out[["open", "high", "low", "close", "volume"]].to_numpy(dtype=float)).all()
+                or (out["volume"] < 0).any()
+                or (price["high"] < price[["open", "low", "close"]].max(axis=1)).any()
+                or (price["low"] > price[["open", "high", "close"]].min(axis=1)).any()):
+            raise ProviderError("MARKET_INVALID_OHLCV")
     for optional in ("amount", "turnover"):
         if optional in out.columns:
             out[optional] = pd.to_numeric(out[optional], errors="coerce")
@@ -97,6 +113,8 @@ class BaoStockProvider:
         start: date,
         end: date,
         adjust: str = "qfq",
+        *,
+        strict: bool = False,
     ) -> pd.DataFrame:
         try:
             import baostock as bs
@@ -124,12 +142,14 @@ class BaoStockProvider:
             rows: list[list[str]] = []
             while rs.next():
                 rows.append(rs.get_row_data())
+            if strict and rs.error_code != "0":
+                raise ProviderError("BAOSTOCK_INCOMPLETE_RESULT")
             raw = pd.DataFrame(rows, columns=rs.fields)
         finally:
             bs.logout()
         if raw.empty:
             raise ProviderError(f"BaoStock returned no daily bars for {symbol}")
-        return normalize_ohlcv(raw.rename(columns={"turn": "turnover"}))
+        return normalize_ohlcv(raw.rename(columns={"turn": "turnover"}), strict=strict)
 
 
 def _sina_stock_code(symbol: str) -> str:

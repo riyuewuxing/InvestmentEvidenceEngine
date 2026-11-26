@@ -1,6 +1,10 @@
 import pytest
 
-from investment_evidence_engine.listing_comparison import compare_code_sets, normalize_codes, stock_code
+from investment_evidence_engine.listing_comparison import (
+    compare_code_sets,
+    normalize_codes,
+    stock_code,
+)
 
 
 @pytest.mark.parametrize(("raw", "expected"), [
