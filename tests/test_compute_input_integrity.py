@@ -131,3 +131,75 @@ def test_prior_day_labels_allowed_under_precise_later_cutoff(tmp_path):
     assert result.status == "PASS"
     assert ctx.payloads["compute"]["time_label_order_verified"]
     assert not ctx.payloads["compute"]["pit_safe"]
+
+
+@pytest.mark.parametrize("transform", ["IDENTITY", "RANK_PCT", "Z_SCORE"])
+@pytest.mark.parametrize("cutoff, label", [
+    ("2026-01-01", "2026-01-02"),
+    ("2026-01-02T10:00:00+08:00", "2026-01-02"),
+    ("2026-01-02T10:00:00+08:00", "2026-01-02T02:01:00Z"),
+])
+def test_non_temporal_factor_respects_sealed_cutoff(tmp_path, transform, cutoff, label):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of=cutoff)
+    op = ExecutionOperation(operation_id="factor", kind="FACTOR_COMPUTE", parameters={
+        "inline_records": [{"date": label, "value": 3}],
+        "factor_spec": {"field": "value", "transform": transform},
+    })
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.errors == ["COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF"]
+    assert "factor" not in ctx.payloads
+
+
+@pytest.mark.parametrize("transform", ["RANK_PCT", "Z_SCORE"])
+def test_rank_or_zscore_cannot_normalize_across_time(tmp_path, transform):
+    result, payload = run(tmp_path, "FACTOR_COMPUTE",
+                          [{"date": "2026-01-01", "value": 3},
+                           {"date": "2026-01-02", "value": 6}],
+                          factor_spec={"field": "value", "transform": transform})
+    assert result.status == "BLOCK"
+    assert result.errors == ["FACTOR_MULTI_TIME_BATCH_NORMALIZATION_FORBIDDEN"]
+    assert payload is None
+
+
+@pytest.mark.parametrize("transform, expected", [("RANK_PCT", [.5, 1.]), ("Z_SCORE", [-1., 1.])])
+def test_cross_section_snapshot_remains_supported(tmp_path, transform, expected):
+    result, payload = run(tmp_path, "FACTOR_COMPUTE",
+                          [{"date": "2026-01-01", "symbol": "A", "value": 3},
+                           {"date": "2026-01-01", "symbol": "B", "value": 6}],
+                          as_of="2026-01-02",
+                          factor_spec={"field": "value", "transform": transform})
+    assert result.status == "PASS"
+    assert [row["factor_value"] for row in payload["records"]] == pytest.approx(expected)
+    assert payload["observation_label_scope"] == "SINGLE_DECLARED_SNAPSHOT_LABEL"
+    assert payload["batch_normalization_basis"] == "WHOLE_INPUT_NOT_HISTORICAL_SIGNAL"
+    assert not payload["pit_safe"]
+
+
+@pytest.mark.parametrize("kind", ["FACTOR_COMPUTE", "BACKTEST"])
+def test_explicit_time_field_cannot_hide_future_timestamp(tmp_path, kind):
+    result, payload = run(tmp_path, kind, [
+        {"date": "2026-01-01", "timestamp": "2026-01-03T10:00:00+08:00",
+         "value": 3, "return": .01, "weight": 1}],
+        as_of="2026-01-02", time_field="date",
+        factor_spec={"field": "value", "transform": "IDENTITY"}, cost_bps=10)
+    assert result.errors == ["COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF"]
+    assert payload is None
+
+
+def test_identity_allows_distinct_valid_date_labels(tmp_path):
+    result, payload = run(tmp_path, "FACTOR_COMPUTE",
+                          [{"date": "2026-01-01", "value": 3},
+                           {"date": "2026-01-02", "value": 6}],
+                          as_of="2026-01-02", factor_spec={"field": "value"})
+    assert result.status == "PASS"
+    assert payload["observation_label_scope"] == "DECLARED_OBSERVATION_LABELS"
+    assert not payload["pit_safe"]
+
+
+def test_zscore_cannot_turn_overflowed_variance_into_zeros(tmp_path):
+    result, payload = run(tmp_path, "FACTOR_COMPUTE",
+                          [{"value": -1e200}, {"value": 1e200}],
+                          factor_spec={"field": "value", "transform": "Z_SCORE"})
+    assert result.errors == ["FACTOR_NORMALIZATION_NONFINITE"]
+    assert payload is None

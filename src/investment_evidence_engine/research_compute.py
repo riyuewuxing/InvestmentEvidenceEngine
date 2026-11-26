@@ -198,14 +198,51 @@ def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> l
     return _records(operation, context)
 
 
-def _chronological_rows(records: list[dict], parameters: dict, *, required: bool,
-                        request_as_of: str | None = None) -> bool:
-    """Date/instant label order only, not actual availability or market calendar proof."""
+def _record_time_labels(records: list[dict], parameters: dict, *, required: bool,
+                        request_as_of: str | None = None) -> list | None:
+    """Validate every declared observation label against both ceilings.
+
+    Labels are not evidence of publication, acquisition, or market-session completeness.
+    An explicit time_field cannot hide another recognized future observation label.
+    """
     explicit = parameters.get("time_field")
     if explicit is not None and (not isinstance(explicit, str) or not explicit.strip()):
         raise ValueError("COMPUTE_TIME_FIELD_INVALID")
-    field = explicit or next((k for k in ("date", "session", "timestamp")
-                             if any(k in row for row in records)), None)
+    recognized = [k for k in ("date", "session", "timestamp")
+                  if any(k in row for row in records)]
+    field = explicit or next(iter(recognized), None)
+    ceilings = [validate_event_cutoff(scope) for scope in
+                (request_as_of, parameters.get("as_of")) if scope is not None]
+    if field is None:
+        if required:
+            raise ValueError("COMPUTE_TIME_FIELD_REQUIRED")
+        return None
+    selected = None
+    for key in dict.fromkeys([field, *recognized]):
+        stamps = [parse_event_stamp(row.get(key)) for row in records]
+        if any(stamp is None or (not day and stamp.utcoffset() is None) for stamp, day in stamps):
+            raise ValueError("COMPUTE_TIME_LABEL_INVALID")
+        if len({day for _, day in stamps}) != 1:
+            raise ValueError("COMPUTE_MIXED_TIME_PRECISION")
+        for cutoff, day_scope in ceilings:
+            for stamp, day in stamps:
+                if day_scope:
+                    local_day = stamp.date() if day else stamp.astimezone(SHANGHAI).date()
+                    outside = local_day > cutoff.date()
+                elif day:
+                    outside = stamp.date() >= cutoff.astimezone(SHANGHAI).date()
+                else:
+                    outside = stamp > cutoff
+                if outside:
+                    raise ValueError("COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF")
+        if key == field:
+            selected = [stamp for stamp, _ in stamps]
+    return selected
+
+
+def _chronological_rows(records: list[dict], parameters: dict, *, required: bool,
+                        request_as_of: str | None = None) -> bool:
+    """Date/instant label order only, not actual availability or market calendar proof."""
     # Time-series operations cannot blend two distinct security identities.
     for key in ("subject_id", "asset", "asset_id", "symbol", "code"):
         if any(key in row for row in records):
@@ -213,34 +250,12 @@ def _chronological_rows(records: list[dict], parameters: dict, *, required: bool
             if (not all(isinstance(v, str) and v.strip() for v in values)
                     or len(set(values)) != 1):
                 raise ValueError("COMPUTE_MULTIPLE_OR_MISSING_SUBJECTS")
-    if field is None:
-        if required:
-            raise ValueError("COMPUTE_TIME_FIELD_REQUIRED")
+    dates = _record_time_labels(records, parameters, required=required,
+                                request_as_of=request_as_of)
+    if dates is None:
         return False
-    stamps = [parse_event_stamp(row.get(field)) for row in records]
-    if any(stamp is None or (not day and stamp.utcoffset() is None) for stamp, day in stamps):
-        raise ValueError("COMPUTE_TIME_LABEL_INVALID")
-    if len({day for _, day in stamps}) != 1:
-        raise ValueError("COMPUTE_MIXED_TIME_PRECISION")
-    dates = [stamp for stamp, _ in stamps]
     if dates != sorted(set(dates)):
         raise ValueError("COMPUTE_TIME_ORDER_OR_DUPLICATE")
-    # Enforce both declared operation and sealed request ceilings. A date-only
-    # observation on the day of an exact cutoff has unknown intraday timing.
-    for scope in (request_as_of, parameters.get("as_of")):
-        if scope is None:
-            continue
-        cutoff, day_scope = validate_event_cutoff(scope)
-        for stamp, day in stamps:
-            if day_scope:
-                local_day = stamp.date() if day else stamp.astimezone(SHANGHAI).date()
-                outside = local_day > cutoff.date()
-            elif day:
-                outside = stamp.date() >= cutoff.astimezone(SHANGHAI).date()
-            else:
-                outside = stamp > cutoff
-            if outside:
-                raise ValueError("COMPUTE_RECORD_AFTER_OR_UNPROVEN_AT_CUTOFF")
     return True
 
 
@@ -267,12 +282,24 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
     values = pd.Series(values_raw, dtype="float64", index=frame.index)
     temporal = transform in {"PCT_CHANGE", "ROLLING_MEAN", "ROLLING_RETURN"}
     chronology = False
-    if temporal:
-        try:
+    label_scope = "UNLABELED_DIAGNOSTIC"
+    try:
+        if temporal:
             chronology = _chronological_rows(records, operation.parameters, required=True,
                                              request_as_of=context.request_as_of)
-        except ValueError as exc:
-            return _compute_block(operation, str(exc))
+            label_scope = "ORDERED_TIME_LABELS"
+        else:
+            labels = _record_time_labels(records, operation.parameters, required=False,
+                                         request_as_of=context.request_as_of)
+            if labels is not None:
+                label_scope = "DECLARED_OBSERVATION_LABELS"
+                if transform in {"RANK_PCT", "Z_SCORE"}:
+                    if len(set(labels)) != 1:
+                        raise ValueError("FACTOR_MULTI_TIME_BATCH_NORMALIZATION_FORBIDDEN")
+                    label_scope = "SINGLE_DECLARED_SNAPSHOT_LABEL"
+    except ValueError as exc:
+        return _compute_block(operation, str(exc))
+    if temporal:
         key = "periods" if transform == "PCT_CHANGE" else "window"
         window = spec.get(key, 1 if transform == "PCT_CHANGE" else 20)
         if type(window) is not int or not (2 if transform == "ROLLING_MEAN" else 1) <= window <= 10000:
@@ -283,7 +310,10 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
         factor = values.rank(method="average", pct=True)
     elif transform == "Z_SCORE":
         std = float(values.std(ddof=0))
-        factor = (values - values.mean()) / std if std > 0 else values * 0.0
+        mean = float(values.mean())
+        if not math.isfinite(std) or not math.isfinite(mean):
+            return _compute_block(operation, "FACTOR_NORMALIZATION_NONFINITE")
+        factor = (values - mean) / std if std > 0 else values * 0.0
     elif transform == "PCT_CHANGE":
         factor = values.pct_change(periods=window, fill_method=None)
     elif transform == "ROLLING_MEAN":
@@ -313,6 +343,9 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
         "missing_input_count": int(values.isna().sum()),
         "undefined_output_count": int(factor.isna().sum()),
         "missing_values_filled": False, "time_label_order_verified": chronology,
+        "observation_label_scope": label_scope,
+        "batch_normalization_basis": ("WHOLE_INPUT_NOT_HISTORICAL_SIGNAL"
+                                      if transform in {"RANK_PCT", "Z_SCORE"} else None),
         "lookback_basis": "ORDERED_INPUT_ROWS_NOT_VERIFIED_SESSIONS" if temporal else None,
         "historical_vintage_verified": False, "pit_safe": False, "decision_authority": False,
     }

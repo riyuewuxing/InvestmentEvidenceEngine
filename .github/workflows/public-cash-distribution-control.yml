@@ -1,9 +1,6 @@
 name: Public cash distribution control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-cash-distribution-control.yml"
 permissions:
   contents: read
 concurrency:
