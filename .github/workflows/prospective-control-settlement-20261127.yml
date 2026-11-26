@@ -1,0 +1,38 @@
+name: Mature public prospective control settlement 20261127
+# No cron or automatic retry. A future authorized construction turn may
+# add the one immutable activation marker after the target matures.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pilot-triggers/public-control-20261127-settle.txt'
+permissions:
+  contents: read
+concurrency:
+  group: public-prospective-control-20261127-settlement
+  cancel-in-progress: false
+jobs:
+  settle:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify one public activation marker
+        timeout-minutes: 1
+        run: test "$(cat pilot-triggers/public-control-20261127-settle.txt)" = "public_daily_control_20261127_v1"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e ".[dev]"
+      - name: Settlement contract checks
+        timeout-minutes: 1
+        run: python -m pytest -q tests/test_public_prediction_settlement.py
+      - name: Observe matured public target session
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 120s python -m investment_evidence_engine.public_prediction_settlement
