@@ -1,9 +1,6 @@
 name: Public merger consideration control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-merger-consideration-control.yml"
 permissions:
   contents: read
 concurrency:

@@ -159,3 +159,8 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual Philadelphia first value matched, later source cells explicitly #N/A; methodological missingness, no latest fallback, complete comparison BLOCK.
 - [x] Export exact bounded public sealed research packet; record independently verified packet in private master record, no private runner.
 - [ ] Genuine A-share historical time-effective source coverage, full listing/corporate actions, formal RESEARCH profile and complete private same-SHA gates. No repeats of finished controls.
+
+## 2026-11-26 Turn 04
+- [x] Actual IPO, delist gap, A/B identity and merger termination notices, date-scope WARN.
+- [x] Actual two issuer PDFs, aggregate consideration and dual-route exact endpoint marks; intermediate value unknown, fractional allocation not inferred.
+- [ ] Official complete historical listing and corporate-action coverage, first availability, formal RESEARCH and private full same-SHA gates. Do not repeat completed fixed controls.

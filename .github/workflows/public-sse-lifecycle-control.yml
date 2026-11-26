@@ -1,9 +1,6 @@
 name: Public SSE lifecycle notice control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-sse-lifecycle-control.yml"
 permissions:
   contents: read
 concurrency:
