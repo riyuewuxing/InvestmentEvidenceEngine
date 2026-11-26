@@ -16,7 +16,7 @@ permissions:
 jobs:
   provider-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -24,14 +24,17 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install engine
+        timeout-minutes: 4
         run: |
           python -m pip install -U pip
           python -m pip install -e ".[dev]"
       - name: Probe public providers
+        timeout-minutes: 7
         shell: bash
         run: |
           python - <<'PY'
-          from datetime import date, timedelta
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
           import json
           from pathlib import Path
 
@@ -42,13 +45,21 @@ jobs:
               normalized_document_text,
           )
 
-          end = date.today()
+          # Availability probe uses only dates strictly before the China civil day.
+          # It is not a same-session price comparison or admission receipt.
+          end = datetime.now(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1)
           start = end - timedelta(days=45)
-          report = {"market": [], "official": []}
+          report = {"market": [], "official": [], "market_probe_start": start.isoformat(),
+                    "market_probe_end": end.isoformat(), "market_probe_scope": "PAST_CIVIL_DAYS_ONLY",
+                    "decision_authority": False}
           for provider in (AKShareProvider(), BaoStockProvider()):
               try:
                   frame = provider.get_daily_bars("600519", start, end, "qfq")
-                  report["market"].append({"provider": provider.name, "status": "PASS", "rows": len(frame)})
+                  days = frame["date"].dt.date
+                  if len(frame) == 0 or not days.between(start, end).all():
+                      raise ValueError("empty or out-of-window health response")
+                  report["market"].append({"provider": provider.name, "status": "PASS", "rows": len(frame),
+                                           "first_date": days.min().isoformat(), "last_date": days.max().isoformat()})
               except Exception as exc:
                   report["market"].append({"provider": provider.name, "status": "BLOCK", "error": f"{type(exc).__name__}:{exc}"})
 
