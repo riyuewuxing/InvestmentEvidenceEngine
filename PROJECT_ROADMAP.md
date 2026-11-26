@@ -152,3 +152,10 @@ Status: `SYNTHETIC_CAPTURE_TRANSPORT_VALIDATED` at `853f39a94d69ce7fbb4b88a1e771
 - [x] Actual TWSE exchange numeric receipt, precision correction and independent amount/rate checks, scope limited to one target row. Issuer cross-check BLOCK in runner, no PIT proof.
 - [x] Philadelphia Fed workbook actual bytes observed, exact August row BLOCK; manual-only, do not retry unchanged.
 - [ ] Genuine source vintage and historical first availability, full official listing/corporate actions, real RESEARCH profile, private same-SHA gates.
+
+## 2026-11-26 Turn 03 licensed originals / actual sealed industry research
+- [x] One exact open-licensed TWSE original retained and independently reopened; attribution and byte-level receipt.
+- [x] Actual sealed INDUSTRY_MACRO profile, sector breadth/amount pairs, ex-target concentration and explicit observed-time guard; WARN only, earlier cutoff BLOCK.
+- [x] Actual Philadelphia first value matched, later source cells explicitly #N/A; methodological missingness, no latest fallback, complete comparison BLOCK.
+- [x] Export exact bounded public sealed research packet; record independently verified packet in private master record, no private runner.
+- [ ] Genuine A-share historical time-effective source coverage, full listing/corporate actions, formal RESEARCH profile and complete private same-SHA gates. No repeats of finished controls.

@@ -80,7 +80,7 @@ def release_cell(value) -> dict:
     if isinstance(value, str) and value.strip() in {"", ".", "NA", "N/A", "#N/A", "NaN"}:
         return cell | {"status": "MISSING"}
     if type(value) in (int, float, Decimal) or (
-            isinstance(value, str) and re.fullmatch(r"-?[0-9]{1,6}(?:\\.0{1,12})?", value)):
+            isinstance(value, str) and re.fullmatch(r"-?[0-9]{1,6}(?:\.0{1,12})?", value)):
         number = Decimal(str(value))
         if number.is_finite() and -100000 <= number <= 100000 and number == number.to_integral_value():
             return cell | {"status": "OBSERVED", "jobs": int(number) * 1000}

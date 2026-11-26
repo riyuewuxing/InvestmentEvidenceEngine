@@ -1,0 +1,2 @@
+# Exact licensed CSV snapshots: never normalize original line endings.
+*.csv -text

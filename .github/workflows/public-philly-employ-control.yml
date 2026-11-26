@@ -1,9 +1,6 @@
 name: Public Philadelphia Fed release control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-philly-employ-control.yml"
 permissions:
   contents: read
 concurrency:
