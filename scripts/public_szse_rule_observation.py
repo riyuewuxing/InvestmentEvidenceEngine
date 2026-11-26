@@ -23,6 +23,8 @@ MAX_BYTES = 4 * 1024 * 1024
 PAGES = {"2023": (10, 11, 12, 23, 24, 26, 27),
          "2026": (11, 12, 13, 25, 27, 28)}
 URLS = dict(zip(PAGES, RULES, strict=True))
+ARCHIVED_2023 = "https://docs.static.szse.cn/www/lawrules/rule/repeal/rules/W020230217564423808793.pdf"
+ARCHIVED_NOTICE = "https://www.szse.cn/lawrules/rule/repeal/rules/t20230217_598773.html"
 
 
 def parse_rule_pages(year: str, pages: dict[int, str]) -> dict:
@@ -41,7 +43,7 @@ def parse_rule_pages(year: str, pages: dict[int, str]) -> dict:
          ("4.4.2", "证券发行人认为有必要调整上述计算公式时",
           "经本所同意的", "4.4.3", "参考价作为计算涨跌幅度的基准")),
         ((26, 27) if year == "2023" else (28,),
-         ("5.2.3", "证券除权(息)日", "前收盘价为该证券除权(息)参考价")),
+         ("5.2.3", "证券除权(息)日", "其即时行情显示的前收盘价", "为该证券除权(息)参考价")),
     ]
     for indexes, markers in groups:
         # A page footer can intervene at the boundary, so check clause
@@ -55,11 +57,11 @@ def parse_rule_pages(year: str, pages: dict[int, str]) -> dict:
             "rule_clauses_checked": ["3.3.11", "3.3.13-15", "3.3.19", "4.4.2-3", "5.2.3"]}
 
 
-def child(year: str, out: Path) -> None:
+def child(year: str, out: Path, *, archived: bool = False) -> None:
     import httpx
 
     # Only the two compiled-in rules routes, not a caller-controlled URL.
-    url = URLS[year]
+    url = ARCHIVED_2023 if archived and year == "2023" else URLS[year]
     start = datetime.now(UTC).isoformat()
     with httpx.Client(timeout=httpx.Timeout(5.0), follow_redirects=False) as client:
         with client.stream("GET", url, headers={"Accept": "application/pdf",
@@ -74,19 +76,21 @@ def child(year: str, out: Path) -> None:
         "sha256": hashlib.sha256(raw).hexdigest(), "body": base64.b64encode(raw).decode("ascii")})
 
 
-def observe(year: str, folder: Path) -> dict:
+def observe(year: str, folder: Path, *, archived: bool = False) -> dict:
     from pypdf import PdfReader
 
-    out = {"year": year, "url": URLS[year], "status": "BLOCK", "original_bytes_retained": False,
+    url = ARCHIVED_2023 if archived and year == "2023" else URLS[year]
+    out = {"year": year, "url": url, "status": "BLOCK", "original_bytes_retained": False,
            "historical_availability_verified": False}
-    r = run_json_worker((sys.executable, __file__, "--child", year), timeout_seconds=22,
+    command = "--child-archived" if archived else "--child"
+    r = run_json_worker((sys.executable, __file__, command, year), timeout_seconds=22,
                         max_bytes=6*1024*1024)
     out |= {"worker": r.status, "elapsed_seconds": r.elapsed_seconds}
     if r.status != "OK" or r.payload is None:
         return out
     p = r.payload
     try:
-        if p["year"] != year or p["url"] != URLS[year]:
+        if p["year"] != year or p["url"] != url:
             raise ValueError("RULE_SOURCE_SCOPE")
         out["http_status"] = p["http_status"]
         if p["http_status"] != 200:
@@ -123,14 +127,16 @@ def observe(year: str, folder: Path) -> dict:
         return out | {"error": str(exc) if str(exc).startswith("RULE_") else type(exc).__name__}
 
 
-def main() -> int:
+def main(*, archived: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     with TemporaryDirectory() as temp:
-        documents = [observe(year, Path(temp)) for year in URLS]
+        documents = [observe(year, Path(temp), archived=archived) for year in (("2023",) if archived else URLS)]
     status = "WARN" if all(d["status"] == "OBSERVED" for d in documents) else "BLOCK"
     print("PUBLIC_SZSE_RULE_OBSERVATION " + json.dumps({
         "executor_commit": os.environ["GITHUB_SHA"], "status": status, "documents": documents,
+        "mode": "ARCHIVED_2023_ONLY" if archived else "ORIGINAL_TWO_VERSION_PATHS",
+        "archived_notice_locator": ARCHIVED_NOTICE if archived else None,
         "historical_availability_verified": False, "full_rule_history_verified": False,
         "decision_authority": False, "execution_allowed": False}, sort_keys=True), flush=True)
     return 0 if status == "WARN" else 2
@@ -139,6 +145,10 @@ def main() -> int:
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--child" and sys.argv[2] in URLS:
         child(sys.argv[2], Path(sys.argv[3]))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--child-archived" and sys.argv[2] == "2023":
+        child("2023", Path(sys.argv[3]), archived=True)
+    elif sys.argv[1:] == ["--archived-2023"]:
+        raise SystemExit(main(archived=True))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:
