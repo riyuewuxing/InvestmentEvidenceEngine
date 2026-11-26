@@ -19,6 +19,8 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .historical_capture import PROVIDERS, PublicSecurity, summarize_observed_pair, validate_window
 from .historical_reference import HistoricalCloseSeries
+from .holding_risk import CashDistributionInputs, holding_period_reference
+from .market_calendar import CalendarObservation
 
 MAX_BYTES = 2 * 1024 * 1024
 MAX_CAPTURES_PER_PAIR_DAY = 128
@@ -33,7 +35,7 @@ class HistoricalCaptureFailure(BaseModel):
 
 class HistoricalReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["1"] = "1"
+    schema_version: Literal["1", "2"] = "1"
     acquisition_method: Literal["BOUNDED_VENDOR_NORMALIZED_CLOSE_V1"] = "BOUNDED_VENDOR_NORMALIZED_CLOSE_V1"
     candidate: PublicSecurity
     alternative: PublicSecurity
@@ -44,14 +46,22 @@ class HistoricalReceipt(BaseModel):
     attempted_providers: tuple[str, ...] = Field(min_length=1, max_length=4)
     failures: tuple[HistoricalCaptureFailure, ...] = Field(default=(), max_length=8)
     series: tuple[HistoricalCloseSeries, ...] = Field(min_length=1, max_length=8)
+    calendar: CalendarObservation | None = None
+    calendar_error_code: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_:]{1,160}$")
+    distributions: CashDistributionInputs | None = None
     raw_provider_bytes_retained: Literal[False] = False
     research_only: Literal[True] = True
     execution_allowed: Literal[False] = False
 
 
 def _bytes(receipt: HistoricalReceipt) -> bytes:
-    return json.dumps(receipt.model_dump(mode="json"), ensure_ascii=False,
-                      sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    payload=receipt.model_dump(mode="json")
+    # Exact v1 serialization must remain byte-for-byte compatible.
+    if receipt.schema_version=="1":
+        for key in ("calendar","calendar_error_code","distributions"):
+            payload.pop(key)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 def _read(path: Path) -> bytes:
@@ -66,6 +76,10 @@ def _read(path: Path) -> bytes:
 
 def _summary(receipt: HistoricalReceipt) -> dict:
     validate_window(receipt.first_requested, receipt.last_completed, receipt.observed_at)
+    if receipt.schema_version=="1" and any(x is not None for x in (receipt.calendar,receipt.calendar_error_code,receipt.distributions)):
+        raise ValueError("version one cannot carry holding-risk inputs")
+    if receipt.schema_version=="2" and (receipt.calendar is None)==(receipt.calendar_error_code is None):
+        raise ValueError("version two requires one calendar outcome")
     if (len(set(receipt.attempted_providers)) != len(receipt.attempted_providers)
             or any(provider not in PROVIDERS for provider in receipt.attempted_providers)):
         raise ValueError("invalid attempted provider scope")
@@ -83,8 +97,26 @@ def _summary(receipt: HistoricalReceipt) -> dict:
         raise ValueError("incomplete or contradictory source attempt coverage")
     result = summarize_observed_pair(receipt.candidate, receipt.alternative, receipt.series,
                                      receipt.first_requested, receipt.last_completed)
-    return result | {"attempted_providers": list(receipt.attempted_providers),
-                     "failures": [failure.model_dump(mode="json") for failure in receipt.failures]}
+    result = result | {"attempted_providers": list(receipt.attempted_providers),
+                       "failures": [failure.model_dump(mode="json") for failure in receipt.failures]}
+    if receipt.schema_version=="1":
+        return result
+    # Preserve the raw-price reference and report an independent holding-risk
+    # blocker. Do not fabricate trading sessions or silently drop price dates.
+    result["holding_reference"]={"status":"BLOCKED","error_code":receipt.calendar_error_code or "PRICE_PAIR_UNAVAILABLE"}
+    if receipt.calendar is not None and result["status"]=="OBSERVED_REFERENCE_ONLY":
+        left=next(s for s in receipt.series if s.subject_id==receipt.candidate.symbol)
+        right=next(s for s in receipt.series if s.subject_id==receipt.alternative.symbol)
+        try:
+            result["holding_reference"]=holding_period_reference(left,right,receipt.calendar,
+                first=receipt.first_requested,last=receipt.last_completed,cutoff=receipt.observed_at,
+                distributions=receipt.distributions)
+        except (ValueError,ArithmeticError) as exc:
+            code=str(exc)
+            if not code.isascii() or not code.isupper() or not code.replace("_","").isalnum():
+                code="HOLDING_REFERENCE_INPUT_INVALID"
+            result["holding_reference"]={"status":"BLOCKED","error_code":code[:120]}
+    return result
 
 
 def persist_receipt(directory: Path, receipt: HistoricalReceipt) -> tuple[str, dict]:

@@ -88,3 +88,32 @@ def test_missing_or_double_counted_provider_attempt_rejected(tmp_path):
         persist_receipt(tmp_path, good.model_copy(update={"failures": good.failures + good.failures}))
     with pytest.raises(ValueError):
         persist_receipt(tmp_path, good.model_copy(update={"attempted_providers": ("sina", "baostock", "tencent")}))
+
+
+def test_v1_canonical_encoding_is_unchanged(tmp_path):
+    import hashlib
+    import json
+    original=receipt()
+    payload=original.model_dump(mode="json")
+    for name in ("calendar","calendar_error_code","distributions"):
+        payload.pop(name)
+    old_bytes=json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False).encode()
+    digest, result=persist_receipt(tmp_path,original)
+    assert digest==hashlib.sha256(old_bytes).hexdigest()
+    assert (tmp_path/(digest+".json")).read_bytes()==old_bytes
+    assert "holding_reference" not in result
+
+
+def test_v2_calendar_failure_does_not_suppress_valid_raw_price_reference(tmp_path):
+    original=receipt().model_copy(update={"schema_version":"2","calendar_error_code":"CALENDAR_WATCHDOG_TIMEOUT"})
+    _, result=persist_receipt(tmp_path,original)
+    assert result["status"]=="OBSERVED_REFERENCE_ONLY"
+    assert result["holding_reference"]=={"status":"BLOCKED","error_code":"CALENDAR_WATCHDOG_TIMEOUT"}
+    assert load_receipt(tmp_path,A,B,END,now=NOW)["holding_reference"]==result["holding_reference"]
+
+
+def test_calendar_outcome_schema_not_ambiguous(tmp_path):
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path,receipt().model_copy(update={"schema_version":"2"}))
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path,receipt().model_copy(update={"calendar_error_code":"MISSING"}))
