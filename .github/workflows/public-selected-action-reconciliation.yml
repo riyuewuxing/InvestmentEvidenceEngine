@@ -1,9 +1,5 @@
 name: Public selected action reconciliation
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-selected-action-reconciliation.yml'
   workflow_dispatch:
 permissions:
   contents: read

@@ -9,6 +9,7 @@ from investment_evidence_engine.action_reference import (
     AdjustmentDateRow,
     PreviousCloseRow,
     audit_cash_actions,
+    bind_cash_reference_terms,
 )
 from investment_evidence_engine.cash_entitlement import CashEntitlementTerms
 from investment_evidence_engine.historical_capture import PublicSecurity
@@ -127,3 +128,14 @@ def test_explicit_reference_terms_bind_exact_cash_event(fault):
         events = CashDistributionInputs(events=())
     with pytest.raises(ValueError, match="ACTION_REFERENCE_TERMS_SCOPE"):
         audit_cash_actions(obs, series, CAL, events, now=NOW, reference_terms=supplied)
+
+
+def test_preflight_checks_exact_included_terms_before_source_acquisition():
+    _, _, events, terms = reference_fixture()
+    included, excluded, explicit = bind_cash_reference_terms(events, SUB, DAYS, (terms,))
+    assert not excluded and set(included) == set(explicit) == {ACTION}
+    assert explicit[ACTION][0] == Decimal("0.0336129")
+    with pytest.raises(ValueError, match="SESSION_OR_SUBJECT"):
+        bind_cash_reference_terms(events, SUB, tuple(reversed(DAYS)), (terms,))
+    with pytest.raises(ValueError, match="TERMS_SCOPE"):
+        bind_cash_reference_terms(events, SUB, DAYS, (replace(terms, disclosed_date=DAYS[5]),))

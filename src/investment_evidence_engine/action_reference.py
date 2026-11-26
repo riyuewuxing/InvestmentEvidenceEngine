@@ -57,12 +57,61 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
 
 
+def bind_cash_reference_terms(events: CashDistributionInputs, subject: PublicSecurity,
+                              sessions: tuple[date, ...],
+                              reference_terms: tuple[CashEntitlementTerms, ...] = ()) -> tuple[dict, list, dict]:
+    """Validate exact included cash events and explicit deductions before network acquisition.
+
+    This is source-scope and arithmetic validation only, not proof of original
+    bytes, vintage, or completeness.
+    """
+    events = CashDistributionInputs.model_validate(events.model_dump())
+    subject.prefixed
+    if (subject.asset_type != "STOCK" or not isinstance(sessions, tuple) or not sessions
+            or any(type(day) is not date for day in sessions)
+            or tuple(sorted(set(sessions))) != sessions):
+        raise ValueError("ACTION_REFERENCE_SESSION_OR_SUBJECT_SCOPE_INVALID")
+    included={}
+    excluded=[]
+    seen=set()
+    for event in events.events:
+        if (event.subject_id!=subject.symbol or event.disclosed_date>event.ex_date
+                or not event.source_locator.startswith("https://") or event.ex_date in seen):
+            raise ValueError("ACTION_CASH_EVENT_IDENTITY_OR_DATE_INVALID")
+        seen.add(event.ex_date)
+        if event.ex_date<=sessions[0] or event.ex_date>sessions[-1]:
+            excluded.append({"ex_date":event.ex_date.isoformat(),"reason":"OUTSIDE_HOLDING_WINDOW"})
+            continue
+        if event.ex_date not in sessions:
+            raise ValueError("ACTION_CASH_EVENT_NON_SESSION")
+        included[event.ex_date]=event
+    # Shareholder cash and the disclosed ex-reference deduction are distinct
+    # for a distribution excluding treasury shares. A legacy caller can only
+    # obtain a conditional equal-deduction comparison, not source verification.
+    if not isinstance(reference_terms, tuple) or len(reference_terms) > 100:
+        raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
+    explicit = {}
+    for terms in reference_terms:
+        if type(terms) is not CashEntitlementTerms:
+            raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
+        receipt = terms.checked()
+        event = included.get(terms.ex_date)
+        if (event is None or terms.ex_date in explicit
+                or terms.symbol != subject.symbol or terms.symbol != event.subject_id
+                or terms.disclosed_date != event.disclosed_date
+                or terms.source_locator != event.source_locator
+                or terms.gross_per_share != Decimal(str(event.gross_cash_per_unit_cny))
+                or terms.record_date != sessions[sessions.index(terms.ex_date)-1]):
+            raise ValueError("ACTION_REFERENCE_TERMS_SCOPE_OR_CASH_MISMATCH")
+        explicit[terms.ex_date] = (terms.declared_reference_deduction, receipt)
+    return included, excluded, explicit
+
+
 def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSeries,
                        calendar: CalendarObservation, events: CashDistributionInputs, *, now: datetime,
                        reference_terms: tuple[CashEntitlementTerms, ...] = ()) -> dict:
     obs=ActionObservation.model_validate(obs.model_dump())
     other_close=HistoricalCloseSeries.model_validate(other_close.model_dump())
-    events=CashDistributionInputs.model_validate(events.model_dump())
     obs.subject.prefixed
     if (obs.subject.asset_type!="STOCK" or now.utcoffset() is None or obs.observed_at>now
             or other_close.subject_id!=obs.subject.symbol or other_close.source_label=="baostock"
@@ -76,39 +125,7 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
     factor_dates=tuple(r.effective_date for r in obs.factors)
     if factor_dates!=tuple(sorted(set(factor_dates))) or any(d not in sessions for d in factor_dates):
         raise ValueError("ACTION_FACTOR_DATE_SCOPE_INVALID")
-    included={}
-    excluded=[]
-    seen=set()
-    for event in events.events:
-        if (event.subject_id!=obs.subject.symbol or event.disclosed_date>event.ex_date
-                or not event.source_locator.startswith("https://") or event.ex_date in seen):
-            raise ValueError("ACTION_CASH_EVENT_IDENTITY_OR_DATE_INVALID")
-        seen.add(event.ex_date)
-        if event.ex_date<=sessions[0] or event.ex_date>sessions[-1]:
-            excluded.append({"ex_date":event.ex_date.isoformat(),"reason":"OUTSIDE_HOLDING_WINDOW"})
-            continue
-        if event.ex_date not in sessions:
-            raise ValueError("ACTION_CASH_EVENT_NON_SESSION")
-        included[event.ex_date]=event
-    # Shareholder cash and the disclosed ex-reference deduction are distinct
-    # for a distribution excluding treasury shares. A legacy caller can only
-    # obtain a conditional equal-deduction comparison, not source verification.
-    if not isinstance(reference_terms, tuple):
-        raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
-    explicit = {}
-    for terms in reference_terms:
-        if type(terms) is not CashEntitlementTerms:
-            raise ValueError("ACTION_REFERENCE_TERMS_SCHEMA")
-        receipt = terms.checked()
-        event = included.get(terms.ex_date)
-        if (event is None or terms.ex_date in explicit
-                or terms.symbol != obs.subject.symbol or terms.symbol != event.subject_id
-                or terms.disclosed_date != event.disclosed_date
-                or terms.source_locator != event.source_locator
-                or terms.gross_per_share != Decimal(str(event.gross_cash_per_unit_cny))
-                or terms.record_date != sessions[sessions.index(terms.ex_date)-1]):
-            raise ValueError("ACTION_REFERENCE_TERMS_SCOPE_OR_CASH_MISMATCH")
-        explicit[terms.ex_date] = (terms.declared_reference_deduction, receipt)
+    included, excluded, explicit = bind_cash_reference_terms(events, obs.subject, sessions, reference_terms)
     factors=set(factor_dates)-{sessions[0]}
     audit=[]
     errors=[]
@@ -148,6 +165,8 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
         "normalized_observation_sha256":hashlib.sha256(obs.model_dump_json().encode()).hexdigest(),
         "explicit_reference_terms_count":len(explicit),
         "all_included_cash_reference_terms_explicit":bool(included) and len(explicit)==len(included),
+        "legacy_equal_deduction_assumption_count":len(included)-len(explicit),
+        "reference_terms_original_source_independently_verified":False,
         "official_issuer_event_universe_verified":False,"factor_numeric_semantics_verified":False,
         "corporate_action_coverage_verified":False,"historical_vintage_verified":False,
         "raw_provider_bytes_retained":False,"decision_authority":False,"research_only":True,
