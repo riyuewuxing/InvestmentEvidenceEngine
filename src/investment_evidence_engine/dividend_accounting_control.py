@@ -13,8 +13,8 @@ import json
 import os
 import re
 import sys
-from datetime import UTC, date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -26,7 +26,7 @@ from .official_pdf_transport import MAX_PDF_BYTES, retrieve_pdf_bytes, validate_
 REPO = "riyuewuxing/InvestmentEvidenceEngine"
 PRIOR_ANNUAL_SHA = "8a4b4c31599c17aaefc440721c0ccb6752456dd334ed03b7af24df4a35eed99d"
 DOCS = {
-    "approval_2025": (ROOT+"2025-06-11/1223836050.PDF", (1, 4), "2024年年度股东大会决议公告"),
+    "approval_2025": (ROOT+"2025-06-11/1223836050.PDF", (1, 2, 4), "2024年年度股东大会决议公告"),
     "approval_2026": (ROOT+"2026-06-25/1225386239.PDF", (1, 3, 4), "2025年年度股东会决议公告"),
     "half_2025": (ROOT+"2025-08-22/1224535903.PDF", (1, 63, 157), "2025年半年度报告"),
     "annual_2025": (EXCHANGE_ROOT+FULL_PATH, (1, 112), "2025年年度报告"),
@@ -62,7 +62,8 @@ def parse_pages(kind: str, pages: dict[int, str]) -> dict:
         y = int(kind[-4:])
         _require(pages[1], "证券代码:000035", "TY2025-22" if y == 2025 else "TY2026-28")
         if y == 2025:
-            _require(pages[1], "2025年6月10日", "910,998,698股")
+            _require(pages[1], "2025年6月10日")
+            _require(pages[2], "代表股份910,998,698股")
             body = pages[4]
             anchor = "5、审议并通过了《关于公司2024年度利润分配预案的议案》"
             next_anchor = "6、审议并通过了"
@@ -143,6 +144,8 @@ def reconcile(receipts: list[dict], declared: dict[str, str]) -> dict:
             or any(x["status"] != "OBSERVED" for x in receipts)):
         raise ValueError("DIVIDEND_INCOMPLETE_OBSERVATION")
     fields = {x["kind"]: x["fields"] for x in receipts}
+    if any(fields[k].get("approved") is not True for k in ("approval_2025", "approval_2026")):
+        raise ValueError("DIVIDEND_APPROVAL_NOT_VERIFIED")
     for kind in ("half_2025", "annual_2025", "half_2026"):
         f = fields[kind]
         if Decimal(f["parent_distribution_cny"])+Decimal(f["minority_distribution_cny"]) != Decimal(
@@ -224,13 +227,45 @@ def observe(kind: str, folder: Path) -> dict:
     return result | {"status": "OBSERVED"}
 
 
-def main() -> int:
+PRIOR_RUN = 45860538511
+PRIOR_JOB = 140050086834
+PRIOR_SOURCE_SHA = {"approval_2025":"7c772e04612bf868b331f495758bbd75e01df4531cfaa2a0f9d6a22934227caa","approval_2026":"e36313f67b8da3732e045d61bec529f929ff707f1eccac76849629b5af2b73f2","half_2025":"e59bfded2827307f337b7d3606d17185f6399a3651823ee7f34f8408e23daddf","annual_2025":"8a4b4c31599c17aaefc440721c0ccb6752456dd334ed03b7af24df4a35eed99d","half_2026":"5bd36176ee2fdaa92ba0b2afe2b27774b47b1c8713c8c7ee488c7181547323c0"}
+PRIOR_RECEIPT = Path("fixtures/corporate_actions/observed_000035_dividend_accounting_initial.json")
+
+
+def validate_prior_receipts(value: dict) -> list[dict]:
+    if value.get("run_id") != PRIOR_RUN or value.get("job_id") != PRIOR_JOB:
+        raise ValueError("DIVIDEND_PRIOR_RUN_IDENTITY")
+    rows = value["documents"]
+    expected = set(DOCS) - {"approval_2025"}
+    if len(rows) != len(expected) or {r["kind"] for r in rows} != expected:
+        raise ValueError("DIVIDEND_PRIOR_SCOPE")
+    for r in rows:
+        kind = r["kind"]
+        if (r.get("status") != "OBSERVED" or r.get("url") != DOCS[kind][0]
+                or r.get("source_sha256") != PRIOR_SOURCE_SHA[kind]
+                or r.get("parent_rehash") != "MATCH" or r.get("temporary_rehash") != "MATCH"
+                or r.get("historical_availability_verified") is not False):
+            raise ValueError("DIVIDEND_PRIOR_RECEIPT_MISMATCH")
+    return rows
+
+
+def main(*, approval_only: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     with TemporaryDirectory() as temp:
-        results = [observe(k, Path(temp)) for k in DOCS]
+        if approval_only:
+            prior = validate_prior_receipts(json.loads(PRIOR_RECEIPT.read_bytes()))
+            fresh = observe("approval_2025", Path(temp))
+            if fresh.get("source_sha256") != PRIOR_SOURCE_SHA["approval_2025"]:
+                fresh |= {"status": "BLOCK", "error_code": "DIVIDEND_PRIOR_APPROVAL_VERSION_MISMATCH"}
+            results = [fresh, *prior]
+        else:
+            results = [observe(k, Path(temp)) for k in DOCS]
     report = {"executor_commit": os.environ["GITHUB_SHA"], "status": "BLOCK", "subject": "000035",
-              "documents": results, "decision_authority": False, "execution_allowed": False,
+              "documents": results, "decision_authority": False,
+              "mode": "APPROVAL_2025_ONLY_REUSE_FOUR_PRIOR_RECEIPTS" if approval_only else "FIVE_NEW_OBSERVATIONS",
+              "prior_run_id": PRIOR_RUN if approval_only else None, "execution_allowed": False,
               "historical_availability_verified": False}
     try:
         # Prior observed public issuer receipts #45856529066 and #45856977986.
@@ -245,6 +280,8 @@ def main() -> int:
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--child" and sys.argv[2] in DOCS:
         child(sys.argv[2], Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--approval-2025-only"]:
+        raise SystemExit(main(approval_only=True))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:

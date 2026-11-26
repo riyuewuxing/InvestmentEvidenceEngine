@@ -1,0 +1,140 @@
+{
+  "run_id": 45860538511,
+  "job_id": 140050086834,
+  "executor_commit": "90848a3531fc05b00d4852b3dc7dcd2d376de728",
+  "documents": [
+    {
+      "elapsed_seconds": 0.916,
+      "fields": {
+        "actual_payment_verified": false,
+        "approval_pct": "99.6404",
+        "approved": true,
+        "document_day": "2026-06-25",
+        "entitlement_record_date_verified_here": false,
+        "meeting_day": "2026-06-24",
+        "profit_year": 2025,
+        "votes_for_against_abstained": [
+          801288620,
+          2757500,
+          134000
+        ],
+        "votes_present": 804180120
+      },
+      "historical_availability_verified": false,
+      "kind": "approval_2026",
+      "page_count": 6,
+      "page_text_sha256": {
+        "1": "acf3d0a9b5becac981907a17b8df469626d693189d57dea015c815033e96c1c5",
+        "3": "43912b8064b931388651e5d69898767fecfe13d17f23742be10dd629f86141ba",
+        "4": "b40975557b9433c06672e18c9547c60d3458b2be227e44b232bf4db0488e6a6b"
+      },
+      "parent_rehash": "MATCH",
+      "raw_body_retained": false,
+      "retrieved_at": "2026-11-26T16:38:17.781602+00:00",
+      "source_bytes": 110667,
+      "source_sha256": "e36313f67b8da3732e045d61bec529f929ff707f1eccac76849629b5af2b73f2",
+      "started_at": "2026-11-26T16:38:16.920753+00:00",
+      "status": "OBSERVED",
+      "temporary_rehash": "MATCH",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-06-25/1225386239.PDF",
+      "worker_status": "OK"
+    },
+    {
+      "elapsed_seconds": 1.222,
+      "fields": {
+        "document_day": "2025-08-22",
+        "minority_distribution_cny": "16745050.47",
+        "parent_distribution_cny": "84058749.04",
+        "payable_scope": "2025_REPORT_LABEL_ORDINARY_DIVIDENDS_NOT_EVENT_SPECIFIC",
+        "period_end": "2025-06-30",
+        "reported_ordinary_dividend_payable_current_prior_cny": [
+          "108340447.03",
+          "12936647.52"
+        ],
+        "total_consolidated_distribution_cny": "100803799.51"
+      },
+      "historical_availability_verified": false,
+      "kind": "half_2025",
+      "page_count": 224,
+      "page_text_sha256": {
+        "1": "bd9ea6b8b42ba25463c524b70c51d9dd1930b2b09933afcd35888d593a174241",
+        "63": "766b95e6dbb595a7be8d7fe668bf3e116ac0fb1bb8bbdbb131134d68718c5d29",
+        "157": "1199c354c27369dd3e9785206bc2f2125bddfa5b10c28d5afa37109065e4296c"
+      },
+      "parent_rehash": "MATCH",
+      "raw_body_retained": false,
+      "retrieved_at": "2026-11-26T16:38:19.023056+00:00",
+      "source_bytes": 1193108,
+      "source_sha256": "e59bfded2827307f337b7d3606d17185f6399a3651823ee7f34f8408e23daddf",
+      "started_at": "2026-11-26T16:38:17.895960+00:00",
+      "status": "OBSERVED",
+      "temporary_rehash": "MATCH",
+      "url": "https://static.cninfo.com.cn/finalpage/2025-08-22/1224535903.PDF",
+      "worker_status": "OK"
+    },
+    {
+      "elapsed_seconds": 2.624,
+      "fields": {
+        "document_day": "2026-04-29",
+        "minority_distribution_cny": "20419710.44",
+        "parent_distribution_cny": "84058749.07",
+        "period_end": "2025-12-31",
+        "total_consolidated_distribution_cny": "104478459.51"
+      },
+      "historical_availability_verified": false,
+      "kind": "annual_2025",
+      "page_count": 258,
+      "page_text_sha256": {
+        "1": "3983a1ab933062909980450e92eb7bbf426abf74491671e5ea6f100e19aaf0db",
+        "112": "30050a13e8598260f5918bba5c9d859045a213331144a015c7bee6cdc54fde1b"
+      },
+      "parent_rehash": "MATCH",
+      "raw_body_retained": false,
+      "retrieved_at": "2026-11-26T16:38:21.682932+00:00",
+      "source_bytes": 1564092,
+      "source_sha256": "8a4b4c31599c17aaefc440721c0ccb6752456dd334ed03b7af24df4a35eed99d",
+      "started_at": "2026-11-26T16:38:19.174985+00:00",
+      "status": "OBSERVED",
+      "temporary_rehash": "MATCH",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/dd3d13e3-e035-4249-9d96-121b4121b417.PDF",
+      "worker_status": "OK"
+    },
+    {
+      "elapsed_seconds": 0.92,
+      "fields": {
+        "comparative_2025_h1_parent_distribution_cny": "84058749.04",
+        "document_day": "2026-08-29",
+        "minority_distribution_cny": "12600000.00",
+        "parent_distribution_cny": "85969179.68",
+        "period_end": "2026-06-30",
+        "prior_cell_status": "BLANK_NOT_IMPUTED_ZERO",
+        "reported_ordinary_dividend_payable_cny": "85969179.68",
+        "retained_earnings_current_prior_dividend_cny": [
+          "85969179.68",
+          "84058749.04"
+        ],
+        "total_consolidated_distribution_cny": "98569179.68"
+      },
+      "historical_availability_verified": false,
+      "kind": "half_2026",
+      "page_count": 211,
+      "page_text_sha256": {
+        "1": "879a062bef8939486f7d786dbd7ff4956a4c8660d66095baa514c18af637d9c5",
+        "66": "831e3875de47251998b108f23e3cbbc30e0f5cff55e01f87ec50fcf268ba1365",
+        "68": "676bd751b66078bc796b0fff67b99652b05905c6224ff89ba1534831b66556c9",
+        "151": "5ce8909f0c253020c3ace293d4cdb412f95095794b602774bbb606f6f33422eb",
+        "159": "a913f1e79478354a09b51fb67c9f71391640743b988c2b49ca89b84f57fc9904"
+      },
+      "parent_rehash": "MATCH",
+      "raw_body_retained": false,
+      "retrieved_at": "2026-11-26T16:38:22.655856+00:00",
+      "source_bytes": 1257111,
+      "source_sha256": "5bd36176ee2fdaa92ba0b2afe2b27774b47b1c8713c8c7ee488c7181547323c0",
+      "started_at": "2026-11-26T16:38:21.840025+00:00",
+      "status": "OBSERVED",
+      "temporary_rehash": "MATCH",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225528853.PDF",
+      "worker_status": "OK"
+    }
+  ]
+}

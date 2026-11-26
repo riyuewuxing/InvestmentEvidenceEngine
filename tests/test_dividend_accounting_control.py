@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from investment_evidence_engine.dividend_accounting_control import _row, reconcile
+from investment_evidence_engine.dividend_accounting_control import _row, parse_pages, reconcile
 
 
 def test_row_is_anchored_and_column_order_checked():
@@ -54,4 +54,27 @@ def test_missing_or_inconsistent_sources_block(fault):
     else:
         data[2]["fields"]["comparative_2025_h1_parent_distribution_cny"] = "84058749.07"
     with pytest.raises(ValueError):
+        reconcile(data, {"2025": "84058753.47", "2026": "85969179.68"})
+
+
+def test_approval_2025_attendance_on_second_page():
+    pages = {
+        1: "中国天楹股份有限公司2024年年度股东大会决议公告证券代码:000035 TY2025-22 2025年6月10日",
+        2: "代表股份910,998,698股",
+        4: "5、审议并通过了《关于公司2024年度利润分配预案的议案》"
+           "总表决情况:同意907,417,360股99.6069%反对3,100,738股弃权480,600股"
+           "表决结果:本次股东大会审议通过了上述议案6、审议并通过了",
+    }
+    result = parse_pages("approval_2025", pages)
+    assert result["votes_present"] == 910998698
+    assert result["approved"] is True
+    pages[2] = "代表股份910,998,697股"
+    with pytest.raises(ValueError):
+        parse_pages("approval_2025", pages)
+
+
+def test_missing_approval_blocks():
+    data = receipts()
+    data[-1]["fields"]["approved"] = False
+    with pytest.raises(ValueError, match="DIVIDEND_APPROVAL_NOT_VERIFIED"):
         reconcile(data, {"2025": "84058753.47", "2026": "85969179.68"})

@@ -25,6 +25,6 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Observe five fixed issuer disclosures and preserve amount differences
-        run: timeout --signal=TERM --kill-after=5s 210s python -m investment_evidence_engine.dividend_accounting_control
+      - name: Reobserve exact prior approval version only and reconcile four retained receipts
+        run: timeout --signal=TERM --kill-after=5s 210s python -m investment_evidence_engine.dividend_accounting_control --approval-2025-only
         timeout-minutes: 4
