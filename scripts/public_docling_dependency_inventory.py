@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 
-
 def canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
