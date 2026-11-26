@@ -46,3 +46,28 @@ def test_audit_rejects_incomplete_or_unsafe_results(rows):
 def test_rejects_duplicate_inventory():
     with pytest.raises(ValueError):
         verify_audit(b"example-pkg==1.0\nExample_pkg==1.0\n", payload([row()]))
+
+
+def test_explicit_supplement_covers_only_missing_pin():
+    inventory = b"example-pkg==1.0\npackaging==26.4\n"
+    primary = payload([row()])
+    assert _mod.missing_pins(inventory, primary) == b"packaging==26.4\n"
+    receipt = verify_audit(inventory, primary, payload([row("packaging", "26.4")]))
+    assert receipt["package_count"] == 2
+    assert receipt["supplemental_package_count"] == 1
+    assert len(receipt["supplemental_audit_sha256"]) == 64
+
+
+@pytest.mark.parametrize("rows", [
+    [],
+    [row("packaging", "26.3")],
+    [row("packaging", "26.4"), row()],
+    [row("packaging", "26.4", [{"id": "example"}])],
+])
+def test_supplement_cannot_hide_coverage_failure(rows):
+    with pytest.raises(ValueError):
+        verify_audit(
+            b"example-pkg==1.0\npackaging==26.4\n",
+            payload([row()]),
+            payload(rows),
+        )
