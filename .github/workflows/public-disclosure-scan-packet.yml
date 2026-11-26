@@ -1,0 +1,31 @@
+name: Public disclosure-directory and actual scan packet
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-disclosure-scan-packet.yml'
+      - 'scripts/public_disclosure_scan_packet.py'
+permissions:
+  contents: read
+concurrency:
+  group: public-disclosure-scan-packet
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Conditional one real packet rehash and replay
+        timeout-minutes: 4
+        run: timeout --signal=TERM --kill-after=5s 210s python scripts/public_disclosure_scan_packet.py
