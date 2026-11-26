@@ -187,36 +187,78 @@ def _numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 
+def _compute_block(operation: ExecutionOperation, reason: str) -> OperationResult:
+    return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                           exit_code=2, errors=[reason])
+
+
+def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> list[dict]:
+    if "inline_records" in operation.parameters and "depends_on_operation_ids" in operation.parameters:
+        raise ValueError("COMPUTE_DEPENDENCY_INLINE_CONFLICT")
+    return _records(operation, context)
+
+
+def _chronological_rows(records: list[dict], parameters: dict, *, required: bool) -> bool:
+    """Date/instant label order only, not actual availability or market calendar proof."""
+    explicit = parameters.get("time_field")
+    if explicit is not None and (not isinstance(explicit, str) or not explicit.strip()):
+        raise ValueError("COMPUTE_TIME_FIELD_INVALID")
+    field = explicit or next((k for k in ("date", "session", "timestamp")
+                             if any(k in row for row in records)), None)
+    # Time-series operations cannot blend two distinct security identities.
+    for key in ("subject_id", "asset", "asset_id", "symbol", "code"):
+        if any(key in row for row in records):
+            values = [row.get(key) for row in records]
+            if (not all(isinstance(v, str) and v.strip() for v in values)
+                    or len(set(values)) != 1):
+                raise ValueError("COMPUTE_MULTIPLE_OR_MISSING_SUBJECTS")
+    if field is None:
+        if required:
+            raise ValueError("COMPUTE_TIME_FIELD_REQUIRED")
+        return False
+    stamps = [parse_event_stamp(row.get(field)) for row in records]
+    if any(stamp is None or (not day and stamp.utcoffset() is None) for stamp, day in stamps):
+        raise ValueError("COMPUTE_TIME_LABEL_INVALID")
+    if len({day for _, day in stamps}) != 1:
+        raise ValueError("COMPUTE_MIXED_TIME_PRECISION")
+    dates = [stamp for stamp, _ in stamps]
+    if dates != sorted(set(dates)):
+        raise ValueError("COMPUTE_TIME_ORDER_OR_DUPLICATE")
+    return True
+
+
 def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    records = _records(operation, context)
+    try:
+        records = _compute_records(operation, context)
+    except ValueError as exc:
+        return _compute_block(operation, str(exc))
     if not records:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["NO_FACTOR_INPUT_RECORDS"],
-        )
+        return _compute_block(operation, "NO_FACTOR_INPUT_RECORDS")
     spec = operation.parameters.get("factor_spec")
     if not isinstance(spec, dict):
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["FACTOR_SPEC_REQUIRED"],
-        )
-    field = str(spec.get("field") or "")
+        return _compute_block(operation, "FACTOR_SPEC_REQUIRED")
+    field = spec.get("field")
     transform = str(spec.get("transform") or "IDENTITY").upper()
-    if not field:
-        raise ValueError("factor_spec.field is required")
+    if not isinstance(field, str) or not field.strip():
+        return _compute_block(operation, "FACTOR_FIELD_REQUIRED")
     frame = pd.DataFrame(records)
     if field not in frame.columns:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=[f"FACTOR_FIELD_MISSING:{field}"],
-        )
-    values = _numeric(frame[field])
+        return _compute_block(operation, f"FACTOR_FIELD_MISSING:{field}")
+    values_raw = [row.get(field) for row in records]
+    if any(v is not None and not _is_finite_number(v) for v in values_raw):
+        return _compute_block(operation, "FACTOR_NONFINITE_OR_NONNUMERIC_INPUT")
+    values = pd.Series(values_raw, dtype="float64", index=frame.index)
+    temporal = transform in {"PCT_CHANGE", "ROLLING_MEAN", "ROLLING_RETURN"}
+    chronology = False
+    if temporal:
+        try:
+            chronology = _chronological_rows(records, operation.parameters, required=True)
+        except ValueError as exc:
+            return _compute_block(operation, str(exc))
+        key = "periods" if transform == "PCT_CHANGE" else "window"
+        window = spec.get(key, 1 if transform == "PCT_CHANGE" else 20)
+        if type(window) is not int or not (2 if transform == "ROLLING_MEAN" else 1) <= window <= 10000:
+            return _compute_block(operation, "FACTOR_WINDOW_INVALID")
     if transform == "IDENTITY":
         factor = values
     elif transform == "RANK_PCT":
@@ -225,127 +267,128 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
         std = float(values.std(ddof=0))
         factor = (values - values.mean()) / std if std > 0 else values * 0.0
     elif transform == "PCT_CHANGE":
-        periods = max(1, int(spec.get("periods") or 1))
-        factor = values.pct_change(periods=periods)
+        factor = values.pct_change(periods=window, fill_method=None)
     elif transform == "ROLLING_MEAN":
-        window = max(2, int(spec.get("window") or 20))
-        factor = values.rolling(window).mean()
+        factor = values.rolling(window, min_periods=window).mean()
     elif transform == "ROLLING_RETURN":
-        window = max(1, int(spec.get("window") or 20))
         factor = values / values.shift(window) - 1.0
     else:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=[f"UNSUPPORTED_FACTOR_TRANSFORM:{transform}"],
-        )
-    output_field = str(spec.get("output_field") or "factor_value")
+        return _compute_block(operation, f"UNSUPPORTED_FACTOR_TRANSFORM:{transform}")
+    # Undefined ratios, missing observations and warmup are missing, never zeros.
+    factor = factor.where(np.isfinite(factor))
+    if not factor.notna().any():
+        return _compute_block(operation, "FACTOR_NO_FINITE_OUTPUT")
+    output_field = spec.get("output_field", "factor_value")
+    if not isinstance(output_field, str) or not output_field.strip() or output_field in frame.columns:
+        return _compute_block(operation, "FACTOR_OUTPUT_FIELD_COLLISION_OR_INVALID")
     frame[output_field] = factor
     output = json.loads(frame.to_json(orient="records", date_format="iso", force_ascii=False))
-    finite = pd.to_numeric(frame[output_field], errors="coerce").dropna()
+    finite = factor.dropna()
+    statistics = {"count": int(finite.count()), "mean": float(finite.mean()),
+                  "std": float(finite.std(ddof=0)), "min": float(finite.min()), "max": float(finite.max())}
+    if not all(math.isfinite(v) for v in statistics.values()):
+        return _compute_block(operation, "FACTOR_STATISTICS_NONFINITE")
     payload = {
         "factor_id": str(spec.get("factor_id") or operation.operation_id),
-        "transform": transform,
-        "source_field": field,
-        "output_field": output_field,
-        "records": output,
-        "statistics": {
-            "count": int(finite.count()),
-            "mean": float(finite.mean()) if not finite.empty else None,
-            "std": float(finite.std(ddof=0)) if not finite.empty else None,
-            "min": float(finite.min()) if not finite.empty else None,
-            "max": float(finite.max()) if not finite.empty else None,
-        },
-        "decision_authority": False,
+        "transform": transform, "source_field": field, "output_field": output_field,
+        "records": output, "statistics": statistics,
+        "missing_input_count": int(values.isna().sum()),
+        "undefined_output_count": int(factor.isna().sum()),
+        "missing_values_filled": False, "time_label_order_verified": chronology,
+        "historical_vintage_verified": False, "pit_safe": False, "decision_authority": False,
     }
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     context.payloads[operation.operation_id] = payload
-    return OperationResult(
-        operation_id=operation.operation_id,
-        status="PASS",
-        exit_code=0,
-        artifacts=[_artifact(path)],
-        metrics=payload["statistics"],
-    )
+    return OperationResult(operation_id=operation.operation_id, status="PASS", exit_code=0,
+                           artifacts=[_artifact(path)], metrics=statistics)
 
 
 def _max_drawdown(equity: pd.Series) -> float | None:
     if equity.empty:
         return None
-    peaks = equity.cummax()
-    drawdown = equity / peaks - 1.0
-    return float(drawdown.min())
+    # Initial wealth is one; a first-row fee or loss must count as drawdown.
+    peaks = equity.cummax().clip(lower=1.0)
+    return float((equity / peaks - 1.0).min())
 
 
 def run_backtest(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
-    records = _records(operation, context)
-    if not records:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=["NO_BACKTEST_INPUT_RECORDS"],
-        )
-    frame = pd.DataFrame(records)
-    return_field = str(operation.parameters.get("return_field") or "return")
-    weight_field = str(operation.parameters.get("weight_field") or "weight")
-    if return_field not in frame.columns:
-        return OperationResult(
-            operation_id=operation.operation_id,
-            status="BLOCK",
-            exit_code=2,
-            errors=[f"BACKTEST_RETURN_FIELD_MISSING:{return_field}"],
-        )
-    returns = _numeric(frame[return_field]).fillna(0.0)
-    weights = _numeric(frame[weight_field]).fillna(0.0) if weight_field in frame.columns else pd.Series(1.0, index=frame.index)
-    lag_weights = weights.shift(1).fillna(0.0)
+    """Single-series arithmetic diagnostic; not a historical executable strategy."""
+    parameters = operation.parameters
+    try:
+        records = _compute_records(operation, context)
+        if not records:
+            return _compute_block(operation, "NO_BACKTEST_INPUT_RECORDS")
+        chronology = _chronological_rows(records, parameters,
+                                         required="depends_on_operation_ids" in parameters)
+    except ValueError as exc:
+        return _compute_block(operation, str(exc))
+    return_field = parameters.get("return_field", "return")
+    weight_field = parameters.get("weight_field", "weight")
+    if (not isinstance(return_field, str) or not return_field or not isinstance(weight_field, str)
+            or not weight_field or return_field == weight_field):
+        return _compute_block(operation, "BACKTEST_FIELDS_INVALID")
+    returns_raw = [row.get(return_field) for row in records]
+    weights_raw = [row.get(weight_field) for row in records]
+    if not all(_is_finite_number(v) and v >= -1 for v in returns_raw):
+        return _compute_block(operation, "BACKTEST_RETURN_MISSING_OR_INVALID")
+    if not all(_is_finite_number(v) and 0 <= v <= 1 for v in weights_raw):
+        return _compute_block(operation, "BACKTEST_WEIGHT_MISSING_OR_INVALID")
+    cost_bps = parameters.get("cost_bps")
+    if not _is_finite_number(cost_bps) or not 0 <= cost_bps < 10000:
+        return _compute_block(operation, "BACKTEST_EXPLICIT_COST_ASSUMPTION_REQUIRED")
+    periods_per_year = parameters.get("periods_per_year")
+    if periods_per_year is not None and (type(periods_per_year) is not int or not 1 <= periods_per_year <= 100000):
+        return _compute_block(operation, "BACKTEST_ANNUALIZATION_ASSUMPTION_INVALID")
+    returns = pd.Series(returns_raw, dtype="float64")
+    weights = pd.Series(weights_raw, dtype="float64")
+    lag_weights = weights.shift(1, fill_value=0.0)
     gross = lag_weights * returns
-    turnover = (weights - weights.shift(1).fillna(0.0)).abs()
-    cost_bps = float(operation.parameters.get("cost_bps") or 0.0)
+    turnover = (weights - lag_weights).abs()
     net = gross - turnover * cost_bps / 10000.0
+    if not np.isfinite(net).all() or (net <= -1).any():
+        return _compute_block(operation, "BACKTEST_NONPOSITIVE_PERIOD_WEALTH")
     equity = (1.0 + net).cumprod()
-    periods_per_year = max(1, int(operation.parameters.get("periods_per_year") or 252))
+    if not np.isfinite(equity).all() or (equity <= 0).any():
+        return _compute_block(operation, "BACKTEST_NONFINITE_OR_NONPOSITIVE_WEALTH")
     n = len(net)
-    total_return = float(equity.iloc[-1] - 1.0) if n else 0.0
-    annualized_return = float(equity.iloc[-1] ** (periods_per_year / n) - 1.0) if n and equity.iloc[-1] > 0 else None
-    annualized_vol = float(net.std(ddof=1) * math.sqrt(periods_per_year)) if net.count() >= 2 else None
-    sharpe = (
-        float(net.mean() / net.std(ddof=1) * math.sqrt(periods_per_year))
-        if net.count() >= 2 and float(net.std(ddof=1)) > 0
-        else None
-    )
+    total_return = float(equity.iloc[-1] - 1.0)
+    annualized_return, annualized_vol, sharpe = None, None, None
+    if periods_per_year is not None:
+        try:
+            annualized_return = math.expm1(math.log(float(equity.iloc[-1])) * periods_per_year / n)
+            sd = float(net.std(ddof=1)) if n >= 2 else None
+            annualized_vol = sd * math.sqrt(periods_per_year) if sd is not None else None
+            sharpe = (float(net.mean()) / sd * math.sqrt(periods_per_year)
+                      if sd is not None and sd > 0 else None)
+        except (ArithmeticError, ValueError):
+            return _compute_block(operation, "BACKTEST_ANNUALIZATION_NONFINITE")
     metrics = {
-        "observations": n,
-        "total_return": total_return,
-        "annualized_return": annualized_return,
-        "annualized_volatility": annualized_vol,
-        "sharpe_zero_rf": sharpe,
-        "max_drawdown": _max_drawdown(equity),
-        "total_turnover": float(turnover.sum()),
-        "cost_bps": cost_bps,
-        "net_of_costs": True,
+        "observations": n, "total_return": total_return,
+        "annualized_return": annualized_return, "annualized_volatility": annualized_vol,
+        "sharpe_zero_rf": sharpe, "max_drawdown": _max_drawdown(equity),
+        "total_turnover": float(turnover.sum()), "cost_bps": float(cost_bps), "net_of_costs": True,
     }
+    if any(v is not None and type(v) is not bool and not math.isfinite(v) for v in metrics.values()):
+        return _compute_block(operation, "BACKTEST_METRICS_NONFINITE")
     payload = {
         "metrics": metrics,
         "assumptions": {
-            "signal_lag_periods": 1,
-            "periods_per_year": periods_per_year,
-            "cost_applied_to_turnover": True,
+            "signal_lag_periods": 1, "periods_per_year": periods_per_year,
+            "cost_applied_to_turnover": True, "cost_basis": "LINEAR_TARGET_WEIGHT_CHANGE_ASSUMPTION",
+            "initial_weight": 0.0, "terminal_liquidation_assumed": False,
+            "annualization_cadence_verified": False, "actual_costs_verified": False,
+            "missing_returns_or_weights_imputed": False,
         },
-        "decision_authority": False,
+        "time_label_order_verified": chronology,
+        "research_only": True, "pit_safe": False, "historical_vintage_verified": False,
+        "actual_trade_feasibility_verified": False, "decision_authority": False,
     }
     path = context.output_dir / f"{operation.operation_id}.json"
     _write_json(path, payload)
     context.payloads[operation.operation_id] = payload
-    return OperationResult(
-        operation_id=operation.operation_id,
-        status="PASS",
-        exit_code=0,
-        artifacts=[_artifact(path)],
-        metrics=metrics,
-    )
+    return OperationResult(operation_id=operation.operation_id, status="PASS", exit_code=0,
+                           artifacts=[_artifact(path)], metrics=metrics)
 
 
 _OPERATOR: dict[str, Callable[[pd.Series, float], pd.Series]] = {
