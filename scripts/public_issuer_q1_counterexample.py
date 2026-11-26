@@ -1,4 +1,4 @@
-"""Observe only the newly identified Q1 document."""
+"""Observe only the newly identified Q1 document, with matching parent route."""
 from __future__ import annotations
 
 import json

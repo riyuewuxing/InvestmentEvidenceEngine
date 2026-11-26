@@ -25,3 +25,18 @@ def test_q1_counterexample_exact_balances_not_historical_availability():
 def test_q1_rejects_changed_scope_or_cell(bad):
     with pytest.raises(ValueError):
         checked_q1_adjustments(*(page.replace(bad, "UNKNOWN") for page in pages()))
+
+
+def test_q1_parent_route_reaches_bounded_worker(monkeypatch, tmp_path):
+    from investment_evidence_engine import issuer_cashflow_control as control
+    from investment_evidence_engine.bounded_worker import WorkerResult
+
+    def fake_worker(command, **kwargs):
+        assert command[-1] == "q1_2026"
+        return WorkerResult("WATCHDOG_TIMEOUT")
+
+    monkeypatch.setattr(control, "run_json_worker", fake_worker)
+    result = control.observe("q1_2026", tmp_path)
+    assert result["url"] == control.EXCHANGE_ROOT + control.Q1_PATH
+    assert result["status"] == "BLOCK"
+    assert result["worker_status"] == "WATCHDOG_TIMEOUT"

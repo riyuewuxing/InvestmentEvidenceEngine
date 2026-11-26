@@ -134,7 +134,7 @@ def _child(kind: str, path: Path) -> None:
 def observe(kind: str, folder: Path) -> dict:
     from pypdf import PdfReader
 
-    url = EXCHANGE_ROOT + PATHS[kind]
+    url = EXCHANGE_ROOT + (Q1_PATH if kind == "q1_2026" else PATHS[kind])
     result = {"kind": kind, "url": url, "status": "BLOCK",
               "raw_body_retained": False, "historical_availability_verified": False,
               "decision_authority": False}
