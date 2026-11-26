@@ -45,3 +45,23 @@ def test_transfer_gap_and_account_eligibility():
     assert event_state(date(2025, 9, 16), entry_verified=True) == "OLD_VENUE_REMOVED_BEFORE_REPORTED_NEW_ENTRY"
     assert event_state(date(2025, 9, 17), entry_verified=True) == "NEW_VENUE_REPORTED_ACCOUNT_TRADABILITY_UNVERIFIED"
     assert event_state(date(2025, 9, 26), entry_verified=False) == "OLD_VENUE_REMOVED_NEW_VENUE_UNVERIFIED"
+
+
+def test_missing_class_row_must_not_borrow_other_class():
+    value = ("锦州港股份有限公司投资风险分析 山西证券 2025年9月17日起在退市板块挂牌转让。"
+             "截至2025年9月3日，公司A股股本结构如下：未知 "
+             "截至2025年9月3日，公司B股股本结构如下：退市板块待确认股份 34 总股本 200")
+    with pytest.raises(ValueError, match="TRANSFER_RISK_PENDING_SHARES"):
+        parse_text("risk", value)
+
+
+def test_duplicate_class_row_and_reverse_class_order_rejected():
+    value = ("锦州港股份有限公司投资风险分析 山西证券 2025年9月17日起在退市板块挂牌转让。"
+             "截至2025年9月3日，公司A股股本结构如下：退市板块待确认股份 1 总股本 100 "
+             "退市板块待确认股份 2 总股本 100 "
+             "截至2025年9月3日，公司B股股本结构如下：退市板块待确认股份 34 总股本 200")
+    with pytest.raises(ValueError, match="TRANSFER_RISK_PENDING_SHARES"):
+        parse_text("risk", value)
+    reversed_classes = value.replace("公司A股", "公司X股").replace("公司B股", "公司A股").replace("公司X股", "公司B股")
+    with pytest.raises(ValueError, match="TRANSFER_RISK_CLASS_SCOPE"):
+        parse_text("risk", reversed_classes)

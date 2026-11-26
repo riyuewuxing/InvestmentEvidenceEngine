@@ -72,13 +72,16 @@ def parse_text(key: str, value: str) -> dict:
                 and re.search(r"2025年9月17日起[^。]{0,230}挂牌转让", text) is not None,
                 "TRANSFER_RISK_ENTRY_ANNOUNCEMENT")
         shares = {}
-        for share_class in ("A", "B"):
-            start = f"截至2025年9月3日,公司{share_class}股股本结构如下"
-            require(text.count(start) == 1, "TRANSFER_RISK_CLASS_SCOPE")
-            section = text.split(start, 1)[1]
-            match = re.search(r"退市板块待确认股份([\d,]+)总股本([\d,]+)", section[:1800])
-            require(match is not None, "TRANSFER_RISK_PENDING_SHARES")
-            pending, total = (int(v.replace(",", "")) for v in match.groups())
+        a_start = "截至2025年9月3日,公司A股股本结构如下"
+        b_start = "截至2025年9月3日,公司B股股本结构如下"
+        require(text.count(a_start) == text.count(b_start) == 1
+                and text.index(a_start) < text.index(b_start), "TRANSFER_RISK_CLASS_SCOPE")
+        a_section, b_section = text.split(a_start, 1)[1].split(b_start, 1)
+        b_section = b_section.split("挂牌前的前十名股东持股情况", 1)[0]
+        for share_class, section in (("A", a_section), ("B", b_section)):
+            matches = re.findall(r"退市板块待确认股份([\d,]+)总股本([\d,]+)", section[:1800])
+            require(len(matches) == 1, "TRANSFER_RISK_PENDING_SHARES")
+            pending, total = (int(v.replace(",", "")) for v in matches[0])
             require(0 < pending <= total, "TRANSFER_RISK_INVALID_COUNTS")
             shares[share_class] = {"pending_confirmation": pending, "total": total}
         return {"announced_entry_from": ENTRY, "share_counts_as_of": "2025-09-03",
@@ -147,11 +150,16 @@ def child(key: str, path: Path) -> None:
             length = response.headers.get("Content-Length")
             require(0 < len(body) <= MAX_BYTES and (length is None or int(length) == len(body)),
                     "TRANSFER_BODY_LIMIT")
-        fields = parse_body(key, body)
         result = {"key": key, "url": url, "started_at": started.isoformat(),
                   "observed_at": datetime.now(UTC).isoformat(),
                   "sha256": hashlib.sha256(body).hexdigest(),
-                  "body": base64.b64encode(body).decode("ascii"), "fields": fields}
+                  "body": base64.b64encode(body).decode("ascii")}
+        try:
+            result["fields"] = parse_body(key, body)
+        except Exception as exc:
+            reason = str(exc)
+            result["parse_error"] = (reason if re.fullmatch(r"TRANSFER_[A-Z_]+", reason)
+                                     else type(exc).__name__)
     except Exception as exc:
         reason = str(exc)
         result = {"key": key, "error": reason if re.fullmatch(r"TRANSFER_[A-Z_]+", reason)
@@ -179,8 +187,12 @@ def observe(key: str) -> dict:
         require(p["url"] == url and a.utcoffset() is not None and b.utcoffset() is not None
                 and a <= b <= datetime.now(UTC) and digest == p["sha256"]
                 and 0 < len(raw) <= MAX_BYTES, "TRANSFER_RECEIPT_SCOPE")
-        return out | {"status": "OBSERVED", "bytes": len(raw), "sha256": digest,
-                      "parent_rehash": "MATCH", "observed_at": b.isoformat(), "fields": p["fields"]}
+        evidence = out | {"bytes": len(raw), "sha256": digest,
+                          "parent_rehash": "MATCH", "observed_at": b.isoformat()}
+        if "parse_error" in p:
+            return evidence | {"parse_error": p["parse_error"]}
+        require(isinstance(p.get("fields"), dict), "TRANSFER_RECEIPT_FIELDS")
+        return evidence | {"status": "OBSERVED", "fields": p["fields"]}
     except (KeyError, TypeError, ValueError) as exc:
         reason = str(exc)
         return out | {"error": reason if re.fullmatch(r"TRANSFER_[A-Z_]+", reason)

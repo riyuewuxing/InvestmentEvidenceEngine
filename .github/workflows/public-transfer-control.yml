@@ -1,9 +1,5 @@
 name: Public transfer-event control
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/investment_evidence_engine/transfer_control.py'
   workflow_dispatch:
 permissions:
   contents: read
