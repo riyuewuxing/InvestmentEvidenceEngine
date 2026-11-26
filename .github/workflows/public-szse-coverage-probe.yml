@@ -1,10 +1,6 @@
 name: Public SZSE coverage probe
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-szse-coverage-probe.yml'
-      - 'scripts/public_szse_coverage_probe.py'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
