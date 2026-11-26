@@ -1,9 +1,5 @@
 name: Public research profile control
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-research-profile-control.yml'
   workflow_dispatch:
 permissions:
   contents: read

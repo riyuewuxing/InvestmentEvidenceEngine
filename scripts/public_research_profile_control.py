@@ -97,7 +97,9 @@ def main(*, same_version: bool = False, fresh_recompute: bool = False) -> int:
                     if fresh_recompute:
                         import pandas as pd
 
-                        from investment_evidence_engine.retrospective_control import retrospective_momentum
+                        from investment_evidence_engine.retrospective_control import (
+                            retrospective_momentum,
+                        )
 
                         first_pass = report["profile_diagnostic"]
                         reopened = read_verified_artifact(output, art.path, art.sha256, art.size_bytes)
