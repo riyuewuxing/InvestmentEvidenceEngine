@@ -1,0 +1,37 @@
+name: Preregistered public daily cohort capture
+# No schedule; add a single new marker only during its precommitted window.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pilot-triggers/public_daily_controls_20261130_v1--*.txt'
+permissions:
+  contents: read
+concurrency:
+  group: public-daily-cohort-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  public-cohort:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e ".[dev]"
+      - name: Cohort contract checks
+        timeout-minutes: 1
+        run: python -m pytest -q tests/test_prospective_protocol.py tests/test_prospective_capture.py
+      - name: Capture one fixed cohort receipt
+        timeout-minutes: 3
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: timeout --signal=TERM --kill-after=5s 120s python scripts/public_cohort_capture.py

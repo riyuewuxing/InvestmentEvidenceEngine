@@ -5,11 +5,13 @@ from pathlib import Path
 import pytest
 
 from investment_evidence_engine.prospective_capture import (
+    activation_path,
     build_receipt,
     calendar_expected,
     expected_inputs,
     receipt_sha256,
     to_batch_record,
+    validate_marker,
     vendor_symbol,
     verify_receipt,
 )
@@ -112,3 +114,16 @@ def test_future_or_wrong_symbol_row_is_unavailable():
     f = freeze(data)
     assert f["rows"][0]["disposition"] == "UNAVAILABLE"
     assert f["rows"][1]["disposition"] == "SELECTED"
+
+
+def test_activation_single_new_marker_only():
+    path = "pilot-triggers/" + P.protocol_id + "--freeze--2026-11-30.txt"
+    encoded = b"A\0" + path.encode() + b"\0"
+    assert activation_path(P, encoded) == (path, "freeze", TARGET)
+    validate_marker(P, "freeze", TARGET, f"{P.protocol_id} freeze {TARGET}\n".encode())
+    for bad in (encoded.replace(b"A\0", b"M\0"), encoded+encoded,
+                encoded.replace(b"11-30", b"11-29"), encoded.replace(b"pilot-triggers/", b"../")):
+        with pytest.raises(ValueError):
+            activation_path(P, bad)
+    with pytest.raises(ValueError):
+        validate_marker(P, "freeze", TARGET, b"unexpected")

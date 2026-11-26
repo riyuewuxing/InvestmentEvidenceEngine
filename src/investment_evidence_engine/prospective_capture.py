@@ -259,3 +259,26 @@ def collect(protocol: CohortProtocol, target: date, phase: str) -> dict:
                             observed=datetime.now(UTC), calendar=cal)
     verify_receipt(protocol, receipt, expected_sha256=receipt_sha256(receipt))
     return receipt
+
+
+def activation_path(protocol: CohortProtocol, diff: bytes) -> tuple[str, str, date]:
+    """A single new marker; edits, deletes and multi-file pushes are rejected."""
+    parts = diff.split(b"\0")
+    if len(parts) != 3 or parts[0] != b"A" or parts[2] != b"":
+        raise ValueError("COHORT_ACTIVATION_NOT_SINGLE_ADDITION")
+    path = parts[1].decode("ascii")
+    match = re.fullmatch(r"pilot-triggers/" + re.escape(protocol.protocol_id)
+                         + r"--(freeze|settle)--(\d{4}-\d{2}-\d{2})\.txt", path)
+    if not match:
+        raise ValueError("COHORT_ACTIVATION_PATH")
+    phase, date_text = match.groups()
+    target = date.fromisoformat(date_text)
+    if target not in protocol.sessions():
+        raise ValueError("COHORT_ACTIVATION_TARGET")
+    return path, phase, target
+
+
+def validate_marker(protocol: CohortProtocol, phase: str, target: date, content: bytes) -> None:
+    expected = f"{protocol.protocol_id} {phase} {target.isoformat()}\n".encode("ascii")
+    if content != expected:
+        raise ValueError("COHORT_ACTIVATION_CONTENT")
