@@ -6,6 +6,8 @@ be surfaced despite another missing observation. No decision authority.
 from __future__ import annotations
 
 import math
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 
 def finite(value: object) -> float | None:
@@ -68,3 +70,49 @@ def aggregate_status(statuses: tuple[str, ...]) -> str:
         if status in statuses:
             return status
     return "CLEAN"
+
+
+def period_day(value: object, *, cutoff: date | None = None) -> str | None:
+    """Parse only explicit date/ISO datetime labels; never infer a missing period."""
+    raw = str(value).strip() if value is not None else ""
+    try:
+        if len(raw) == 8 and raw.isascii() and raw.isdigit():
+            day = date(int(raw[:4]), int(raw[4:6]), int(raw[6:]))
+        elif len(raw) == 10:
+            day = date.fromisoformat(raw)
+        elif len(raw) > 10 and raw[10] in "T ":
+            day = datetime.fromisoformat(raw).date()
+        else:
+            return None
+    except (ValueError, OverflowError):
+        return None
+    if cutoff is not None and day > cutoff:
+        return None
+    return day.isoformat()
+
+
+def aligned_period_indices(values: tuple[object, ...], *, cutoff: date,
+                           anchor: str | None = None) -> tuple[tuple[int, ...], str | None]:
+    """Exact one current row; keep older duplicates visible to comparison guards."""
+    days = tuple(period_day(v, cutoff=cutoff) for v in values)
+    observed = [d for d in days if d is not None]
+    selected = anchor or (max(observed) if observed else None)
+    if selected is None or days.count(selected) != 1:
+        return (), anchor
+    idx = tuple(sorted((i for i, d in enumerate(days) if d is not None and d <= selected),
+                       key=lambda i: days[i], reverse=True))
+    return idx, selected
+
+
+def fresh_observation_epoch(fetched: object, now: object, *, ttl_seconds: float) -> bool:
+    first, last = finite(fetched), finite(now)
+    ttl = finite(ttl_seconds)
+    if (first is None or last is None or ttl is None or first <= 0 or ttl <= 0
+            or not 0 <= last-first < ttl):
+        return False
+    try:
+        tz = ZoneInfo("Asia/Shanghai")
+        return (datetime.fromtimestamp(first, UTC).astimezone(tz).date()
+                == datetime.fromtimestamp(last, UTC).astimezone(tz).date())
+    except (OSError, ValueError, OverflowError):
+        return False

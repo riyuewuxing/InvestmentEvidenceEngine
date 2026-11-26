@@ -1,14 +1,18 @@
 import math
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from investment_evidence_engine.risk_evidence_guards import (
     aggregate_status,
+    aligned_period_indices,
     complete_nonnegative_max,
     complete_nonnegative_sum,
     finite,
+    fresh_observation_epoch,
     growth_pct,
     high_risk,
+    period_day,
 )
 
 
@@ -55,3 +59,26 @@ def test_aggregate_never_clean_with_missing_rule():
     assert aggregate_status(("WARN", "RED_FLAG", "UNKNOWN")) == "RED_FLAG"
     with pytest.raises(ValueError):
         aggregate_status(())
+
+
+def test_period_identity_and_alignment():
+    cutoff = date(2026, 11, 26)
+    assert period_day("20260930", cutoff=cutoff) == "2026-09-30"
+    assert period_day("2026-09-30 00:00:00", cutoff=cutoff) == "2026-09-30"
+    for bad in (None, "2026-09-30junk", "2026-02-30", "2026-12-31", "NaT"):
+        assert period_day(bad, cutoff=cutoff) is None
+    values = ("20250630", "20260930", "20260630", "20250930", "20261231")
+    assert aligned_period_indices(values, cutoff=cutoff) == ((1, 2, 3, 0), "2026-09-30")
+    assert aligned_period_indices(values, cutoff=cutoff, anchor="2026-06-30") == ((2, 3, 0), "2026-06-30")
+    assert aligned_period_indices(values, cutoff=cutoff, anchor="2026-03-31") == ((), "2026-03-31")
+    assert aligned_period_indices(values + ("20260930",), cutoff=cutoff) == ((), None)
+
+
+def test_cache_age_and_exchange_day_boundary():
+    first = datetime(2026, 11, 26, 15, 59, tzinfo=UTC)
+    stamp = first.timestamp()
+    assert fresh_observation_epoch(stamp, (first+timedelta(seconds=30)).timestamp(), ttl_seconds=60)
+    assert not fresh_observation_epoch(stamp, (first+timedelta(seconds=60)).timestamp(), ttl_seconds=120)
+    assert not fresh_observation_epoch(stamp, stamp-1, ttl_seconds=60)
+    assert not fresh_observation_epoch(stamp, stamp+61, ttl_seconds=60)
+    assert not fresh_observation_epoch(float("nan"), stamp, ttl_seconds=60)
