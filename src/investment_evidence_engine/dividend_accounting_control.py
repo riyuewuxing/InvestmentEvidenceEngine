@@ -255,7 +255,12 @@ def main(*, approval_only: bool = False) -> int:
         raise SystemExit("public repository required")
     with TemporaryDirectory() as temp:
         if approval_only:
-            prior = validate_prior_receipts(json.loads(PRIOR_RECEIPT.read_bytes()))
+            raw = PRIOR_RECEIPT.read_bytes()
+            # Git blob identity was read from the prior committed receipt.
+            object_bytes = f"blob {len(raw)}".encode()+b"\x00"+raw
+            if hashlib.sha1(object_bytes, usedforsecurity=False).hexdigest() != "ed76a5425a07fa8fccd14aace78d9090920ffc5b":
+                raise ValueError("DIVIDEND_PRIOR_RECEIPT_VERSION_MISMATCH")
+            prior = validate_prior_receipts(json.loads(raw))
             fresh = observe("approval_2025", Path(temp))
             if fresh.get("source_sha256") != PRIOR_SOURCE_SHA["approval_2025"]:
                 fresh |= {"status": "BLOCK", "error_code": "DIVIDEND_PRIOR_APPROVAL_VERSION_MISMATCH"}

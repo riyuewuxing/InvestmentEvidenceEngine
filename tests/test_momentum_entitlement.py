@@ -113,6 +113,8 @@ def test_artifact_sensitivity_binds_exact_bytes_and_never_admits():
     result = evaluate_entitlement_sensitivity(raw, raw_terms, symbol="000035", as_of="2026-11-26")
     assert result["input_market_sha256"] == sha256(raw).hexdigest()
     assert result["input_terms_sha256"] == sha256(raw_terms).hexdigest()
+    assert len(result["uniform_nominal_dividend_tax_tiers"]) == 27
+    assert not result["actual_tax_rate_assigned"] and not result["tax_policy_original_bytes_verified_here"]
     assert result["calculation"]["segments"][0]["stress"][0]["constant_invested"]["gross_entitlement_increment_pp"] > 0
     for key in ("pit_safe", "formal_profile_admitted", "execution_allowed",
                 "admissible_for_decision", "terms_source_original_bytes_verified"):

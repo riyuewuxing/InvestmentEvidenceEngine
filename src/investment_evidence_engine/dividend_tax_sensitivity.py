@@ -46,3 +46,46 @@ def uniform_tax_tiers(price_change_pct: float, gross_entitlement_increment_pp: f
             "actual_payment_verified": False, "actual_costs_verified": False,
             "actual_tax_rate_assigned": False, "total_return_certified": False,
             "decision_authority": False, "execution_allowed": False, "pit_safe": False}
+
+
+def profile_tax_tiers(calculation: dict) -> list[dict]:
+    """Only a gross sensitivity with consistent baseline and event totals."""
+    if (not isinstance(calculation, dict)
+            or calculation.get("status") != "CONDITIONAL_SEGREGATED_GROSS_ENTITLEMENT_SENSITIVITY"
+            or any(calculation.get(flag) is not False for flag in (
+                "actual_cash_payment_verified", "shareholder_tax_verified",
+                "decision_authority", "execution_allowed", "pit_safe", "total_return_certified"))):
+        raise ValueError("DIVIDEND_TAX_PRIOR_CALCULATION_SCOPE")
+    result = []
+    segments = calculation["segments"]
+    baseline = calculation["price_only_baseline"]["segments"]
+    names = ["train_reference", "validation_reference", "test_reference"]
+    if [s["segment"] for s in segments] != names or [s["segment"] for s in baseline] != names:
+        raise ValueError("DIVIDEND_TAX_PRIOR_SEGMENTS")
+    for segment, old in zip(segments, baseline, strict=True):
+        if ([c["one_way_bps"] for c in segment["stress"]] != [10, 20, 30]
+                or [c["one_way_bps"] for c in old["stress"]] != [10, 20, 30]):
+            raise ValueError("DIVIDEND_TAX_PRIOR_STRESS")
+        for case, old_case in zip(segment["stress"], old["stress"], strict=True):
+            for strategy in ("signal_rule", "constant_invested", "flat_cash_assumed_zero_interest"):
+                r = case[strategy]
+                if r["price_only"] != old_case[strategy] or r.get("gross_entitlement_reinvested") is not False:
+                    raise ValueError("DIVIDEND_TAX_PRICE_BASELINE_MISMATCH")
+                base = r["price_only"]["net_price_change_pct"]
+                gross = r["gross_entitlement_increment_pp"]
+                amounts = []
+                for event in r["events"]:
+                    amount = event["gross_entitlement_per_initial_cny"]
+                    held = event["held_at_previous_record_close"]
+                    if (type(amount) not in {float, int} or not math.isfinite(amount) or amount < 0
+                            or type(held) is not bool or (not held and amount != 0)):
+                        raise ValueError("DIVIDEND_TAX_EVENT_ENTITLEMENT_MISMATCH")
+                    amounts.append(amount)
+                event_sum = 100*math.fsum(amounts)
+                if (not math.isclose(event_sum, gross, abs_tol=1e-10, rel_tol=1e-12)
+                        or not math.isclose(base+gross, r["price_plus_nominal_gross_entitlement_change_pct"],
+                                            abs_tol=1e-10, rel_tol=1e-12)):
+                    raise ValueError("DIVIDEND_TAX_PRIOR_ARITHMETIC")
+                result.append({"segment": segment["segment"], "one_way_bps": case["one_way_bps"],
+                               "strategy": strategy, **uniform_tax_tiers(base, gross)})
+    return result

@@ -1,10 +1,6 @@
 name: Public dividend tax tier control
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-dividend-tax.yml'
 permissions:
   contents: read
 concurrency:

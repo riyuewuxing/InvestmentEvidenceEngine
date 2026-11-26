@@ -191,6 +191,7 @@ def evaluate_entitlement_sensitivity(raw_market: bytes, raw_terms: bytes, *, sym
     the sealed price-only artifact or use this result for admission.
     """
     from .cash_entitlement import terms_from_mapping
+    from .dividend_tax_sensitivity import profile_tax_tiers
     from .holding_risk import CashDistribution, CashDistributionInputs
     from .momentum_entitlement import momentum_entitlement_profile
 
@@ -220,4 +221,6 @@ def evaluate_entitlement_sensitivity(raw_market: bytes, raw_terms: bytes, *, sym
             "price_baseline_sha256": canonical_sha256(base["raw_price_diagnostic"]),
             "terms_source_original_bytes_verified": False, "formal_profile_admitted": False,
             "admissible_for_decision": False, "execution_allowed": False, "pit_safe": False,
-            "calculation": sensitivity}
+            "decision_authority": False, "research_only": True,
+            "actual_tax_rate_assigned": False, "tax_policy_original_bytes_verified_here": False,
+            "calculation": sensitivity, "uniform_nominal_dividend_tax_tiers": profile_tax_tiers(sensitivity)}

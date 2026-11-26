@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import math
 import os
 import sys
 from datetime import UTC, datetime
@@ -13,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener
 
 from .bounded_worker import run_json_worker, write_worker_result
-from .dividend_tax_sensitivity import RULE_URLS, uniform_tax_tiers
+from .dividend_tax_sensitivity import RULE_URLS, profile_tax_tiers
 from .issuer_disclosure_index import NoRedirect
 from .snapshot_integrity import strict_json_loads
 from .sse_lifecycle_control import VisibleHTML, normalized
@@ -114,35 +113,15 @@ def calculate_from_receipt(value: dict) -> list[dict]:
             or prior.get("prior_exact_price_baseline_recomputed") != "MATCH"
             or prior.get("pit_safe") is not False):
         raise ValueError("DIVIDEND_TAX_PRIOR_RECEIPT_SCOPE")
-    calculation = prior["calculation"]
-    if calculation.get("status") != "CONDITIONAL_SEGREGATED_GROSS_ENTITLEMENT_SENSITIVITY":
-        raise ValueError("DIVIDEND_TAX_PRIOR_CALCULATION_SCOPE")
-    result = []
-    segments = calculation["segments"]
-    if [s["segment"] for s in segments] != ["train_reference", "validation_reference", "test_reference"]:
-        raise ValueError("DIVIDEND_TAX_PRIOR_SEGMENTS")
-    for segment in segments:
-        if [c["one_way_bps"] for c in segment["stress"]] != [10, 20, 30]:
-            raise ValueError("DIVIDEND_TAX_PRIOR_STRESS")
-        for case in segment["stress"]:
-            for strategy in ("signal_rule", "constant_invested", "flat_cash_assumed_zero_interest"):
-                r = case[strategy]
-                base = r["price_only"]["net_price_change_pct"]
-                gross = r["gross_entitlement_increment_pp"]
-                event_sum = 100*math.fsum(e["gross_entitlement_per_initial_cny"] for e in r["events"])
-                if (not math.isclose(event_sum, gross, abs_tol=1e-10, rel_tol=1e-12)
-                        or not math.isclose(base+gross, r["price_plus_nominal_gross_entitlement_change_pct"],
-                                            abs_tol=1e-10, rel_tol=1e-12)):
-                    raise ValueError("DIVIDEND_TAX_PRIOR_ARITHMETIC")
-                result.append({"segment": segment["segment"], "one_way_bps": case["one_way_bps"],
-                               "strategy": strategy, **uniform_tax_tiers(base, gross)})
-    return result
+    return profile_tax_tiers(prior["calculation"])
 
 
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     raw = RECEIPT.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != "abe7050f6592433f207b750e88810a9f09add2dd682f3abede5c23fa1c1a90b7":
+        raise ValueError("DIVIDEND_TAX_DERIVED_RECEIPT_VERSION_MISMATCH")
     report = {"executor_commit": os.environ["GITHUB_SHA"], "status": "BLOCK",
               "prior_run_id": RUN, "prior_job_id": JOB, "derived_input_sha256": hashlib.sha256(raw).hexdigest(),
               "policy_observations": [observe(k) for k in SOURCES],

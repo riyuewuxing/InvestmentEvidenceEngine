@@ -30,6 +30,9 @@ FIRST, LAST = date(2025, 1, 2), date(2026, 11, 25)
 ROOT = Path(__file__).resolve().parents[1]
 PRIOR_SIGNAL_SHA = "4cfa27ad4f03e5877d5a06e14e90a814240bb41c532ec5631a7c4d33c593e4e3"
 PRIOR_BASE = ROOT/"fixtures/research_profile/observed_20261126_000035_diagnostic.json"
+DERIVED_RECEIPT_SHA = {2025: "fdf46e5df5f44cfe4b243038e74cb7d4ccd7e25a46c33f32d05f3773ac8ac2ec",
+                       2026: "2a5e6cc7c5dceb25ca568b33b62c3476d36946ee3fc37e6fc95b84f40dae40d2"}
+PRIOR_BASELINE_SHA = "b6424c54dc79fa3575f74c8657a3a8a9decf8c7ae2aa9ed81dd1e15dd27170ae"
 EVENTS = (
     (2025, 45856529066, 140036250613, "18ad09cf3d97f04fdff90b2ee0bee63380a021862098caefbbd9455cc97b15e8"),
     (2026, 45856977986, 140037820223, "206b923f9f1e0d12b6e5b20d77dc3b39eb57058da141b5358c2dd49952d540af"),
@@ -48,6 +51,8 @@ def main() -> int:
         receipts = []
         for year, run, job, sha in EVENTS:
             raw = (ROOT/f"fixtures/corporate_actions/observed_000035_{year}_cash_receipt.json").read_bytes()
+            if hashlib.sha256(raw).hexdigest() != DERIVED_RECEIPT_SHA[year]:
+                raise ValueError("ENTITLEMENT_DERIVED_RECEIPT_VERSION_MISMATCH")
             prior = strict_json_loads(raw)
             if (prior["run_id"], prior["job_id"], prior["receipt"]["source_sha256"]) != (run, job, sha):
                 raise ValueError("ENTITLEMENT_PRIOR_EVENT_RECEIPT_SCOPE")
@@ -88,7 +93,8 @@ def main() -> int:
                 [r[2] for r in rows], [r[1] for r in rows], subject=SUBJECT,
                 events=inputs, reference_terms=tuple(terms))
         prior_baseline = strict_json_loads(PRIOR_BASE.read_bytes())
-        if canonical_sha256(prior_baseline) != canonical_sha256(result["price_only_baseline"]):
+        if (canonical_sha256(prior_baseline) != PRIOR_BASELINE_SHA
+                or canonical_sha256(prior_baseline) != canonical_sha256(result["price_only_baseline"])):
             raise ValueError("ENTITLEMENT_PRIOR_PRICE_BASELINE_MISMATCH")
         report |= {"status": "WARN", "prior_signal_projection_match": True,
                    "temporary_projection_rehash": "MATCH",
