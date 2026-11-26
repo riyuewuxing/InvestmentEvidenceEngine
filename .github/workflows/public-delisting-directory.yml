@@ -1,9 +1,6 @@
 name: Public delisting directory coverage
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-delisting-directory.yml"
 permissions:
   contents: read
 concurrency:

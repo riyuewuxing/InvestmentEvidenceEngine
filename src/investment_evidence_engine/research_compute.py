@@ -193,9 +193,41 @@ def _compute_block(operation: ExecutionOperation, reason: str) -> OperationResul
 
 
 def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> list[dict]:
-    if "inline_records" in operation.parameters and "depends_on_operation_ids" in operation.parameters:
+    params = operation.parameters
+    if "depends_on_operation_ids" not in params:
+        return _records(operation, context)
+    if "inline_records" in params:
         raise ValueError("COMPUTE_DEPENDENCY_INLINE_CONFLICT")
-    return _records(operation, context)
+    deps = params["depends_on_operation_ids"]
+    # These generic workers accept one series or one coherent cross-section,
+    # not a concatenation/join of heterogeneous evidence tables. In particular,
+    # market bars can omit row-level symbol because identity is on the envelope.
+    if (not isinstance(deps, list) or len(deps) != 1
+            or not isinstance(deps[0], str) or not deps[0]):
+        raise ValueError("COMPUTE_EXACTLY_ONE_DEPENDENCY_REQUIRED")
+    dep = deps[0]
+    provenance = context.completed_operations.get(dep)
+    payload = context.payloads.get(dep)
+    if (not isinstance(provenance, dict) or provenance.get("status") not in {"PASS", "WARN"}
+            or not isinstance(payload, dict)):
+        raise ValueError("COMPUTE_DEPENDENCY_NOT_USABLE")
+    # Do not silently concatenate or pick an arbitrary one of several record
+    # collections. Other workers may produce metadata lists, not data tables.
+    records = _nested_records(payload)
+    if not records:
+        raise ValueError("COMPUTE_DEPENDENCY_RECORDS_MISSING")
+    if provenance.get("kind") == "MARKET_DATA":
+        symbol = payload.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            raise ValueError("COMPUTE_MARKET_IDENTITY_MISSING")
+        if params.get("subject_ids", [symbol]) != [symbol]:
+            raise ValueError("COMPUTE_MARKET_IDENTITY_MISMATCH")
+        for row in records:
+            for key in ("subject_id", "asset", "asset_id", "symbol", "code"):
+                if key in row and row[key] != symbol:
+                    raise ValueError("COMPUTE_MARKET_IDENTITY_MISMATCH")
+        records = [dict(row, symbol=symbol) for row in records]
+    return records
 
 
 def _record_time_labels(records: list[dict], parameters: dict, *, required: bool,

@@ -203,3 +203,47 @@ def test_zscore_cannot_turn_overflowed_variance_into_zeros(tmp_path):
                           factor_spec={"field": "value", "transform": "Z_SCORE"})
     assert result.errors == ["FACTOR_NORMALIZATION_NONFINITE"]
     assert payload is None
+
+
+@pytest.mark.parametrize("kind", ["FACTOR_COMPUTE", "BACKTEST"])
+@pytest.mark.parametrize("mode", ["two_series", "missing", "blocked", "wrong_symbol", "missing_identity"])
+def test_compute_never_splices_or_silently_drops_declared_sources(tmp_path, kind, mode):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of="2026-01-04")
+    for i, symbol in enumerate(("600519", "000001"), 1):
+        dep = f"market-{i}"
+        ctx.payloads[dep] = {"symbol": symbol, "bars": [
+            {"date": f"2026-01-0{i}", "close": 10 * i, "return": .01, "weight": 1}]}
+        ctx.completed_operations[dep] = {"kind": "MARKET_DATA", "status": "WARN"}
+    deps = ["market-1"]
+    subject = "600519"
+    if mode == "two_series":
+        deps.append("market-2")
+    elif mode == "missing":
+        del ctx.payloads["market-1"]
+    elif mode == "blocked":
+        ctx.completed_operations["market-1"]["status"] = "BLOCK"
+    elif mode == "wrong_symbol":
+        subject = "000001"
+    else:
+        del ctx.payloads["market-1"]["symbol"]
+    op = ExecutionOperation(operation_id="compute", kind=kind, parameters={
+        "depends_on_operation_ids": deps, "subject_ids": [subject],
+        "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1},
+        "cost_bps": 10})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK" and not result.artifacts
+    assert "compute" not in ctx.payloads
+
+
+def test_factor_preserves_market_envelope_identity(tmp_path):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of="2026-01-04")
+    ctx.payloads["market"] = {"symbol": "600519", "bars": [
+        {"date": "2026-01-01", "close": 10}, {"date": "2026-01-02", "close": 11}]}
+    ctx.completed_operations["market"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    op = ExecutionOperation(operation_id="factor", kind="FACTOR_COMPUTE", parameters={
+        "depends_on_operation_ids": ["market"], "subject_ids": ["600519"],
+        "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1}})
+    result = run_operation(op, ctx)
+    assert result.status == "PASS"
+    assert [r["symbol"] for r in ctx.payloads["factor"]["records"]] == ["600519", "600519"]
+    assert ctx.payloads["factor"]["records"][-1]["factor_value"] == pytest.approx(.1)
