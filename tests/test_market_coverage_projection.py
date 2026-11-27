@@ -147,10 +147,65 @@ def test_rejects_contradictory_receipt(kind):
                 r["missing_or_other_day"] = 0
         rewrite(data, "fund_etf", corrupt)
     result = parse(data)
-    assert result.status == "INVALID" and not result.rows and not result.formal_admission
+    assert not result.formal_admission
+    if kind == "authority":
+        assert result.status == "INVALID" and not result.rows
+    else:
+        assert result.status == "PARTIAL_WARN"
+        asset = "A股" if kind == "duplicate_operation" else "场外基金"
+        assert [(x.asset, x.status) for x in result.asset_issues] == [(asset, "INVALID")]
+        assert len(result.rows) == 3 and asset not in {r.asset for r in result.rows}
 
 
 def test_stale_and_future_are_distinct():
     assert parse(archive(), datetime(2026, 1, 9, 0, tzinfo=UTC)).status == "STALE"
     assert parse(archive(), datetime(2026, 1, 8, 7, tzinfo=UTC)).status == "INVALID"
     assert parse_market_coverage(b'{"schema":1,"schema":2}', now=NOW).status == "INVALID"
+
+
+def test_missing_record_preserves_other_asset_observations():
+    data = archive()
+    del data["records"]["stock"]
+    result = parse(data)
+    assert result.status == "PARTIAL_WARN"
+    assert [(x.asset, x.status) for x in result.asset_issues] == [("A股", "UNAVAILABLE")]
+    assert [r.asset for r in result.rows] == ["场外基金", "ETF", "申万一级行业"]
+    assert result.status != "OBSERVED_WARN"
+    assert parse(data, datetime(2026, 1, 9, 0, tzinfo=UTC)).status == "STALE"
+
+
+def test_missing_scope_does_not_erase_other_fund_scope():
+    data = archive()
+    rewrite(data, "fund_etf", lambda p: p.pop("etf_vendor_catalog_scope"))
+    result = parse(data)
+    assert result.status == "PARTIAL_WARN"
+    assert [(x.asset, x.status) for x in result.asset_issues] == [("ETF", "UNAVAILABLE")]
+    assert [r.asset for r in result.rows] == ["A股", "场外基金", "申万一级行业"]
+
+
+@pytest.mark.parametrize("bad", ["failed", "clock", "authority"])
+def test_failed_or_invalid_receipt_cannot_promote_its_assets(bad):
+    data = archive()
+    rec = data["records"]["fund_etf"]
+    if bad == "failed":
+        rec["conclusion"] = "failure"
+    elif bad == "clock":
+        rec["log_line"] = rec["log_line"].replace("T08:00:00Z", "T10:00:00Z", 1)
+    else:
+        rewrite(data, "fund_etf", lambda p: p.update(formal_pit=True))
+    result = parse(data)
+    assert result.status == "PARTIAL_WARN"
+    assert [(x.asset, x.status) for x in result.asset_issues] == [
+        ("场外基金", "INVALID"), ("ETF", "INVALID")]
+    assert [r.asset for r in result.rows] == ["A股", "申万一级行业"]
+
+
+def test_no_sources_is_unavailable_not_four_zero_counts():
+    data = archive()
+    data["records"] = {}
+    result = parse(data)
+    assert result.status == "UNAVAILABLE" and not result.rows
+    assert len(result.asset_issues) == 4
+    assert all(x.status == "UNAVAILABLE" for x in result.asset_issues)
+    data["records"]["unexpected"] = None
+    assert parse(data).status == "INVALID"

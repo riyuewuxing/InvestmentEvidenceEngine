@@ -37,13 +37,20 @@ class IndustryCandidate(BaseModel):
     short_price_return_pct: float
 
 
+class CoverageIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset: str
+    status: Literal["UNAVAILABLE", "INVALID"]
+
+
 class MarketCoverageView(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    status: Literal["UNAVAILABLE", "INVALID", "OBSERVED_WARN", "STALE"]
+    status: Literal["UNAVAILABLE", "INVALID", "OBSERVED_WARN", "PARTIAL_WARN", "STALE"]
     observed_day: str | None = None
     oldest_log_at: str | None = None
     latest_log_at: str | None = None
     rows: tuple[CoverageRow, ...] = ()
+    asset_issues: tuple[CoverageIssue, ...] = ()
     industries: tuple[IndustryCandidate, ...] = ()
     industry_dates: tuple[str, ...] = ()
     source_ref: str | None = None
@@ -175,8 +182,66 @@ def _fund_row(scope: dict, run: int, day: str, *, etf: bool) -> CoverageRow:
     )
 
 
+_INVALID = (ValueError, TypeError, KeyError, AttributeError, OverflowError, UnicodeError, IndexError)
+
+
+def _stock_row(stock: dict, sr: int) -> CoverageRow:
+    operations = stock["operations"]
+    ops = {x["operation_id"]: x for x in operations}
+    if len(operations) != 2 or set(ops) != {"market-universe", "opportunity-scan"}:
+        raise ValueError("STOCK_OPERATION_SCOPE")
+    universe = _count(ops["market-universe"]["capture"]["row_count"])
+    scan = ops["opportunity-scan"]["scan"]
+    scanned = _count(scan["screened_count"], universe)
+    candidates = _count(scan["candidate_count"], scanned)
+    if (stock["normalized_universe_rows_verified"] != universe
+            or stock["independent_rank_derivation_verified"] is not True
+            or scan["ranking_semantics"] != "RESEARCH_PRIORITY_NOT_RETURN_FORECAST"
+            or scan["research_only"] is not True or scan["pit_safe"] is not False):
+        raise ValueError("STOCK_RANK_SCOPE")
+    return CoverageRow(asset="A股", denominator=universe, available=scanned, eligible=None,
+                        matches=candidates, comparison_day=None, source_run=sr,
+                        scope_note="供应商有效记录；上市清单/行情交易日未核验；日跌幅与成交额研究筛选")
+
+
+def _industry_rows(sector: dict, ir: int, day: str) -> tuple:
+    n = _count(sector["recent_scope_count"], 500)
+    eligible = _count(sector["common_identity_complete_count"], n)
+    matches = _count(sector["match_count"], eligible)
+    dates = tuple(_day(sector["windows"][k]["selected_day"]) for k in ("year", "month", "recent"))
+    if not dates[0] < dates[1] < dates[2] <= day:
+        raise ValueError("INDUSTRY_DATES")
+    if sector["expectation_gap_verified"] is not False or sector["fundamental_recovery_verified"] is not False:
+        raise ValueError("INDUSTRY_AUTHORITY")
+    inds = []
+    seen = set()
+    for x in sector["research_candidates"]:
+        code, name = x["code"], x["industry"]
+        long, short = x["long_price_return_pct"], x["short_price_return_pct"]
+        if (not isinstance(code, str) or not re.fullmatch(r"801[0-9]{3}", code) or code in seen
+                or not isinstance(name, str) or not 0 < len(name) <= 80
+                or type(long) not in (int, float) or type(short) not in (int, float)
+                or not math.isfinite(long) or not math.isfinite(short) or not long < 0 < short
+                or x["matches"] is not True):
+            raise ValueError("INDUSTRY_CANDIDATE")
+        seen.add(code)
+        inds.append(IndustryCandidate(code=code, industry=name, long_price_return_pct=long, short_price_return_pct=short))
+    if len(inds) != min(matches, 10):
+        raise ValueError("INDUSTRY_MATCH_COUNT")
+    row = CoverageRow(asset="申万一级行业", denominator=n, available=eligible,
+                      eligible=eligible, matches=matches, comparison_day=dates[2],
+                      source_run=ir, scope_note="同身份三期价格指数；非总回报、基本面反转或预期差")
+    return row, tuple(inds), dates
+
+
 def parse_market_coverage(raw: bytes, *, source_ref: str | None = None,
                           now: datetime | None = None) -> MarketCoverageView:
+    """Check the common envelope, then independently validate each asset.
+
+    A bad source cannot turn into a zero count or erase an independent valid
+    observation. The archive and each receipt remain strictly research-only.
+    Failed runner receipts are never promoted to successful observations.
+    """
     try:
         if len(raw) > MAX_BYTES:
             raise ValueError("ARCHIVE_SIZE")
@@ -187,74 +252,90 @@ def parse_market_coverage(raw: bytes, *, source_ref: str | None = None,
             raise ValueError("ARCHIVE_AUTHORITY")
         day = _day(a["observed_day"])
         records = a["records"]
-        if set(records) != {"stock", "fund_etf", "industry"}:
+        if not isinstance(records, dict) or set(records) - {"stock", "fund_etf", "industry"}:
             raise ValueError("ARCHIVE_SCOPE")
-        stock, st, sr = _receipt(records["stock"], "PUBLIC_UNIVERSE_CONTROL")
-        fund, ft, fr = _receipt(records["fund_etf"], "PUBLIC_MULTIASSET_COVERAGE")
-        sector, it, ir = _receipt(records["industry"], "PUBLIC_INDUSTRY_COVERAGE")
         clock = now or datetime.now(UTC)
         if clock.utcoffset() is None:
             raise ValueError("NAIVE_NOW")
-        timestamps = (st, ft, it)
-        if (max(timestamps) > clock or any(t.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat() != day for t in timestamps)
-                or stock["as_of"] != day or fund["observed_day"] != day or sector["observed_day"] != day
-                or fund["formal_pit"] is not False or sector["formal_pit"] is not False):
+        local_day = clock.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
+        if day > local_day:
             raise ValueError("ARCHIVE_CLOCK")
-        operations = stock["operations"]
-        ops = {x["operation_id"]: x for x in operations}
-        if len(operations) != 2 or set(ops) != {"market-universe", "opportunity-scan"}:
-            raise ValueError("STOCK_OPERATION_SCOPE")
-        universe = _count(ops["market-universe"]["capture"]["row_count"])
-        scan = ops["opportunity-scan"]["scan"]
-        scanned = _count(scan["screened_count"], universe)
-        candidates = _count(scan["candidate_count"], scanned)
-        if (stock["normalized_universe_rows_verified"] != universe
-                or stock["independent_rank_derivation_verified"] is not True
-                or scan["ranking_semantics"] != "RESEARCH_PRIORITY_NOT_RETURN_FORECAST"
-                or scan["research_only"] is not True or scan["pit_safe"] is not False):
-            raise ValueError("STOCK_RANK_SCOPE")
-        rows = [
-            CoverageRow(asset="A股", denominator=universe, available=scanned, eligible=None,
-                        matches=candidates, comparison_day=None, source_run=sr,
-                        scope_note="供应商有效记录；上市清单/行情交易日未核验；日跌幅与成交额研究筛选"),
-            _fund_row(fund["fund_vendor_catalog_scope"], fr, day, etf=False),
-            _fund_row(fund["etf_vendor_catalog_scope"], fr, day, etf=True),
-        ]
-        n = _count(sector["recent_scope_count"], 500)
-        eligible = _count(sector["common_identity_complete_count"], n)
-        matches = _count(sector["match_count"], eligible)
-        dates = tuple(_day(sector["windows"][k]["selected_day"]) for k in ("year", "month", "recent"))
-        if not dates[0] < dates[1] < dates[2] <= day:
-            raise ValueError("INDUSTRY_DATES")
-        if sector["expectation_gap_verified"] is not False or sector["fundamental_recovery_verified"] is not False:
-            raise ValueError("INDUSTRY_AUTHORITY")
-        inds = []
-        seen = set()
-        for x in sector["research_candidates"]:
-            code, name = x["code"], x["industry"]
-            long, short = x["long_price_return_pct"], x["short_price_return_pct"]
-            if (not isinstance(code, str) or not re.fullmatch(r"801[0-9]{3}", code) or code in seen
-                    or not isinstance(name, str) or not 0 < len(name) <= 80
-                    or type(long) not in (int, float) or type(short) not in (int, float)
-                    or not math.isfinite(long) or not math.isfinite(short) or not long < 0 < short
-                    or x["matches"] is not True):
-                raise ValueError("INDUSTRY_CANDIDATE")
-            seen.add(code)
-            inds.append(IndustryCandidate(code=code, industry=name, long_price_return_pct=long, short_price_return_pct=short))
-        if len(inds) != min(matches, 10):
-            raise ValueError("INDUSTRY_MATCH_COUNT")
-        rows.append(CoverageRow(asset="申万一级行业", denominator=n, available=eligible,
-                                eligible=eligible, matches=matches, comparison_day=dates[2],
-                                source_run=ir, scope_note="同身份三期价格指数；非总回报、基本面反转或预期差"))
-        stale = (clock - min(timestamps) > timedelta(hours=24)
-                 or clock.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat() != day)
-        return MarketCoverageView(
-            status="STALE" if stale else "OBSERVED_WARN", observed_day=day,
-            oldest_log_at=min(timestamps).isoformat(), latest_log_at=max(timestamps).isoformat(),
-            rows=tuple(rows), industries=tuple(inds), industry_dates=dates, source_ref=source_ref,
-            reason=("历史观察已过期，仅供回顾。" if stale else "最近一次公开供应商观察，非实时行情承诺。")
-                   + "基金/ETF最大完整日期组与观察日组分别展示，观察日缺行不等于零机会。"
-                   + "未公开实际证券短名单；未独立核验正式PIT、费率、申赎、类型及交易可行性。",
-        )
-    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, UnicodeError):
-        return MarketCoverageView(status="INVALID", source_ref=source_ref, reason="观察回执结构、日期、计数或权限校验失败；拒绝显示为有效数据。")
+    except _INVALID:
+        return MarketCoverageView(status="INVALID", source_ref=source_ref,
+                                  reason="观察回执公共结构、日期或权限校验失败。")
+
+    rows = []
+    issues = []
+    timestamps = []
+    inds, dates = (), ()
+
+    def issue(asset, status):
+        issues.append(CoverageIssue(asset=asset, status=status))
+
+    def checked(key, marker, day_field, assets):
+        if records.get(key) is None:
+            for asset in assets:
+                issue(asset, "UNAVAILABLE")
+            return None
+        try:
+            payload, stamp, run = _receipt(records[key], marker)
+            if (stamp > clock or stamp.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat() != day
+                    or payload[day_field] != day
+                    or (key != "stock" and (payload.get("formal_pit") is not False
+                                            or payload.get("research_only") is not True))):
+                raise ValueError("RECEIPT_CLOCK_OR_AUTHORITY")
+            return payload, stamp, run
+        except _INVALID:
+            for asset in assets:
+                issue(asset, "INVALID")
+            return None
+
+    stock = checked("stock", "PUBLIC_UNIVERSE_CONTROL", "as_of", ("A股",))
+    if stock is not None:
+        payload, stamp, run = stock
+        try:
+            rows.append(_stock_row(payload, run))
+            timestamps.append(stamp)
+        except _INVALID:
+            issue("A股", "INVALID")
+
+    fund = checked("fund_etf", "PUBLIC_MULTIASSET_COVERAGE", "observed_day", ("场外基金", "ETF"))
+    if fund is not None:
+        payload, stamp, run = fund
+        for key, asset, etf in (("fund_vendor_catalog_scope", "场外基金", False),
+                                ("etf_vendor_catalog_scope", "ETF", True)):
+            if payload.get(key) is None:
+                issue(asset, "UNAVAILABLE")
+                continue
+            try:
+                rows.append(_fund_row(payload[key], run, day, etf=etf))
+                timestamps.append(stamp)
+            except _INVALID:
+                issue(asset, "INVALID")
+
+    sector = checked("industry", "PUBLIC_INDUSTRY_COVERAGE", "observed_day", ("申万一级行业",))
+    if sector is not None:
+        payload, stamp, run = sector
+        try:
+            row, inds, dates = _industry_rows(payload, run, day)
+            rows.append(row)
+            timestamps.append(stamp)
+        except _INVALID:
+            issue("申万一级行业", "INVALID")
+
+    if not rows:
+        invalid = any(x.status == "INVALID" for x in issues)
+        return MarketCoverageView(status="INVALID" if invalid else "UNAVAILABLE",
+                                  source_ref=source_ref, asset_issues=tuple(issues),
+                                  reason="没有可核验资产观察；缺失及无效资产不能按零机会解释。")
+    stale = clock - min(timestamps) > timedelta(hours=24) or local_day != day
+    return MarketCoverageView(
+        status="STALE" if stale else "PARTIAL_WARN" if issues else "OBSERVED_WARN",
+        observed_day=day, oldest_log_at=min(timestamps).isoformat(),
+        latest_log_at=max(timestamps).isoformat(), rows=tuple(rows), asset_issues=tuple(issues),
+        industries=inds, industry_dates=dates, source_ref=source_ref,
+        reason=("历史观察已过期，仅供回顾。" if stale else "最近一次公开供应商观察，非实时行情承诺。")
+               + ("部分资产回执缺失或无效，仅保留其余已核验观察。" if issues else "")
+               + "基金/ETF最大完整日期组与观察日组分别展示，观察日缺行不等于零机会。"
+               + "未公开实际证券短名单；未独立核验正式PIT、费率、申赎、类型及交易可行性。",
+    )
