@@ -1,0 +1,25 @@
+name: Public BYD distribution reference
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/public-byd-distribution-reference.yml'
+permissions:
+  contents: read
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -e .
+        timeout-minutes: 4
+      - run: timeout --signal=TERM --kill-after=5s 75s python scripts/public_byd_distribution_reference.py
+        timeout-minutes: 2

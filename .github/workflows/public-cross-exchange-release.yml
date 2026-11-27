@@ -1,9 +1,6 @@
 name: Public cross-exchange release-time diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-cross-exchange-release.yml'
 permissions:
   contents: read
 jobs:

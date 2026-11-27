@@ -1,9 +1,6 @@
 name: Public historical archive diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-historical-archive.yml'
 permissions:
   contents: read
 jobs:

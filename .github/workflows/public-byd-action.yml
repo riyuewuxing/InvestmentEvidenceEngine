@@ -1,9 +1,6 @@
 name: Public BYD action diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-byd-action.yml'
 permissions:
   contents: read
 jobs:

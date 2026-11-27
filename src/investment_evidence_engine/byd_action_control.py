@@ -83,6 +83,25 @@ def distribution_examples() -> dict:
             "actual_payment_verified": False}
 
 
+def price_reference(prior: Decimal, close: Decimal, observed_previous_reference: Decimal) -> dict:
+    """Fixed, conditional gross entitlement arithmetic for the reviewed A-share event."""
+    if any(type(v) is not Decimal or not v.is_finite() or v <= 0 or v > 1000000
+           for v in (prior, close, observed_previous_reference)) or prior <= Decimal("3.974"):
+        raise ValueError("BYD_PRICE_REFERENCE_INVALID")
+    reference = ((prior - Decimal("3.974")) / 3).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+    gross = (close * 3 + Decimal("3.974")) / prior - 1
+    raw = close / prior - 1
+    return {"prior_raw_close_cny": str(prior), "ex_day_raw_close_cny": str(close),
+            "vendor_previous_reference_cny": str(observed_previous_reference),
+            "conditional_cent_rounded_reference_cny": str(reference),
+            "vendor_matches_conditional_reference": reference == observed_previous_reference,
+            "raw_price_change_pct": str(raw * 100),
+            "conditional_gross_wealth_change_pct": str(gross * 100),
+            "actual_account_credit_verified": False, "official_reference_verified": False,
+            "actual_tax_and_cost_verified": False, "historical_vintage_verified": False,
+            "complete_action_history_verified": False, "pit_safe": False, "decision_authority": False}
+
+
 def child(kind: str, target: Path, result: Path) -> None:
     from pypdf import PdfReader
 

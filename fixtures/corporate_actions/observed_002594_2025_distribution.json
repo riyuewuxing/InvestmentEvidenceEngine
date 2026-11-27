@@ -1,0 +1,54 @@
+{
+  "run_id": 45944680758,
+  "job_id": 140326559926,
+  "executor_commit": "bb71c17613afb39f2ac15d101171cab780964694",
+  "derived_receipt_not_original_pdf": true,
+  "receipt": {
+    "elapsed_seconds": 2.419,
+    "fields": {
+      "actual_account_credit_verified": false,
+      "added": 6078131710,
+      "after": 9117197565,
+      "before": 3039065855,
+      "bonus_shares_per_ten": 8,
+      "capital_transfer_shares_per_ten": 12,
+      "cash_per_old_share_cny": "3.974",
+      "document_date": "2025-07-21",
+      "event": "A_SHARE_COMBINED_DISTRIBUTION",
+      "h_share_terms_verified": false,
+      "historical_reference_price_verified": false,
+      "hypothetical_cash_and_share_examples": {
+        "actual_payment_verified": false,
+        "conditional_tax_cny": {
+          "0": "0.00",
+          "0.1": "47.74",
+          "0.2": "95.48"
+        },
+        "gross_cash_cny": "397.400",
+        "new_shares": 300,
+        "old_shares": 100
+      },
+      "old_share_entitlement_multiplier": 3,
+      "path_date": "2025-07-22",
+      "record_date": "2025-07-28",
+      "scheduled_ex_and_new_trading_date": "2025-07-29",
+      "taxable_bonus_face_value_per_old_share_cny": "0.8"
+    },
+    "kind": "distribution",
+    "observed_at": "2026-11-27T05:15:38.663099+00:00",
+    "page_count": 5,
+    "page_text_sha256": [
+      "6a529e6309e0dde7be31fc68a1758096f2da2a3aba4fab6051cc34d08180c9fb",
+      "cd36d2ae340cbd4ae52a12542f16380234c702c639927979b45176f4d54db488",
+      "4bb37acf6d4124b00b80922192210457402f248a7d5b5762e558a76af68918ec",
+      "072a1d02cf4b0a556ea2e6a5915ad8dba3a012cae6deaa6e1fa010ba8ea79829",
+      "e53f6901fde9fd55b2748b8116747bfdbac9db9f4b731dac91c1e7ba783bc30e"
+    ],
+    "parent_rehash": "MATCH",
+    "source_bytes": 144803,
+    "source_sha256": "1546d4f3cd37864b713d2acbf3f27d0d0592e02627bed2d63cb05a1110126503",
+    "status": "OBSERVED",
+    "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-07-22/f30e6169-4779-487e-acff-8c1eff230fa4.PDF",
+    "worker_status": "OK"
+  }
+}
