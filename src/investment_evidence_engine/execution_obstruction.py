@@ -32,13 +32,93 @@ def tick_price(value: str) -> Decimal:
     return x
 
 
-def ordinary_limits(reference: Decimal) -> tuple[Decimal, Decimal]:
+def conditional_limits(reference: Decimal, rate: Decimal) -> tuple[Decimal, Decimal]:
+    if type(rate) is not Decimal or rate not in {Decimal('0.05'), Decimal('0.10')}:
+        raise ValueError('UNSUPPORTED_LIMIT_RATE')
     reference = tick_price(str(reference))
     with localcontext() as ctx:
         ctx.prec = 32
-        up = (reference * Decimal("1.10")).quantize(TICK, rounding=ROUND_HALF_UP)
-        down = (reference * Decimal("0.90")).quantize(TICK, rounding=ROUND_HALF_UP)
+        up = (reference * (1 + rate)).quantize(TICK, rounding=ROUND_HALF_UP)
+        down = (reference * (1 - rate)).quantize(TICK, rounding=ROUND_HALF_UP)
         return max(TICK, min(down, reference - TICK)), max(up, reference + TICK)
+
+
+def ordinary_limits(reference: Decimal) -> tuple[Decimal, Decimal]:
+    return conditional_limits(reference, Decimal("0.10"))
+
+
+def inspect_explicit_eligibility(rows: list, *, identity: str, sessions: tuple[date, ...],
+                                 regimes: dict[date, str], other_ohlc: dict[date, tuple],
+                                 event_references: dict[date, Decimal]) -> dict:
+    """Exact historical day-status diagnostic, with no inferred missing session.
+
+    Regimes are explicit issuer-derived assumptions for the whole window.
+    Suspended rows must be represented by a vendor status, not fabricated
+    from the absence of a bar. No market execution, queuing or PIT claim.
+    """
+    if (not isinstance(identity, str) or not re.fullmatch(r"sz\.(?:000|001|002|003)[0-9]{3}", identity)
+            or not isinstance(sessions, tuple) or len(sessions) < 3 or any(type(d) is not date for d in sessions)
+            or sessions != tuple(sorted(set(sessions))) or sessions[0] < REVIEWED_START
+            or sessions[-1] > REVIEWED_END):
+        raise ValueError("ELIGIBILITY_SCOPE")
+    expected = tuple(r.day for r in scheduled_days(sessions[0], sessions[-1]) if r.is_trading_day)
+    if (sessions != expected or not isinstance(rows, list) or len(rows) != len(sessions)
+            or not isinstance(regimes, dict) or set(regimes) != set(sessions)
+            or any(type(k) is not date or v not in {"ST_5", "ORDINARY_10", "SUSPENDED"} for k, v in regimes.items())
+            or not isinstance(other_ohlc, dict) or not isinstance(event_references, dict)):
+        raise ValueError("ELIGIBILITY_COVERAGE")
+    trading = {d for d in sessions if regimes[d] != "SUSPENDED"}
+    if set(other_ohlc) != trading:
+        raise ValueError("ELIGIBILITY_OTHER_SOURCE_COVERAGE")
+    if (not set(event_references) <= trading - {sessions[0]}
+            or any(type(d) is not date or type(v) is not Decimal for d, v in event_references.items())):
+        raise ValueError("ELIGIBILITY_REFERENCE_SCOPE")
+    for value in event_references.values():
+        tick_price(str(value))
+    audit = []
+    previous = None
+    for day, row in zip(sessions, rows, strict=True):
+        if (not isinstance(row, (tuple, list)) or len(row) != 11 or any(type(v) is not str for v in row)
+                or row[0] != day.isoformat() or row[1] != identity or row[8] != "3"
+                or row[9] not in {"0", "1"} or row[10] not in {"0", "1"}):
+            raise ValueError("ELIGIBILITY_ROW_SCHEMA_OR_IDENTITY")
+        if not re.fullmatch(r"[0-9]{1,20}(?:\.[0-9]{1,8})?", row[7]):
+            raise ValueError("ELIGIBILITY_VOLUME")
+        volume = Decimal(row[7])
+        if volume != volume.to_integral_value():
+            raise ValueError("ELIGIBILITY_VOLUME")
+        regime = regimes[day]
+        if regime == "SUSPENDED":
+            if row[9] != "0" or volume != 0:
+                raise ValueError("ELIGIBILITY_SUSPENSION_CONFLICT")
+            audit.append({"day": day.isoformat(), "status": "SUSPENDED_NOT_TRADE_ELIGIBLE",
+                          "vendor_st_flag": row[10], "trade_price_inferred": False})
+            continue
+        if row[9] != "1" or volume <= 0 or row[10] != ("1" if regime == "ST_5" else "0"):
+            raise ValueError("ELIGIBILITY_ST_OR_TRADE_FLAG_CONFLICT")
+        opening, high, low, close, ref = map(tick_price, row[2:7])
+        other = other_ohlc[day]
+        if (not isinstance(other, tuple) or len(other) != 4 or any(type(x) is not Decimal for x in other)
+                or tuple(map(tick_price, map(str, other))) != (opening, high, low, close)):
+            raise ValueError("ELIGIBILITY_OHLC_CROSSCHECK")
+        if previous is not None and ref != event_references.get(day, previous):
+            raise ValueError("ELIGIBILITY_UNRECONCILED_REFERENCE")
+        rate = Decimal("0.05") if regime == "ST_5" else Decimal("0.10")
+        down, up = conditional_limits(ref, rate)
+        if not down <= low <= min(opening, close) <= max(opening, close) <= high <= up:
+            raise ValueError("ELIGIBILITY_LIMIT_OR_OHLC_CONFLICT")
+        audit.append({"day": day.isoformat(), "status": "OBSERVED_TRADING_DAY_CONDITIONAL_LIMIT",
+                      "limit_rate": str(rate), "previous_reference": str(ref), "close": str(close),
+                      "lower": str(down), "upper": str(up), "open_at_upper": opening == up,
+                      "open_at_lower": opening == down,
+                      "one_price_upper": high == low == up, "one_price_lower": high == low == down})
+        previous = close
+    return {"status": "CONDITIONAL_EXPLICIT_DAY_ELIGIBILITY_ONLY", "subject": identity,
+            "sessions": len(sessions), "trading_sessions": len(trading),
+            "suspended_sessions": len(sessions) - len(trading), "audit": audit,
+            "first_prior_reference_verified": False, "historical_vintage_verified": False,
+            "exceptional_regimes_exhaustively_verified": False, "actual_order_fills_verified": False,
+            "decision_authority": False, "execution_allowed": False, "pit_safe": False}
 
 
 def inspect_status_rows(rows: list, *, identity: str, sessions: tuple[date, ...],
