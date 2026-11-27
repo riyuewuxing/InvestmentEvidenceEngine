@@ -1,9 +1,6 @@
 name: Public fund product identity controls
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-fund-identity-control.yml"
 permissions:
   contents: read
 concurrency:
