@@ -1,0 +1,76 @@
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
+
+from investment_evidence_engine.session_observation import (
+    advance_ratio,
+    auction_reference_status,
+    pool_count,
+    session_window_status,
+)
+
+DAY = date(2026, 11, 27)
+
+
+def stamp(value):
+    return datetime.fromisoformat(f"2026-11-27T{value}+08:00")
+
+
+@pytest.mark.parametrize(("stage", "start", "end", "expected"), [
+    ("PREMARKET", "08:29:59", "08:30:00", "TOO_EARLY"),
+    ("PREMARKET", "08:30:00", "09:14:59", "WITHIN_WINDOW"),
+    ("PREMARKET", "09:14:59", "09:15:00", "WINDOW_MISSED"),
+    ("OPEN_AUCTION", "09:25:59", "09:26:00", "TOO_EARLY"),
+    ("OPEN_AUCTION", "09:26:00", "09:29:59", "WITHIN_WINDOW"),
+    ("OPEN_AUCTION", "09:29:59", "09:30:00", "WINDOW_MISSED"),
+    ("EOD", "14:45:00", "14:59:59", "WITHIN_WINDOW"),
+    ("EOD", "14:59:59", "15:00:00", "WINDOW_MISSED"),
+    ("EOD", "15:00:00", "15:00:01", "WINDOW_MISSED"),
+    ("POST_CLOSE", "14:59:59", "15:00:01", "TOO_EARLY"),
+    ("POST_CLOSE", "15:35:00", "15:36:00", "WITHIN_WINDOW"),
+])
+def test_session_boundaries(stage, start, end, expected):
+    assert session_window_status(stage, session=DAY, started_at=stamp(start).astimezone(UTC),
+                                 finished_at=stamp(end), trading_day=True) == expected
+
+
+def test_no_calendar_or_cross_day_does_not_assume_session():
+    start = stamp("14:45:00")
+    for calendar, status in ((None, "CALENDAR_UNKNOWN"), (False, "NON_TRADING_DAY")):
+        assert session_window_status("EOD", session=DAY, started_at=start,
+                                     finished_at=start, trading_day=calendar) == status
+    assert session_window_status("EOD", session=DAY, started_at=start,
+                                 finished_at=start + timedelta(days=1), trading_day=True) == "SESSION_MISMATCH"
+    assert session_window_status("EOD", session=DAY, started_at=start.replace(tzinfo=None),
+                                 finished_at=start, trading_day=True) == "INVALID_CLOCK"
+
+
+@pytest.mark.parametrize(("market", "retrieved", "cutoff", "expected"), [
+    ("09:25:00", "09:25:50", "09:26:00", "CHRONOLOGY_ONLY"),
+    ("09:25:00", "09:26:01", "09:26:00", "AFTER_CUTOFF_OR_INVALID_ORDER"),
+    ("09:20:00", "09:25:50", "09:26:00", "NOT_AUCTION_RESULT_TIME"),
+    ("09:30:00", "09:30:01", "09:30:01", "NOT_AUCTION_RESULT_TIME"),
+    ("09:25:00", "09:25:50", "09:25:59", "OUTSIDE_AUCTION_REVIEW_WINDOW"),
+    (None, "09:25:50", "09:26:00", "SOURCE_TIME_UNKNOWN"),
+])
+def test_auction_cutoff(market, retrieved, cutoff, expected):
+    assert auction_reference_status(session=DAY, market_at=stamp(market) if market else None,
+                                    retrieved_at=stamp(retrieved), cutoff=stamp(cutoff),
+                                    trading_day=True) == expected
+
+
+def test_empty_pool_and_incomplete_denominator():
+    class Empty:
+        columns = ("code",)
+        empty = True
+
+        def __len__(self):
+            return 0
+
+    assert pool_count(None) is None
+    assert pool_count([]) is None
+    assert pool_count(Empty()) == 0
+    assert advance_ratio(5, None, 0) is None
+    assert advance_ratio(5, float("inf"), 0) is None
+    assert advance_ratio(5, 0, 0) == 100
+    assert advance_ratio(0, 0, 0) is None
