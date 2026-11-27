@@ -167,11 +167,13 @@ def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
 
 
 RECENT_RISK_WINDOW = ("2026-11-18", "2026-11-27")
+MEETING_WINDOW = ("2026-11-06", "2026-11-09")
 
 
-def discover_recent_risk(raw: bytes, org: str, observed_at: datetime) -> dict:
+def discover_recent_risk(raw: bytes, org: str, observed_at: datetime, *,
+                         window: tuple[str, str] = RECENT_RISK_WINDOW) -> dict:
     """Observe the latest fixed-window risk notices, not an exhaustive event universe."""
-    if org != OBSERVED_ORG_ID or observed_at.utcoffset() is None:
+    if org != OBSERVED_ORG_ID or observed_at.utcoffset() is None or window not in {RECENT_RISK_WINDOW, MEETING_WINDOW}:
         raise ValueError("INDEX_RECENT_SCOPE")
     body = decode_object(raw)
     rows, total = body.get("announcements"), body.get("totalAnnouncement")
@@ -200,7 +202,7 @@ def discover_recent_risk(raw: bytes, org: str, observed_at: datetime) -> dict:
         stamp = datetime.fromtimestamp(ms / 1000, tz=UTC)
         local = stamp.astimezone(SHANGHAI)
         path_day = date.fromisoformat(path.split("/")[1])
-        if (not RECENT_RISK_WINDOW[0] <= local.date().isoformat() <= RECENT_RISK_WINDOW[1]
+        if (not window[0] <= local.date().isoformat() <= window[1]
                 or stamp > observed_at or path_day > observed_at.astimezone(SHANGHAI).date()):
             raise ValueError("INDEX_TIME_SCOPE")
         title = "".join(title.split())
@@ -209,7 +211,7 @@ def discover_recent_risk(raw: bytes, org: str, observed_at: datetime) -> dict:
                         "path_day": path_day.isoformat(), "first_availability_verified": False})
     release = [r for r in records if r["title"].endswith("关于控股股东部分股份解除质押的公告")
                and r["path_day"] == "2026-11-25"]
-    return {"query_window": list(RECENT_RISK_WINDOW), "returned_count": total,
+    return {"query_window": list(window), "returned_count": total,
             "records": records, "release_candidates": release, "revision_universe_complete": False}
 
 
@@ -219,7 +221,8 @@ def _child(mode: str, org: str, path: Path) -> None:
         url, data = DIRECTORY, None
     else:
         start, end = (BYD_WINDOW[:2] if mode == "byd-h1" else
-                      Q3_WINDOW if mode == "q3" else RECENT_RISK_WINDOW if mode == "recent-risk" else WINDOWS[int(mode)][:2])
+                      Q3_WINDOW if mode == "q3" else RECENT_RISK_WINDOW if mode == "recent-risk" else
+                      MEETING_WINDOW if mode == "meeting" else WINDOWS[int(mode)][:2])
         url = QUERY
         data = urlencode({
             "pageNum": "1", "pageSize": str(PAGE_SIZE), "column": "szse",
@@ -282,8 +285,8 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
             out |= parse_index(raw, org, BYD_WINDOW, end, subject=BYD_SUBJECT, docs=BYD_DOCS)
         elif mode == "q3":
             out |= discover_q3(raw, org, end)
-        elif mode == "recent-risk":
-            out |= discover_recent_risk(raw, org, end)
+        elif mode in {"recent-risk", "meeting"}:
+            out |= discover_recent_risk(raw, org, end, window=MEETING_WINDOW if mode == "meeting" else RECENT_RISK_WINDOW)
         else:
             out |= parse_index(raw, org, WINDOWS[int(mode)], end)
     except Exception as exc:  # noqa: BLE001

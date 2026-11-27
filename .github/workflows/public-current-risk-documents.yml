@@ -1,9 +1,6 @@
 name: Public current risk document byte observations
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-current-risk-documents.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

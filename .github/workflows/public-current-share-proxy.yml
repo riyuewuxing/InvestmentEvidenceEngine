@@ -1,0 +1,25 @@
+name: Public dated share-count and valuation proxy
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-current-share-proxy.yml'
+permissions:
+  contents: read
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -e .
+        timeout-minutes: 4
+      - run: timeout --signal=TERM --kill-after=5s 90s python -m investment_evidence_engine.public_current_share_proxy
+        timeout-minutes: 2
