@@ -12,9 +12,10 @@ import os
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 MAX_CACHE_BYTES = 32 * 1024 * 1024
 SCHEMA = "SWR_CACHE_V2"
@@ -25,6 +26,19 @@ class SwrHit:
     payload: Any
     age_sec: float
     cache_state: str
+
+
+def _reject_constant(value: str) -> Any:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate cache JSON key")
+        result[key] = value
+    return result
 
 
 def _age(now: float, written_at: Any, ttl: float) -> float | None:
@@ -66,7 +80,8 @@ class SwrCache:
                     payload = handle.read(MAX_CACHE_BYTES + 1)
                 if len(payload) > MAX_CACHE_BYTES:
                     return None
-                raw = json.loads(payload)
+                raw = json.loads(payload, parse_constant=_reject_constant,
+                                 object_pairs_hook=_unique_pairs)
                 if (not isinstance(raw, dict) or raw.get("schema") != SCHEMA
                         or raw.get("key_sha256") != self._digest(key) or "payload" not in raw
                         or raw["payload"] is None):

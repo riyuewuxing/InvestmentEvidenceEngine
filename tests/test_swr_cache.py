@@ -53,3 +53,11 @@ def test_atomic_concurrent_writes_leave_no_shared_temporary_file(cache, tmp_path
     result = SwrCache(tmp_path).read("x", stale_ttl_sec=10)
     assert result is not None and result.payload in values
     assert not list(cache._dir.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("payload", ['{"a":NaN}', '{"a":1,"a":2}', '{"a":Infinity}'])
+def test_corrupt_payload_is_miss(cache, payload):
+    cache._dir.mkdir(parents=True)
+    head = json.dumps({"schema": SCHEMA, "key_sha256": cache._digest("x"), "written_at": 999})
+    cache._path("x").write_text(head[:-1] + ',"payload":' + payload + '}')
+    assert cache.read("x", stale_ttl_sec=10) is None
