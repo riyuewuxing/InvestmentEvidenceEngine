@@ -1,9 +1,6 @@
 name: Public active ETF identity control
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-active-etf-identity-control.yml"
 permissions:
   contents: read
 concurrency:

@@ -127,3 +127,20 @@ def test_active_identity_requires_separate_listing_and_never_imputes_cost_or_tra
     listing["fields"]["listed_exchange_reported"] = "SSE"
     with pytest.raises(ValueError):
         parse(r)
+
+def test_replay_actual_active_etf_identity_listing_and_no_annual_history():
+    fixture = Path(__file__).resolve().parents[1] / "controls/active-etf-identity-20261127-metadata.json"
+    r = json.loads(fixture.read_text(encoding="utf-8"))
+    rows = parse_identity_receipt(r["log_line"], expected_commit=r["executor_commit"], now=NOW)
+    assert set(rows) == {"158909"}
+    row = rows["158909"]
+    assert row["product_kind_reported"] == "ACTIVE_ETF"
+    assert row["document_day"] == "2026-10-20"
+    assert row["listing_day_reported"] == "2026-11-23"
+    assert row["listed_exchange_reported"] == "SZSE"
+    assert row["manager_start_reported"] is None
+    assert row["estimated_operation_rate_pct_reported"] is None
+    assert row["management_rate_pct_reported"] == "1.00"
+    assert row["custody_rate_pct_reported"] == "0.15"
+    assert row["tracking_error_target_pct_reported"] is None
+    assert row["formal_admission"] is False
