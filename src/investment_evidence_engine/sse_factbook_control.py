@@ -15,6 +15,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from .bounded_worker import run_json_worker, write_worker_result
+from .exchange_listing import _listing_day
 from .official_pdf_transport import read_bounded_pdf
 from .snapshot_integrity import strict_json_loads
 
@@ -134,11 +135,12 @@ def directory_crosscheck(raw: bytes) -> dict:
         value = row.get(field)
         removed = row.get("DELIST_DATE")
         exact = (value == code or value in (None, "", "-") and row.get("COMPANY_CODE") == code)
-        day = removed[:10] if isinstance(removed, str) else ""
         try:
-            parsed = datetime.strptime(day, "%Y-%m-%d").date()
+            parsed = _listing_day(removed)
+            day = parsed.isoformat()
             year_match = parsed.year == 2024
-        except ValueError:
+        except (ValueError, TypeError, OverflowError):
+            day = None
             year_match = False
         matched[code] = {"status": "MATCH" if exact and year_match else "BLOCK",
                          "identity_basis": field if value == code else "COMPANY_CODE_ONLY",
@@ -301,6 +303,12 @@ if __name__ == "__main__":
         download(Path(sys.argv[2]), Path(sys.argv[3]))
     elif len(sys.argv) == 4 and sys.argv[1] == "--parse":
         parse(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--directory-only"]:
+        if os.environ.get("GITHUB_REPOSITORY") != REPO:
+            raise SystemExit("public repository required")
+        report = observe_directory()
+        print("PUBLIC_SSE_DIRECTORY_TARGETS " + json.dumps({"executor_commit": os.environ["GITHUB_SHA"], "directory": report, "pit_safe": False, "decision_authority": False}, sort_keys=True), flush=True)
+        raise SystemExit(0 if report["status"] == "WARN" else 2)
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:

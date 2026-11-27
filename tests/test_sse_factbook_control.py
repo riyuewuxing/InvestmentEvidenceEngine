@@ -49,3 +49,16 @@ def test_directory_missing_targets_not_promoted():
     assert result["matched_count"] == 1
     assert result["targets"]["900953"]["identity_basis"] == "B_STOCK_CODE"
     assert result["status"] == "BLOCK"
+
+
+def test_directory_compact_dates_and_strict_midnight_only():
+    import json
+
+    rows = [{"COMPANY_CODE": "600112", "A_STOCK_CODE": "600112", "DELIST_DATE": "20240621"},
+            {"COMPANY_CODE": "600213", "A_STOCK_CODE": "600213", "DELIST_DATE": "2024-06-21 00:00:00"},
+            {"COMPANY_CODE": "600220", "A_STOCK_CODE": "600220", "DELIST_DATE": "2024-06-21 invalid"}]
+    body = json.dumps({"pageHelp": {"total": 3}, "result": rows}).encode()
+    result = directory_crosscheck(body)
+    assert result["matched_count"] == 2
+    assert result["targets"]["600112"]["directory_end_date"] == "2024-06-21"
+    assert result["targets"]["600220"]["status"] == "BLOCK"
