@@ -209,3 +209,17 @@ def test_no_sources_is_unavailable_not_four_zero_counts():
     assert all(x.status == "UNAVAILABLE" for x in result.asset_issues)
     data["records"]["unexpected"] = None
     assert parse(data).status == "INVALID"
+
+
+def test_vendor_scope_cannot_claim_authenticated_etf_subtypes():
+    raw = archive()
+    def forge(p):
+        scope = p["etf_vendor_catalog_scope"]
+        scope["subtype_verified_count"] = 1
+        scope["subtype_unknown_count"] = scope["code_count"] - 1
+    rewrite(raw, "fund_etf", forge)
+    view = parse(raw)
+    assert view.status == "PARTIAL_WARN"
+    assert [(item.asset, item.status) for item in view.asset_issues] == [("ETF", "INVALID")]
+    assert [row.asset for row in view.rows] == ["A股", "场外基金", "申万一级行业"]
+    assert not view.formal_admission

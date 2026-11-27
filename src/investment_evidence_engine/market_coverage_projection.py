@@ -164,7 +164,10 @@ def _fund_row(scope: dict, run: int, day: str, *, etf: bool) -> CoverageRow:
     if etf:
         unknown = _count(scope["subtype_unknown_count"], n)
         verified = _count(scope["subtype_verified_count"], n)
-        if unknown + verified != n:
+        # This vendor-only receipt carries no authenticated product identities.
+        # A positive verified count needs a separate evidence schema and cannot
+        # be accepted from a bare aggregate or a name-derived category.
+        if verified != 0 or unknown != n:
             raise ValueError("SUBTYPE_SCOPE")
         note = f"供应商场内ETF目录；{unknown} 个子类型待核验，非交易所完整清单"
         asset = "ETF"
