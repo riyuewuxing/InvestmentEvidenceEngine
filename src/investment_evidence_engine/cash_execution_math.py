@@ -6,6 +6,7 @@ market impact, queue capacity, historical rate coverage or order is inferred.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import NamedTuple
 
@@ -109,3 +110,91 @@ def affordable_units(cash: Decimal, price: Decimal, *, minimum_units: int, incre
             else:
                 hi = mid - 1
         return result
+
+
+def canonical_cent(value: Decimal) -> Decimal:
+    """Normalize tiny binary-float transport residue, not a sub-cent quote."""
+    _finite(value, maximum=Decimal("1000000"), positive=True)
+    with localcontext() as ctx:
+        ctx.prec = 48
+        rounded = value.quantize(TICK, rounding=ROUND_HALF_UP)
+        if rounded < TICK or abs(value - rounded) > Decimal("0.000000001"):
+            raise ValueError("CASH_EXECUTION_REFERENCE_NOT_CENT")
+        return rounded
+
+
+class ReferenceDay(NamedTuple):
+    session: date
+    close: Decimal
+    previous_reference: Decimal | None
+    suspended: bool | None
+    volume: Decimal | None
+
+
+def reference_chain(rows: tuple[ReferenceDay, ...], *,
+                    preceding_close: Decimal | None = None) -> dict:
+    """Strict cash-price diagnostic: refuse missing references/action breaks.
+
+    A reported suspension is not a trade. Missing suspended volume stays
+    missing; a suspended close must reconcile to the last observed close.
+    The first reported reference is not an independent historical witness.
+    No complete corporate-action, calendar, source-vintage or fill claim.
+    """
+    if (not isinstance(rows, tuple) or not 1 <= len(rows) <= 10000
+            or any(type(row) is not ReferenceDay or type(row.session) is not date for row in rows)):
+        raise ValueError("CASH_EXECUTION_REFERENCE_ROW_SCOPE")
+    dates = tuple(row.session for row in rows)
+    if dates != tuple(sorted(set(dates))):
+        raise ValueError("CASH_EXECUTION_REFERENCE_DATE_ORDER")
+    previous = None if preceding_close is None else canonical_cent(preceding_close)
+    blockers = []
+    first_unanchored = False
+    for row in rows:
+        def block(reason: str) -> None:
+            blockers.append({"session": row.session.isoformat(), "reason": reason})
+
+        try:
+            close = canonical_cent(row.close)
+            ref = None if row.previous_reference is None else canonical_cent(row.previous_reference)
+        except ValueError:
+            block("INVALID_LIMIT_REFERENCE_OR_CLOSE")
+            previous = None
+            continue
+        if type(row.suspended) is not bool:
+            block("POINT_IN_TIME_SUSPENSION_STATUS_MISSING")
+            previous = None
+            continue
+        if row.volume is not None:
+            try:
+                _finite(row.volume, maximum=Decimal("1e15"))
+            except ValueError:
+                block("INVALID_DAILY_VOLUME")
+                previous = None
+                continue
+            if row.volume != row.volume.to_integral_value():
+                block("INVALID_DAILY_VOLUME")
+                previous = None
+                continue
+        if row.suspended:
+            if row.volume not in (None, Decimal(0)):
+                block("SUSPENSION_VOLUME_CONFLICT")
+            if previous is None or close != previous:
+                block("SUSPENDED_CLOSE_NOT_RECONCILED")
+            if ref is not None and previous is not None and ref != previous:
+                block("CORPORATE_ACTION_OR_REFERENCE_DISCONTINUITY")
+            continue
+        if row.volume is None or row.volume <= 0:
+            block("TRADE_VOLUME_MISSING_OR_NONPOSITIVE")
+        if ref is None:
+            block("EXPLICIT_LIMIT_REFERENCE_REQUIRED")
+        elif previous is not None and ref != previous:
+            block("CORPORATE_ACTION_OR_REFERENCE_DISCONTINUITY")
+        elif previous is None:
+            first_unanchored = True
+        previous = close
+    return {"status": "BLOCK" if blockers else "CONDITIONAL_CONTINUOUS_REFERENCE_ONLY",
+            "blockers": blockers, "sessions": len(rows),
+            "first_reference_predecessor_unverified": first_unanchored,
+            "complete_corporate_action_history_verified": False,
+            "historical_vintage_verified": False, "actual_fills_verified": False,
+            "decision_authority": False}

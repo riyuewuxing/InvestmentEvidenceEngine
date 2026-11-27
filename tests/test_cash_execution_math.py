@@ -3,7 +3,14 @@ from decimal import Decimal, localcontext
 
 import pytest
 
-from investment_evidence_engine.cash_execution_math import affordable_units, order_fees, price_band
+from investment_evidence_engine.cash_execution_math import (
+    ReferenceDay,
+    affordable_units,
+    canonical_cent,
+    order_fees,
+    price_band,
+    reference_chain,
+)
 from investment_evidence_engine.cash_fees import CashFeeScenario, CommissionScenario, fee_scenario
 from investment_evidence_engine.historical_capture import PublicSecurity
 
@@ -80,3 +87,69 @@ def test_invalid_amounts_and_rates_rejected():
         order_fees(D("100"), side="BUY", **(TERMS | {"transfer_rate": D("-0.01")}))
     with pytest.raises(ValueError):
         order_fees(D("100"), side="UNKNOWN", **TERMS)
+
+
+def test_explicit_reference_chain_retains_suspension_missingness():
+    rows = (
+        ReferenceDay(date(2025, 5, 20), D("9.18"), D("9.36"), False, D("100")),
+        ReferenceDay(date(2025, 5, 21), D("9.18"), None, True, None),
+        ReferenceDay(date(2025, 5, 22), D("8.78"), D("9.18"), False, D("100")),
+    )
+    report = reference_chain(rows)
+    assert report["status"] == "CONDITIONAL_CONTINUOUS_REFERENCE_ONLY"
+    assert report["first_reference_predecessor_unverified"]
+    assert not report["complete_corporate_action_history_verified"]
+    assert not report["actual_fills_verified"]
+    assert not report["decision_authority"]
+
+
+def test_actual_byd_ex_day_reference_discontinuity_blocks_cash_only_path():
+    # Previously observed real ex-day cells; volume is synthetic positive
+    # because this is a narrow input-continuity unit test, not a new capture.
+    rows = (
+        ReferenceDay(date(2025, 7, 28), D("337.00"), D("337.00"), False, D("100")),
+        ReferenceDay(date(2025, 7, 29), D("111.42"), D("111.01"), False, D("100")),
+    )
+    result = reference_chain(rows)
+    assert result["status"] == "BLOCK"
+    assert result["blockers"] == [{"session": "2025-07-29",
+                                    "reason": "CORPORATE_ACTION_OR_REFERENCE_DISCONTINUITY"}]
+
+
+@pytest.mark.parametrize("fault,reason", [
+    ("missing", "EXPLICIT_LIMIT_REFERENCE_REQUIRED"),
+    ("cent", "INVALID_LIMIT_REFERENCE_OR_CLOSE"),
+    ("suspend_conflict", "SUSPENSION_VOLUME_CONFLICT"),
+    ("suspend_close", "SUSPENDED_CLOSE_NOT_RECONCILED"),
+    ("one_cent", "CORPORATE_ACTION_OR_REFERENCE_DISCONTINUITY"),
+    ("unknown", "POINT_IN_TIME_SUSPENSION_STATUS_MISSING"),
+    ("volume", "TRADE_VOLUME_MISSING_OR_NONPOSITIVE"),
+])
+def test_reference_fail_closed(fault, reason):
+    row = ReferenceDay(date(2026, 7, 6), D("10"), D("10"), False, D("100"))
+    change = {
+        "missing": {"previous_reference": None},
+        "cent": {"previous_reference": D("10.001")},
+        "suspend_conflict": {"suspended": True},
+        "suspend_close": {"suspended": True, "volume": None, "close": D("10.01")},
+        "one_cent": {"previous_reference": D("10.01")},
+        "unknown": {"suspended": None},
+        "volume": {"volume": None},
+    }
+    report = reference_chain((row._replace(**change[fault]),), preceding_close=D("10"))
+    assert report["status"] == "BLOCK"
+    assert reason in {v["reason"] for v in report["blockers"]}
+
+
+def test_float_transport_residue_not_actual_subcent():
+    assert canonical_cent(D("10.120000000000001")) == D("10.12")
+    with pytest.raises(ValueError):
+        canonical_cent(D("10.12001"))
+
+
+def test_reference_order_and_first_suspension():
+    row = ReferenceDay(date(2026, 7, 6), D("10"), None, True, None)
+    assert reference_chain((row,))["status"] == "BLOCK"
+    assert reference_chain((row,), preceding_close=D("10"))["status"] != "BLOCK"
+    with pytest.raises(ValueError):
+        reference_chain((row, row))
