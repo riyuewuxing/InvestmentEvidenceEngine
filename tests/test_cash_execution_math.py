@@ -41,7 +41,7 @@ def test_order_cost_matches_existing_reviewed_fee_control(notional):
     amount = D(notional)
     scenario = fee_scenario(CashFeeScenario(subject=PublicSecurity(symbol="600519", asset_type="STOCK"),
         kind="DOMESTIC_A_STOCK", reference_session=date(2026, 11, 25),
-        entry_notional_cny=float(amount), exit_notional_cny=float(amount),
+        entry_notional_cny=float(amount), exit_notional_cny=float(amount), entry_orders=1, exit_orders=1,
         commission=CommissionScenario(inclusive_rate_bps=3., minimum_per_order_cny=5., note="synthetic")))
     for side, key in (("BUY", "buy"), ("SELL", "sell")):
         fee = order_fees(amount, side=side, **TERMS)
