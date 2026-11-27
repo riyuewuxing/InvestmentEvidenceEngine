@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime
+from decimal import Decimal, localcontext
 from statistics import median
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from .historical_reference import HistoricalCloseSeries
 from .market_calendar import NOTICE_URLS, SCHEDULE_VERSION, CalendarObservation, check_calendar
@@ -37,6 +39,96 @@ class CashDistributionInputs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     coverage: Literal["EXPLICIT_EVENTS_NOT_EXHAUSTIVE"] = "EXPLICIT_EVENTS_NOT_EXHAUSTIVE"
     events: tuple[CashDistribution, ...] = Field(max_length=100)
+
+
+class ShareCashDistribution(BaseModel):
+    """One explicit combined/split/cash shareholder event, not issuer cancellation."""
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, str_strip_whitespace=True)
+    action_id: str = Field(min_length=1, max_length=120)
+    subject_id: str = Field(pattern=r"^[0-9]{6}$")
+    disclosed_date: date
+    record_date: date
+    ex_date: date
+    post_units_numerator: int = Field(gt=0, le=1000000)
+    pre_units_denominator: int = Field(gt=0, le=1000000)
+    gross_cash_per_old_unit_cny: str = Field(pattern=r"^(0|[1-9][0-9]{0,6})(\.[0-9]{1,8})?$")
+    source_locator: str = Field(min_length=12, max_length=1024)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def check_terms(self) -> ShareCashDistribution:
+        if not self.disclosed_date <= self.record_date < self.ex_date:
+            raise ValueError("SHARE_CASH_EVENT_DATE_ORDER")
+        if (self.post_units_numerator == self.pre_units_denominator
+                and Decimal(self.gross_cash_per_old_unit_cny) == 0):
+            raise ValueError("SHARE_CASH_NOOP_EVENT")
+        route = urlsplit(self.source_locator)
+        if (route.scheme != "https" or not route.hostname or route.username
+                or route.password or route.fragment):
+            raise ValueError("SHARE_CASH_SOURCE_LOCATOR")
+        return self
+
+
+class ShareCashDistributionInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    coverage: Literal["EXPLICIT_EVENTS_NOT_EXHAUSTIVE"] = "EXPLICIT_EVENTS_NOT_EXHAUSTIVE"
+    events: tuple[ShareCashDistribution, ...] = Field(max_length=100)
+
+
+def share_cash_ex_factor(prior: Decimal, current: Decimal, event: ShareCashDistribution) -> Decimal:
+    """Gross ex-close reinvestment factor per old share; raw CNY prices only.
+
+    Caller must validate event/window binding and price basis. No claim about
+    payment, fractional share rounding, subscription, fees, or source vintage.
+    """
+    event = ShareCashDistribution.model_validate(event.model_dump())
+    if any(type(v) is not Decimal or not v.is_finite() or not 0 < v <= 1000000
+           for v in (prior, current)):
+        raise ValueError("SHARE_CASH_PRICE_INVALID")
+    with localcontext() as ctx:
+        ctx.prec = 48
+        return (current * event.post_units_numerator / event.pre_units_denominator
+                + Decimal(event.gross_cash_per_old_unit_cny)) / prior
+
+
+def _validate_share_cash_events(inputs: ShareCashDistributionInputs, subjects: tuple[str, str],
+                                sessions: tuple[date, ...]) -> tuple[dict, dict]:
+    inputs = ShareCashDistributionInputs.model_validate(inputs.model_dump())
+    events = {symbol: {} for symbol in subjects}
+    seen_ids, seen_days = set(), set()
+    included, excluded = [], []
+    for event in inputs.events:
+        key = (event.subject_id, event.ex_date)
+        if event.subject_id not in subjects or event.action_id in seen_ids or key in seen_days:
+            raise ValueError("SHARE_CASH_IDENTITY_OR_DUPLICATE")
+        seen_ids.add(event.action_id)
+        seen_days.add(key)
+        row = event.model_dump(mode="json")
+        if event.ex_date > sessions[-1]:
+            excluded.append(row | {"reason": "AFTER_CUTOFF"})
+        elif event.ex_date <= sessions[0]:
+            excluded.append(row | {"reason": "AT_OR_BEFORE_ENTRY_CLOSE"})
+        else:
+            if event.ex_date not in sessions or sessions[sessions.index(event.ex_date)-1] != event.record_date:
+                raise ValueError("SHARE_CASH_RECORD_EX_SESSION_MISMATCH")
+            events[event.subject_id][event.ex_date] = event
+            included.append(row)
+    return events, {"included": included, "excluded": excluded, "coverage": inputs.coverage}
+
+
+def _share_cash_wealth(series: HistoricalCloseSeries, events: dict[date, ShareCashDistribution]) -> list[float]:
+    if series.price_basis != "RAW_CLOSE" or series.currency != "CNY":
+        raise ValueError("SHARE_CASH_RAW_CNY_REQUIRED")
+    values = [1.0]
+    for previous, current in zip(series.closes[:-1], series.closes[1:]):
+        event = events.get(current.session)
+        factor = (float(share_cash_ex_factor(Decimal(str(previous.close)), Decimal(str(current.close)), event))
+                  if event is not None else current.close / previous.close)
+        value = values[-1] * factor
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("SHARE_CASH_WEALTH_INVALID")
+        values.append(value)
+    return values
 
 
 def _validate_events(inputs: CashDistributionInputs, subjects: tuple[str, str],
@@ -120,8 +212,11 @@ def _horizons(left: list[float], right: list[float]) -> list[dict]:
 
 def holding_period_reference(candidate: HistoricalCloseSeries, alternative: HistoricalCloseSeries,
                              calendar: CalendarObservation, *, first: date, last: date,
-                             cutoff: datetime, distributions: CashDistributionInputs | None = None) -> dict:
+                             cutoff: datetime, distributions: CashDistributionInputs | None = None,
+                             share_cash_distributions: ShareCashDistributionInputs | None = None) -> dict:
     """Compute historical references after full calendar check, never forecast."""
+    if distributions is not None and share_cash_distributions is not None:
+        raise ValueError("SHARE_CASH_AND_CASH_SCENARIOS_MUTUALLY_EXCLUSIVE")
     candidate = HistoricalCloseSeries.model_validate(candidate.model_dump())
     alternative = HistoricalCloseSeries.model_validate(alternative.model_dump())
     if (candidate.subject_id==alternative.subject_id or candidate.currency!="CNY"
@@ -159,4 +254,16 @@ def holding_period_reference(candidate: HistoricalCloseSeries, alternative: Hist
             cash_full_window_pct={"candidate":(a[-1]-1)*100,"alternative":(b[-1]-1)*100},
             distribution_effects=[{"subject_id":event["subject_id"],"ex_date":event["ex_date"],
                 "gross_cash_per_unit_cny":event["gross_cash_per_unit_cny"]} for event in included])
+    if share_cash_distributions is not None:
+        event_map, audit = _validate_share_cash_events(
+            share_cash_distributions, (candidate.subject_id, alternative.subject_id), sessions)
+        a = _share_cash_wealth(candidate, event_map[candidate.subject_id])
+        b = _share_cash_wealth(alternative, event_map[alternative.subject_id])
+        result.update(share_cash_scenario_status="CONDITIONAL_GROSS_EX_CLOSE_REINVESTMENT_ONLY",
+            share_cash_scenario_basis="RAW_EXPLICIT_SHARE_RATIO_AND_CASH_PER_OLD_UNIT_ONCE",
+            share_cash_event_audit=audit, share_cash_scenario_windows=_horizons(a, b),
+            share_cash_full_window_pct={"candidate": (a[-1]-1)*100, "alternative": (b[-1]-1)*100},
+            share_cash_actual_credit_verified=False, share_cash_original_bytes_verified=False,
+            share_cash_fractional_rounding_verified=False, share_cash_reinvestment_executable=False,
+            share_cash_tax_and_cost_verified=False, share_cash_total_return_certified=False)
     return result

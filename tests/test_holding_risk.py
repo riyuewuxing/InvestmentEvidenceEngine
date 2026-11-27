@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -6,7 +7,10 @@ from investment_evidence_engine.historical_reference import DailyClose, Historic
 from investment_evidence_engine.holding_risk import (
     CashDistribution,
     CashDistributionInputs,
+    ShareCashDistribution,
+    ShareCashDistributionInputs,
     holding_period_reference,
+    share_cash_ex_factor,
 )
 from investment_evidence_engine.market_calendar import (
     CalendarObservation,
@@ -97,3 +101,72 @@ def test_horizon_reference_uses_direct_compound_returns():
         assert row["candidate"]["observed_loss_frequency_pct"]==0
         assert not row["independent_trials_verified"]
     assert result["cash_scenario_status"]=="NOT_SUPPLIED"
+
+
+def combined(i=10, **changes):
+    data = dict(action_id="TEST:2026:1", subject_id="600000",
+                disclosed_date=DATES[i-2], record_date=DATES[i-1], ex_date=DATES[i],
+                post_units_numerator=3, pre_units_denominator=1, gross_cash_per_old_unit_cny="4",
+                source_locator="https://example.invalid/disclosure", source_sha256="a"*64)
+    return ShareCashDistribution(**(data | changes))
+
+
+def combined_result(event_list, *, alternative=None, **kwargs):
+    a = series("600000", [100]*10 + [32]*(len(DATES)-10))
+    b = alternative or series("510300", [100]*len(DATES))
+    return holding_period_reference(a, b, CAL, first=START, last=END, cutoff=NOW,
+        share_cash_distributions=ShareCashDistributionInputs(events=tuple(event_list)), **kwargs)
+
+
+def test_combined_share_cash_once_per_old_unit():
+    result = combined_result([combined()])
+    assert result["raw_full_window_pct"]["candidate"] == pytest.approx(-68)
+    assert result["share_cash_full_window_pct"]["candidate"] == pytest.approx(0)
+    assert len(result["share_cash_event_audit"]["included"]) == 1
+    assert not result["share_cash_total_return_certified"] and not result["decision_authority"]
+
+
+@pytest.mark.parametrize("mode", ["duplicate_id", "duplicate_date", "wrong_subject", "wrong_record", "non_session"])
+def test_combined_events_fail_closed(mode):
+    e = combined()
+    if mode == "duplicate_id":
+        events = [e, combined(12)]
+    elif mode == "duplicate_date":
+        events = [e, combined(action_id="different")]
+    elif mode == "wrong_subject":
+        events = [combined(subject_id="600001")]
+    elif mode == "wrong_record":
+        events = [combined(record_date=DATES[8])]
+    else:
+        events = [combined(record_date=date(2026, 1, 8), disclosed_date=date(2026, 1, 7), ex_date=date(2026, 1, 10))]
+    with pytest.raises(ValueError):
+        combined_result(events)
+
+
+def test_combined_event_after_cutoff_and_first_close_excluded():
+    future = combined(ex_date=date(2026, 12, 1), record_date=END, action_id="future")
+    at_entry = combined(ex_date=START, record_date=START-timedelta(days=1),
+                        disclosed_date=START-timedelta(days=2), action_id="at-entry")
+    result = combined_result([future, at_entry])
+    assert result["share_cash_full_window_pct"]["candidate"] == pytest.approx(-68)
+    assert [x["reason"] for x in result["share_cash_event_audit"]["excluded"]] == ["AFTER_CUTOFF", "AT_OR_BEFORE_ENTRY_CLOSE"]
+
+
+def test_no_cash_double_count_or_adjusted_prices():
+    with pytest.raises(ValueError, match="MUTUALLY_EXCLUSIVE"):
+        combined_result([combined()], distributions=CashDistributionInputs(events=()))
+    adjusted = series("510300", [100]*len(DATES)).model_copy(
+        update={"price_basis": "PROVIDER_ADJUSTED_CLOSE_NOT_VINTAGE_VERIFIED"})
+    with pytest.raises(ValueError, match="RAW_PAIR"):
+        combined_result([combined()], alternative=adjusted)
+
+
+def test_split_ratio_and_decimal_context():
+    e = combined(gross_cash_per_old_unit_cny="0", post_units_numerator=3, pre_units_denominator=2)
+    with localcontext() as ctx:
+        ctx.prec = 2
+        assert share_cash_ex_factor(Decimal("90"), Decimal("60"), e) == 1
+    with pytest.raises(ValueError, match="PRICE_INVALID"):
+        share_cash_ex_factor(Decimal("0"), Decimal("60"), e)
+    with pytest.raises(ValueError, match="NOOP"):
+        combined(gross_cash_per_old_unit_cny="0", post_units_numerator=1)
