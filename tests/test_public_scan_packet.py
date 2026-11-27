@@ -70,7 +70,7 @@ def test_packet_replays_exact_saved_bytes(packet):
     receipt, selected, codes, raw = verify_public_scan_packet(packet, repo=REPO, commit=COMMIT)
     assert selected["code"] == codes[0] == "600001"
     assert receipt["deterministic_scan_replay"] == receipt["materialized_attachment_rehash"] == "MATCH"
-    assert receipt["independent_rank_derivation"] == "MATCH"
+    assert receipt["independent_rank_derivation"] == receipt["scan_dependency_metadata_match"] == "MATCH"
     assert receipt["source_graph_verified"] is False and receipt["private_admission_verified"] is False
     assert raw == (packet / "opportunity-scan.json").read_bytes()
 
@@ -142,7 +142,7 @@ def test_independent_rank_rejects_semantic_tamper(packet, fault):
         u["records"][1]["latest_price"] = 100
     with pytest.raises(ValueError):
         verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), as_of=DAY,
-                               requested_rules=rules)
+                               requested_rules=rules, universe_status="WARN")
 
 
 def test_independent_rank_keeps_zero_score_and_stable_ties(packet):
@@ -153,10 +153,32 @@ def test_independent_rank_keeps_zero_score_and_stable_ties(packet):
     for row in s["candidates"]:
         row["matched_rule_count"] = 0
         row["research_priority_score"] = 0
-    kwargs = {"as_of": DAY, "requested_rules": s["rules"], "top_n": 50}
+    kwargs = {"as_of": DAY, "requested_rules": s["rules"], "top_n": 50, "universe_status": "WARN"}
     receipt = verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), **kwargs)
     assert receipt["selected"]["code"] == "600001"
     assert receipt["stable_tie_order_verified"] and not receipt["pit_safe"]
     s["candidates"].reverse()
     with pytest.raises(ValueError):
         verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), **kwargs)
+
+
+@pytest.mark.parametrize("fault", ["quote_day", "listing", "provider", "status", "missing_flags", "warnings"])
+def test_independent_rank_binds_dependency_metadata_to_source(packet, fault):
+    u = json.loads((packet / "market-universe.json").read_bytes())
+    s = json.loads((packet / "opportunity-scan.json").read_bytes())
+    dep = s["dependency_evidence"]
+    if fault == "quote_day":
+        dep["quote_trade_date_status"] = "VERIFIED"
+    elif fault == "listing":
+        dep["listing_crosscheck"] = {"status": "MATCH"}
+    elif fault == "provider":
+        dep["provider"] = "other"
+    elif fault == "status":
+        dep["status"] = "PASS"
+    elif fault == "missing_flags":
+        del dep["quality_flags"]
+    else:
+        u["warnings"] = ["SOURCE_WARNING"]
+    with pytest.raises(ValueError, match="SCAN_DERIVATION_DEPENDENCY_METADATA"):
+        verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), as_of=DAY,
+                               requested_rules=s["rules"], universe_status="WARN")

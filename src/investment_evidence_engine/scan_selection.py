@@ -105,7 +105,7 @@ def select_scan_record(raw: bytes, as_of: str) -> dict:
 
 
 def verify_scan_derivation(raw_universe: bytes, raw_scan: bytes, *, as_of: str,
-                           requested_rules: object, top_n: object = 50) -> dict:
+                           requested_rules: object, universe_status: str, top_n: object = 50) -> dict:
     """Independently verify the stable ranking and row projection of a sealed public scan.
 
     This is a pure arithmetic/lineage check over observed normalized bytes.
@@ -120,6 +120,23 @@ def verify_scan_derivation(raw_universe: bytes, raw_scan: bytes, *, as_of: str,
             or universe.get("public_data_only") is not True
             or universe.get("decision_authority") is not False):
         raise ValueError("SCAN_DERIVATION_UNIVERSE_SCOPE")
+    if universe_status not in {"PASS", "WARN"}:
+        raise ValueError("SCAN_DERIVATION_DEPENDENCY_STATUS")
+    listing = universe.get("listing_crosscheck")
+    listing_status = listing.get("status") if isinstance(listing, dict) else None
+    expected_dependency = {"operation_id": "market-universe", "kind": "MARKET_UNIVERSE",
+        "status": universe_status, "as_of": as_of, "market": "CN_A", "asset_type": "STOCK",
+        "source": "public_market_data", "provider": universe.get("provider"),
+        "primary_provider": universe.get("primary_provider"),
+        "quote_trade_date_status": universe.get("quote_trade_date_status"),
+        "listing_crosscheck": {"status": listing_status}}
+    for key in ("quality_flags", "warnings"):
+        values = universe.get(key, [])
+        if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+            raise ValueError("SCAN_DERIVATION_DEPENDENCY_METADATA")
+        expected_dependency[key] = values[:16]
+    if scan["dependency_evidence"] != expected_dependency:
+        raise ValueError("SCAN_DERIVATION_DEPENDENCY_METADATA")
     if type(top_n) is not int or not 1 <= top_n <= 1000:
         raise ValueError("SCAN_DERIVATION_TOP_N")
     rules = scan["rules"]
@@ -194,4 +211,5 @@ def verify_scan_derivation(raw_universe: bytes, raw_scan: bytes, *, as_of: str,
             raise ValueError("SCAN_DERIVATION_SCORE_MISMATCH")
     return {"status": "MATCH", "selected": selected, "screened_count": len(rows),
             "candidate_count": scan["candidate_count"], "stable_tie_order_verified": True,
+            "dependency_metadata_matches_observed_universe": True,
             "historical_membership_verified": False, "pit_safe": False, "decision_authority": False}
