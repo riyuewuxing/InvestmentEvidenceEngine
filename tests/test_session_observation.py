@@ -173,7 +173,7 @@ def test_all_explicit_flow_aliases_must_agree(aliases, expected):
                                       session=DAY, cutoff=stamp("15:01:00")) == expected
 
 
-@pytest.mark.parametrize("value", [-1, 100.01, float("inf"), float("nan"), True, "50", None])
+@pytest.mark.parametrize("value", [-1, 100.01, 10**400, float("inf"), float("nan"), True, "50", None])
 def test_invalid_breadth_percentage_is_unknown(value):
     assert breadth_percentage(value) is None
 

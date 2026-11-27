@@ -200,8 +200,9 @@ def dated_daily_flow_reference(rows: list[dict], *, session: date, cutoff: datet
 
 def breadth_percentage(value: object) -> float | None:
     """A bounded percentage, not a string or an invented default."""
-    v = _finite(value)
-    return v if v is not None and 0 <= v <= 100 else None
+    if type(value) not in (int, float) or not 0 <= value <= 100:
+        return None
+    return float(value)
 
 
 def breadth_count(value: object) -> int | None:

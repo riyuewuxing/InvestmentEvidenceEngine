@@ -234,9 +234,15 @@ def compare_intraday_t(account: TAccountReference, scenario: TScenario) -> dict:
 
     with localcontext() as ctx:
         ctx.prec = 48
+        positive = branch(("BUY", "SELL"))
+        reverse = branch(("SELL", "BUY"))
+        comparable = positive["status"] == reverse["status"] == "PAIRED_CONDITIONAL"
         return common | {
+            "pair_comparison_status": ("MATCHED_QUANTITY_ASSUMPTIONS_ONLY" if comparable
+                                       else "INCOMPLETE_OR_UNPAIRED"),
+            "preferred_path": None,
             "no_action": {"status": "REFERENCE_ONLY", "terminal_cash_cny": _money(cash),
                           "terminal_held_units": held, "terminal_sellable_old_units": old,
                           "terminal_equity_cny": _money(baseline), "delta_vs_no_action_cny": "0.00"},
-            "positive_t": branch(("BUY", "SELL")), "reverse_t": branch(("SELL", "BUY")),
+            "positive_t": positive, "reverse_t": reverse,
         }

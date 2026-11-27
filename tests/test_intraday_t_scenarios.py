@@ -132,3 +132,20 @@ def test_invalid_bounds_fail_closed(kwargs):
 def test_utc_and_shanghai_times_are_compared_as_instants():
     second = make().second.model_copy(update={"at": datetime.fromisoformat("2026-11-27T06:30:00+00:00").isoformat()})
     assert compare_intraday_t(account(), make(second=second))["positive_t"]["status"] == "PAIRED_CONDITIONAL"
+
+
+def test_pair_comparison_status_requires_both_matched_paths_and_never_selects():
+    result = compare_intraday_t(account(), make())
+    assert result["pair_comparison_status"] == "MATCHED_QUANTITY_ASSUMPTIONS_ONLY"
+    assert result["preferred_path"] is None
+    for a, scenario in (
+        (account(cash="100"), make()),
+        (account(old=None), make()),
+        (account(), make(fees=None)),
+        (account(), make(second=make().second.model_copy(update={"sell_fill": "UNKNOWN"}))),
+        (account(), make(second=make().second.model_copy(update={"sell_fill": "ASSUME_NOT_FILLED"}))),
+    ):
+        result = compare_intraday_t(a, scenario)
+        assert result["pair_comparison_status"] == "INCOMPLETE_OR_UNPAIRED"
+        assert result["preferred_path"] is None
+        assert not result["decision_authority"]
