@@ -138,3 +138,23 @@ def test_public_fomc_release_clock_examples_not_historical_receipts(release, day
     # Web retrieval in 2026 cannot prove capture in 2025.
     assert event_cutoff_status(release, "2026-11-26T17:00:00+08:00",
                                datetime.combine(day, datetime.min.time(), tzinfo=UTC).isoformat()) == "AFTER_CUTOFF"
+
+
+@pytest.mark.parametrize(("effective_day","issuer_reported_release","issuer_document_day","observed_at"),[
+    # Real public runner observations, 45939309237 / 45939510952.
+    ("2024-06-30","2024-09-30","2024-10-30","2026-11-27T04:20:23.748605+00:00"),
+    ("2024-12-31","2025-04-18","2025-08-30","2026-11-27T04:22:28.551244+00:00"),
+])
+def test_classification_period_and_issuer_reported_release_do_not_backdate_observation(
+        effective_day, issuer_reported_release, issuer_document_day, observed_at):
+    retrieved=datetime.fromisoformat(observed_at)
+    effective=datetime.fromisoformat(effective_day+"T15:00:00+08:00")
+    for day in (effective_day,issuer_reported_release,issuer_document_day):
+        cutoff=datetime.fromisoformat(day+"T23:59:59+08:00")
+        assert not source_visible(available_at=None,retrieved_at=retrieved,published_at=None,cutoff=cutoff)
+        # Even assigning a hypothetical earliest availability cannot remove the late retrieval.
+        assert not observed_measurement_visible(effective_at=effective,available_at=effective,
+                                                ingested_at=retrieved,cutoff=cutoff)
+        assert event_cutoff_status(issuer_reported_release,observed_at,cutoff.isoformat())=="AFTER_CUTOFF"
+    assert not source_visible(available_at=None,retrieved_at=retrieved,published_at=None,cutoff=retrieved)
+    assert event_cutoff_status(issuer_reported_release,observed_at,retrieved.isoformat())=="UNVERIFIED_TIME"
