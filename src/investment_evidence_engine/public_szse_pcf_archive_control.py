@@ -22,6 +22,14 @@ CASES = {
     "20260828": ("159696", 4775244, "f0d14f82cc1900458779d6e1083b76674882c4f798983f0493bd6c52ba8ca58b", "2026-08-28T08:57:24Z", 533531197),
 }
 
+# SHA256 of each XML matched to its pinned archive member by run 45967529896.
+XML_PINS = {
+    "20260907": "eb0bbf04dd88e55884e5d8aa242080037a2d81781f78afb10ea0742dd45fa575",
+    "20260908": "2bf2f3ea963498c07d5073833285c98415e5c731b4994cb966f8b3b5526c5753",
+    "20260827": "e61e8e0fbc729ca59a2e096b154f23c7bfd8f29bb822c8692f82b21b56554d42",
+    "20260828": "9f9a193619d363b6f0881dcdd70bf4ce58e8b31227cc8273570e8179cb27533b",
+}
+
 
 def fetch(key, route):
     symbol, size, _, _, _ = CASES[key]
@@ -107,6 +115,10 @@ def observe(task):
             raw = archive_member(raw, symbol)
         out["xml_sha256"] = sha256(raw).hexdigest()
         out["xml_bytes"] = len(raw)
+        if route == "official_pinned":
+            if out["xml_sha256"] != XML_PINS[key]:
+                return out | {"status": "BLOCK", "error": "PINNED_XML_MISMATCH"}
+            out["prior_xml_pin"] = "MATCH"
         # Only normalized fixed fields are emitted.
         out["fields"] = parse_szse_pcf(raw, symbol=symbol, session=date.fromisoformat(
             f"{key[:4]}-{key[4:6]}-{key[6:]}"))
@@ -120,11 +132,13 @@ def main():
         key, route, dest = sys.argv[2:]
         write_worker_result(Path(dest), fetch(key, route), max_bytes=8 * 1024 * 1024)
         return
-    tasks = [(key, route) for key in CASES for route in ("archive", "official")]
+    replay = sys.argv[1:] == ["--pinned-replay"]
+    routes = ("official_pinned",) if replay else ("archive", "official")
+    tasks = [(key, route) for key in CASES for route in routes]
     with ThreadPoolExecutor(max_workers=3) as pool:
         rows = list(pool.map(observe, tasks))
     comparisons = []
-    for key in CASES:
+    for key in (() if replay else CASES):
         a, b = [r for r in rows if r["date"] == key]
         comparisons.append({"date": key, "byte_match": (
             a["xml_sha256"] == b["xml_sha256"] if "xml_sha256" in a and "xml_sha256" in b else None
@@ -133,7 +147,8 @@ def main():
         )})
     print("PUBLIC_SZSE_PCF_ARCHIVE " + json.dumps({
         "observed_at": datetime.now(UTC).isoformat(), "rows": rows,
-        "comparisons": comparisons, "historical_first_availability_verified": False,
+        "comparisons": comparisons, "pinned_replay": replay,
+        "historical_first_availability_verified": False,
         "archive_metadata_is_not_exchange_publication_time": True,
         "decision_authority": False, "raw_body_retained": False,
     }, ensure_ascii=False, sort_keys=True, allow_nan=False))

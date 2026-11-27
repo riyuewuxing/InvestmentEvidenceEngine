@@ -43,10 +43,14 @@ def parse_szse_pcf(raw: bytes, *, symbol: str, session: date) -> dict:
         value = field(name, not optional)
         if value is None:
             return None
-        pattern = r"[0-9]+" if integer else r"[0-9]+(?:\.[0-9]+)?"
+        pattern = r"[0-9]+(?:\.[0-9]+)?"
         if len(value) > 32 or not re.fullmatch(pattern, value):
-            raise ValueError("invalid number: " + name)
-        result = int(value) if integer else Decimal(value)
+            raise ValueError("invalid number: " + name + " / " + repr(value[:32]))
+        result = Decimal(value)
+        if integer and result != result.to_integral_value():
+            raise ValueError("fractional share count: " + name)
+        if integer:
+            result = int(result)
         if positive and result <= 0:
             raise ValueError("nonpositive: " + name)
         return result if integer else str(result)

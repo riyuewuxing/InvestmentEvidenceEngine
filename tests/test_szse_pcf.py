@@ -47,3 +47,12 @@ def test_rejects_invalid_scope(old, new):
 def test_forbids_dtd():
     with pytest.raises(ValueError):
         parse(b'<!DOCTYPE PCFFile [<!ENTITY x "1">]>' + XML)
+
+
+def test_xml_numeric_share_counts_allow_integral_decimal_serialization():
+    result = parse(XML.replace(b"<CreationLimit>0", b"<CreationLimit>0.0000")
+                   .replace(b"<CreationRedemptionUnit>1000000", b"<CreationRedemptionUnit>1000000.00"))
+    assert result["caps_shares_raw"]["CreationLimit"] == 0
+    assert result["creation_unit"] == 1000000
+    with pytest.raises(ValueError, match="fractional share count"):
+        parse(XML.replace(b"<CreationLimit>0", b"<CreationLimit>0.5"))

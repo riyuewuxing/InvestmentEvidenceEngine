@@ -18,5 +18,5 @@ jobs:
           python-version: '3.11'
       - run: pip install -e .
         timeout-minutes: 4
-      - run: timeout --signal=TERM --kill-after=5s 170s python -m investment_evidence_engine.public_szse_pcf_archive_control
+      - run: timeout --signal=TERM --kill-after=5s 170s python -m investment_evidence_engine.public_szse_pcf_archive_control --pinned-replay
         timeout-minutes: 3
