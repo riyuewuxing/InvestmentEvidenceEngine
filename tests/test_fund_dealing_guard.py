@@ -56,7 +56,7 @@ def test_local_exchange_session_is_not_utc_date():
     assert result["status"] == "SAME_SESSION_REPORTED_FLAGS"
 
 
-@pytest.mark.parametrize(("prior", "request", "complete", "inclusive", "expected"), [
+@pytest.mark.parametrize(("prior", "requested", "complete", "inclusive", "expected"), [
     ("600000", "500000", True, None, "EXCEEDS_REPORTED_CAP_REJECTION_POSSIBLE"),
     ("600000", "400000", True, None, "EXACT_CAP_WORDING_AMBIGUOUS"),
     ("600000", "400000", True, False, "EXCEEDS_REPORTED_CAP_REJECTION_POSSIBLE"),
@@ -66,9 +66,9 @@ def test_local_exchange_session_is_not_utc_date():
     (None, "500000", True, None, "AGGREGATE_UNKNOWN"),
     (None, "1000000.01", False, None, "EXCEEDS_REPORTED_CAP_REJECTION_POSSIBLE"),
 ])
-def test_combined_cap_does_not_make_per_class_or_fill_assumption(prior, request, complete, inclusive, expected):
+def test_combined_cap_does_not_make_per_class_or_fill_assumption(prior, requested, complete, inclusive, expected):
     assert combined_subscription_cap_status(
-        requested_cny=Decimal(request), verified_prior_cny=None if prior is None else Decimal(prior),
+        requested_cny=Decimal(requested), verified_prior_cny=None if prior is None else Decimal(prior),
         aggregate_complete=complete, cap_cny=Decimal("1000000"), inclusive=inclusive,
     ) == expected
 

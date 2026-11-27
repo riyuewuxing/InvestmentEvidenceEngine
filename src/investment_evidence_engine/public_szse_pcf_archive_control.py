@@ -145,13 +145,19 @@ def main():
         ), "fields_match": (
             a["fields"] == b["fields"] if "fields" in a and "fields" in b else None
         )})
+    evidence_complete = all(row["status"] == "OBSERVED" for row in rows) and (
+        replay or all(x["byte_match"] is True and x["fields_match"] is True for x in comparisons)
+    )
     print("PUBLIC_SZSE_PCF_ARCHIVE " + json.dumps({
+        "status": "WARN" if evidence_complete else "BLOCK",
         "observed_at": datetime.now(UTC).isoformat(), "rows": rows,
         "comparisons": comparisons, "pinned_replay": replay,
         "historical_first_availability_verified": False,
         "archive_metadata_is_not_exchange_publication_time": True,
         "decision_authority": False, "raw_body_retained": False,
     }, ensure_ascii=False, sort_keys=True, allow_nan=False))
+    if not evidence_complete:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
