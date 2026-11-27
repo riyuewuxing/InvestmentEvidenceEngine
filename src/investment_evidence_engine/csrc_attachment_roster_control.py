@@ -132,8 +132,18 @@ def summarize_workbook(raw: bytes) -> dict:
             numeric_unformatted = 0
             blank_code_nonempty = 0
             nonempty_rows = 0
+            code_like_rows = 0
+            summary_markers = set()
             for row_number, row in enumerate(sheet.iter_rows(), 1):
                 nonempty_rows += int(any(cell.value is not None for cell in row))
+                if header_row is None:
+                    code_like_rows += int(any(normalize_code(cell.value, cell.number_format) is not None for cell in row))
+                    for cell in row:
+                        if isinstance(cell.value, str):
+                            label = re.sub(r"\s+", "", cell.value)
+                            for marker in ("上市公司数量", "上市公司数", "上市公司家数", "证券交易所", "上海证券交易所", "深圳证券交易所", "主板", "科创板", "创业板", "合计", "总计", "辖区", "统计"):
+                                if marker in label:
+                                    summary_markers.add(marker)
                 if header_row is None:
                     if row_number > 15:
                         continue
@@ -156,6 +166,8 @@ def summarize_workbook(raw: bytes) -> dict:
             candidate = Counter(board_candidate(c) for c in codes)
             bare_codes = [c.split(".")[0] for c in codes]
             sheets.append({"index": index, "header_row": header_row, "rows": len(codes), "nonempty_rows": nonempty_rows,
+                           "unrecognized_header_code_like_rows": code_like_rows if header_row is None else None,
+                           "unrecognized_header_summary_markers": sorted(summary_markers) if header_row is None else [],
                            "unique_codes": len(set(codes)), "unique_bare_codes": len(set(bare_codes)),
                            "rejected": rejected, "numeric_unformatted": numeric_unformatted,
                            "blank_code_nonempty": blank_code_nonempty,
