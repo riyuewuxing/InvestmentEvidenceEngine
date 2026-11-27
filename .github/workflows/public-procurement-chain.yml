@@ -1,10 +1,6 @@
 name: Public procurement counterparty and issuer chain
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/investment_evidence_engine/public_procurement_chain.py'
-      - '.github/workflows/public-procurement-chain.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

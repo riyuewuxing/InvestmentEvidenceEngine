@@ -166,13 +166,60 @@ def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
             "discovery_status": "CANDIDATES_FOUND" if candidates else "NO_MATCH_IN_OBSERVED_WINDOW"}
 
 
+RECENT_RISK_WINDOW = ("2026-11-18", "2026-11-27")
+
+
+def discover_recent_risk(raw: bytes, org: str, observed_at: datetime) -> dict:
+    """Observe the latest fixed-window risk notices, not an exhaustive event universe."""
+    if org != OBSERVED_ORG_ID or observed_at.utcoffset() is None:
+        raise ValueError("INDEX_RECENT_SCOPE")
+    body = decode_object(raw)
+    rows, total = body.get("announcements"), body.get("totalAnnouncement")
+    if (type(total) is not int or not isinstance(rows, list)
+            or not 0 <= total <= PAGE_SIZE or len(rows) != total):
+        raise ValueError("INDEX_PAGE_COUNT_OR_COVERAGE")
+    seen = set()
+    records = []
+    for row in rows:
+        if (not isinstance(row, dict) or row.get("secCode") != SUBJECT
+                or row.get("orgId") != org):
+            raise ValueError("INDEX_SUBJECT_MISMATCH")
+        aid = row.get("announcementId")
+        if type(aid) is int:
+            aid = str(aid)
+        if not isinstance(aid, str) or not re.fullmatch(r"[0-9]{1,24}", aid) or aid in seen:
+            raise ValueError("INDEX_ANNOUNCEMENT_ID")
+        seen.add(aid)
+        title, path = row.get("announcementTitle"), row.get("adjunctUrl")
+        if not isinstance(title, str) or not isinstance(path, str) or not re.fullmatch(
+                r"finalpage/[0-9]{4}-[0-9]{2}-[0-9]{2}/" + aid + r"\.PDF", path):
+            raise ValueError("INDEX_ATTACHMENT_MISMATCH")
+        ms = row.get("announcementTime")
+        if type(ms) is not int or not 0 < ms < 4_102_444_800_000:
+            raise ValueError("INDEX_TIME_FIELD")
+        stamp = datetime.fromtimestamp(ms / 1000, tz=UTC)
+        local = stamp.astimezone(SHANGHAI)
+        path_day = date.fromisoformat(path.split("/")[1])
+        if (not RECENT_RISK_WINDOW[0] <= local.date().isoformat() <= RECENT_RISK_WINDOW[1]
+                or stamp > observed_at or path_day > observed_at.astimezone(SHANGHAI).date()):
+            raise ValueError("INDEX_TIME_SCOPE")
+        title = "".join(title.split())
+        records.append({"announcement_id": aid, "title": title[:160], "attachment": path,
+                        "platform_time_shanghai": local.isoformat(), "announcement_time_ms": ms,
+                        "path_day": path_day.isoformat(), "first_availability_verified": False})
+    release = [r for r in records if r["title"].endswith("关于控股股东部分股份解除质押的公告")
+               and r["path_day"] == "2026-11-25"]
+    return {"query_window": list(RECENT_RISK_WINDOW), "returned_count": total,
+            "records": records, "release_candidates": release, "revision_universe_complete": False}
+
+
 def _child(mode: str, org: str, path: Path) -> None:
     started = datetime.now(UTC)
     if mode in {"directory", "byd-directory"}:
         url, data = DIRECTORY, None
     else:
         start, end = (BYD_WINDOW[:2] if mode == "byd-h1" else
-                      Q3_WINDOW if mode == "q3" else WINDOWS[int(mode)][:2])
+                      Q3_WINDOW if mode == "q3" else RECENT_RISK_WINDOW if mode == "recent-risk" else WINDOWS[int(mode)][:2])
         url = QUERY
         data = urlencode({
             "pageNum": "1", "pageSize": str(PAGE_SIZE), "column": "szse",
@@ -235,6 +282,8 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
             out |= parse_index(raw, org, BYD_WINDOW, end, subject=BYD_SUBJECT, docs=BYD_DOCS)
         elif mode == "q3":
             out |= discover_q3(raw, org, end)
+        elif mode == "recent-risk":
+            out |= discover_recent_risk(raw, org, end)
         else:
             out |= parse_index(raw, org, WINDOWS[int(mode)], end)
     except Exception as exc:  # noqa: BLE001
