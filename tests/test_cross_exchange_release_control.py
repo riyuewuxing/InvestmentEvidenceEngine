@@ -5,6 +5,7 @@ import pytest
 from investment_evidence_engine.cross_exchange_release_control import (
     EXPECTED,
     URLS,
+    hk_english_pair,
     parse_index,
     reconcile,
     row_pair,
@@ -46,3 +47,10 @@ def test_two_channel_match_is_not_historical_observation():
 
 def test_yuan_precision_not_truncated():
     assert row_pair("营业收入(元) 1,234.56 2,345.67", "营业收入(元)", scale=1) == ("1234.56", "2345.67")
+
+
+def test_bilingual_anchor_and_note_are_not_numeric_cells():
+    assert hk_english_pair("Operating revenue ◆◆ 4 301,126,713 260,124,143", "Operating revenue", note=True) == EXPECTED["revenue"]
+    assert hk_english_pair("Net cash flow from operating activities ◆◆ 14,178,310 81,971,177", "Net cash flow from operating activities") == EXPECTED["operating_cashflow"]
+    with pytest.raises(ValueError):
+        hk_english_pair("Operating revenue ◆◆ 7 301,126,713 260,124,143", "Operating revenue", note=True)

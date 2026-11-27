@@ -129,14 +129,27 @@ def parse_sz(pages: dict[int, str]) -> dict:
             }, "publication_clock_verified": False}
 
 
+def hk_english_pair(text: str, label: str, *, note: bool = False) -> tuple[str, str]:
+    """Use English row anchor; bilingual PDF glyphs may not map to Unicode."""
+    compact = " ".join(normalize(text).split())
+    pattern = r"\s*".join(re.escape(ch) for ch in label if not ch.isspace())
+    # The intervening translation may contain unmapped glyphs but no numeric
+    # cells. A note number is fixed by the reviewed original table geometry.
+    regex = pattern + r"[^0-9]{0,120}?" + (r"4\s+" if note else "") + "(" + NUM_THOUSAND + r")\s+(" + NUM_THOUSAND + r")(?![0-9,.])"
+    matches = re.findall(regex, compact, re.I)
+    if len(matches) != 1:
+        raise ValueError("HK_ENGLISH_ROW_MISSING_OR_AMBIGUOUS")
+    return tuple(format((Decimal(v.replace(",", "")) * 1000).normalize(), "f") for v in matches[0])
+
+
 def hk_parse_diagnostics(pages: dict[int, str]) -> dict:
-    labels = {43: "營業收入", 44: "歸屬於母公司所有者的淨利潤", 48: "經營活動產生的現金流量淨額"}
+    labels = {43: "Operating revenue", 44: "Net profit attributable to shareholders of the parent company", 48: "Net cash flow from operating activities"}
     result = {}
     for i, label in labels.items():
         text = normalize(pages[i])
         compact = "".join(text.split())
-        label_pattern = r"\s*".join(re.escape(ch) for ch in label)
-        hits = list(re.finditer(label_pattern, text))
+        label_pattern = r"\s*".join(re.escape(ch) for ch in label if not ch.isspace())
+        hits = list(re.finditer(label_pattern, text, re.I))
         shapes = []
         for hit in hits[:3]:
             fragment = text[max(0, hit.start()-60):hit.end()+120]
@@ -161,9 +174,9 @@ def parse_hk(pages: dict[int, str]) -> dict:
             raise ValueError("HK_PERIOD_OR_UNIT")
     return {"report_period_end": PERIOD_END, "document_declared_day": "2024-08-28", "source_unit": "CNY_THOUSANDS",
             "values_cny": {
-                "revenue": row_pair(pages[43], "營業收入", scale=1000, note=True),
-                "parent_profit": row_pair(pages[44], "歸屬於母公司所有者的淨利潤", scale=1000),
-                "operating_cashflow": row_pair(pages[48], "經營活動產生的現金流量淨額", scale=1000),
+                "revenue": hk_english_pair(pages[43], "Operating revenue", note=True),
+                "parent_profit": hk_english_pair(pages[44], "Net profit attributable to shareholders of the parent company"),
+                "operating_cashflow": hk_english_pair(pages[48], "Net cash flow from operating activities"),
             }}
 
 

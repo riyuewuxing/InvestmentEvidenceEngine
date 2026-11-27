@@ -23,3 +23,5 @@ jobs:
         timeout-minutes: 4
       - run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.cross_exchange_release_control --hk-only
         timeout-minutes: 3
+
+# English anchor fallback for same-byte bilingual PDF after Chinese glyph map failure.
