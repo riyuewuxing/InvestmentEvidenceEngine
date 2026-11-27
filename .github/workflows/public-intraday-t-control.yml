@@ -1,9 +1,6 @@
 name: Public intraday T close reference
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/public_intraday_t_control.py"
 
 permissions:
   contents: read
