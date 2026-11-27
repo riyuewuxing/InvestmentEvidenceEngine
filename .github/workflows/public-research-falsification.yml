@@ -1,6 +1,10 @@
 name: Public fixed research falsification
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-research-falsification.yml'
 permissions:
   contents: read
 concurrency:
