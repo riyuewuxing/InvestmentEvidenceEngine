@@ -1,10 +1,6 @@
 name: Public CSI300 snapshot and rebalance evidence
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-csi300-snapshot-control.yml'
 permissions:
   contents: read
 concurrency:
