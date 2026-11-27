@@ -1,0 +1,36 @@
+name: Public fixed research falsification
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/public_research_falsification.py'
+permissions:
+  contents: read
+concurrency:
+  group: public-fixed-research-falsification
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: ['600036', '600900']
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Sealed market factor chain and predeclared matched baseline control
+        timeout-minutes: 3
+        env:
+          CONTROL_SYMBOL: ${{ matrix.symbol }}
+        run: timeout --signal=TERM --kill-after=5s 165s python scripts/public_research_falsification.py --symbol "$CONTROL_SYMBOL"
