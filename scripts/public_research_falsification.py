@@ -22,6 +22,7 @@ from investment_evidence_engine.research_falsification import (
     CONTROL_SYMBOLS,
     CRITERION,
     assess_test_segment,
+    verify_factor_lagged_profile,
 )
 from investment_evidence_engine.research_profile_evidence import evaluate_market_profile
 from investment_evidence_engine.runner import execute_request
@@ -117,6 +118,8 @@ def main(symbol: str) -> int:
                        "factor_binding": verify_factor(raw, factor, ma.sha256, symbol),
                        "profile_receipt": profile,
                        "falsification": assess_test_segment(profile["raw_price_diagnostic"]),
+                       "independent_factor_lagged_profile": verify_factor_lagged_profile(
+                           payload, strict_json_loads(factor), profile["raw_price_diagnostic"]),
                        "status": "WARN"}
         except (ValueError, TypeError, KeyError, OSError, RuntimeError, OverflowError) as exc:
             reason = str(exc)

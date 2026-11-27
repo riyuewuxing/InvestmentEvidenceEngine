@@ -1,10 +1,6 @@
 name: Public full market scan control
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/public_universe_control.py'
-      - '.github/workflows/public-universe-control.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
