@@ -12,6 +12,7 @@ from .etf_report_diagnostics import closing_premium, compare_reports
 from .historical_capture import PublicSecurity, observe_pair
 
 RECEIPT = Path("controls/etf-q3-2026-observed-fields.json")
+RECEIPT_SHA256 = "13a1c3a69dce4470ea267ce7024b47162f2dac78743a19e9eedb6ee4aac0da19"
 FIRST = date(2026, 8, 31)
 LAST = date(2026, 9, 30)
 SYMBOLS = ("510330", "510320")
@@ -21,8 +22,9 @@ DOCUMENT_HASHES = (
 )
 
 
-def run_control() -> dict:
-    raw = RECEIPT.read_bytes()
+def verify_report_fields(raw: bytes) -> dict:
+    if hashlib.sha256(raw).hexdigest() != RECEIPT_SHA256:
+        raise ValueError("ETF_REPORT_RECEIPT_HASH")
     data = json.loads(raw)
     docs = data["documents"]
     if (data["source_run"] != 45958440503 or data["source_job"] != 140370277263
@@ -32,6 +34,13 @@ def run_control() -> dict:
             or any(d["fields"]["symbol"] != d["symbol"] for d in docs)):
         raise ValueError("ETF_REPORT_RECEIPT_SCOPE")
     compare_reports(docs[0]["fields"], docs[1]["fields"])
+    return data
+
+
+def run_control() -> dict:
+    raw = RECEIPT.read_bytes()
+    data = verify_report_fields(raw)
+    docs = data["documents"]
     subjects = tuple(PublicSecurity(symbol=s, asset_type="ETF") for s in SYMBOLS)
     pair, series = observe_pair(*subjects, FIRST, LAST, providers=("sina", "tencent"))
     outputs = []
