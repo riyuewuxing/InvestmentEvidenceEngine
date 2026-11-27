@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from .contracts import ExecutionRequest, ExecutionResult, canonical_sha256
 from .dispatch import run_operation
 from .input_binding import select_scan_record
+from .scan_selection import verify_scan_derivation
 from .snapshot_integrity import strict_json_loads
 from .transport_integrity import (
     read_contract_bytes,
@@ -80,6 +81,11 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
             verified_bytes[ref.path] = body
     raw = verified_bytes["opportunity-scan.json"]
     selected = select_scan_record(raw, request.as_of)
+    derivation = verify_scan_derivation(verified_bytes["market-universe.json"], raw,
+        as_of=request.as_of, requested_rules=request.operations[1].parameters.get("rules"),
+        top_n=request.operations[1].parameters.get("top_n", 50))
+    if derivation["selected"] != selected:
+        raise ValueError("PUBLIC_SCAN_DERIVATION_SELECTION")
     universe = strict_json_loads(verified_bytes["market-universe.json"])
     if not isinstance(universe, dict) or not isinstance(universe.get("records"), list):
         raise ValueError("PUBLIC_SCAN_UNIVERSE_RECORDS")
@@ -110,7 +116,8 @@ def verify_public_scan_packet(root: Path, *, repo: str, commit: str) -> tuple[di
                "request_sha256": request.request_sha256, "result_sha256": result.result_sha256,
                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
                "artifacts": artifact_digests, "candidate_record_sha256": canonical_sha256(selected),
-               "deterministic_scan_replay": "MATCH", "materialized_attachment_rehash": "MATCH",
+               "deterministic_scan_replay": "MATCH", "independent_rank_derivation": "MATCH",
+               "materialized_attachment_rehash": "MATCH",
                "as_of": request.as_of, "source_graph_verified": False,
                "private_admission_verified": False, "pit_safe": False, "decision_authority": False}
     return receipt, selected, codes, raw

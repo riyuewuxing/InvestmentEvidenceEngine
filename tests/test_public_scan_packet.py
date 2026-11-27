@@ -14,6 +14,7 @@ from investment_evidence_engine.contracts import (
 from investment_evidence_engine.dispatch import run_operation
 from investment_evidence_engine.public_scan_packet import verify_public_scan_packet
 from investment_evidence_engine.runner import execute_request
+from investment_evidence_engine.scan_selection import verify_scan_derivation
 
 REPO = "public/example"
 COMMIT = "a" * 40
@@ -69,6 +70,7 @@ def test_packet_replays_exact_saved_bytes(packet):
     receipt, selected, codes, raw = verify_public_scan_packet(packet, repo=REPO, commit=COMMIT)
     assert selected["code"] == codes[0] == "600001"
     assert receipt["deterministic_scan_replay"] == receipt["materialized_attachment_rehash"] == "MATCH"
+    assert receipt["independent_rank_derivation"] == "MATCH"
     assert receipt["source_graph_verified"] is False and receipt["private_admission_verified"] is False
     assert raw == (packet / "opportunity-scan.json").read_bytes()
 
@@ -103,3 +105,58 @@ def test_packet_rejects_changes(packet, fault):
         write(manifest_path, manifest)
     with pytest.raises(ValueError):
         verify_public_scan_packet(Path(packet), repo=REPO, commit=commit)
+
+
+
+@pytest.mark.parametrize("fault", ["wrong_order", "row_changed", "score", "matches", "truncated",
+                                  "screened", "universe_duplicate", "wrong_rule", "wrong_scope",
+                                  "missing_rank_fields", "bool_value", "source_tamper"])
+def test_independent_rank_rejects_semantic_tamper(packet, fault):
+    u = json.loads((packet / "market-universe.json").read_bytes())
+    s = json.loads((packet / "opportunity-scan.json").read_bytes())
+    rules = [{"field": "latest_price", "operator": "GE", "threshold": 10}]
+    if fault == "wrong_order":
+        s["candidates"].reverse()
+    elif fault == "row_changed":
+        s["candidates"][0]["latest_price"] = 21
+    elif fault == "score":
+        s["candidates"][0]["research_priority_score"] = 2
+    elif fault == "matches":
+        s["candidates"][0]["matched_rule_count"] = 0
+    elif fault == "truncated":
+        s["candidates"].pop()
+        s["candidate_count"] = 1
+    elif fault == "screened":
+        s["screened_count"] = 20
+    elif fault == "universe_duplicate":
+        u["records"][1] = dict(u["records"][0])
+    elif fault == "wrong_rule":
+        rules[0]["threshold"] = 30
+    elif fault == "wrong_scope":
+        u["as_of"] = "2026-11-25"
+    elif fault == "missing_rank_fields":
+        s["candidates"][0].pop("research_priority_score")
+    elif fault == "bool_value":
+        u["records"][0]["latest_price"] = True
+    else:
+        u["records"][1]["latest_price"] = 100
+    with pytest.raises(ValueError):
+        verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), as_of=DAY,
+                               requested_rules=rules)
+
+
+def test_independent_rank_keeps_zero_score_and_stable_ties(packet):
+    u = json.loads((packet / "market-universe.json").read_bytes())
+    s = json.loads((packet / "opportunity-scan.json").read_bytes())
+    # All candidates fail the rule; the ranking is not a hard eligibility filter.
+    s["rules"][0]["threshold"] = 100
+    for row in s["candidates"]:
+        row["matched_rule_count"] = 0
+        row["research_priority_score"] = 0
+    kwargs = {"as_of": DAY, "requested_rules": s["rules"], "top_n": 50}
+    receipt = verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), **kwargs)
+    assert receipt["selected"]["code"] == "600001"
+    assert receipt["stable_tie_order_verified"] and not receipt["pit_safe"]
+    s["candidates"].reverse()
+    with pytest.raises(ValueError):
+        verify_scan_derivation(json.dumps(u).encode(), json.dumps(s).encode(), **kwargs)

@@ -101,3 +101,97 @@ def select_scan_record(raw: bytes, as_of: str) -> dict:
             elif value is not None and (type(value) not in {int, float} or not math.isfinite(value)):
                 raise ValueError("INPUT_ARTIFACT_CANDIDATE_NUMBER_INVALID")
     return rows[0]
+
+
+
+def verify_scan_derivation(raw_universe: bytes, raw_scan: bytes, *, as_of: str,
+                           requested_rules: object, top_n: object = 50) -> dict:
+    """Independently verify the stable ranking and row projection of a sealed public scan.
+
+    This is a pure arithmetic/lineage check over observed normalized bytes.
+    Neither the universe's original provenance nor historical membership is established.
+    """
+    selected = select_scan_record(raw_scan, as_of)
+    scan = strict_json_loads(raw_scan)
+    universe = strict_json_loads(raw_universe)
+    if (not isinstance(universe, dict) or universe.get("as_of") != as_of
+            or universe.get("market") != "CN_A" or universe.get("asset_type") != "STOCK"
+            or universe.get("source") != "public_market_data"
+            or universe.get("public_data_only") is not True
+            or universe.get("decision_authority") is not False):
+        raise ValueError("SCAN_DERIVATION_UNIVERSE_SCOPE")
+    if type(top_n) is not int or not 1 <= top_n <= 1000:
+        raise ValueError("SCAN_DERIVATION_TOP_N")
+    rules = scan["rules"]
+    if not isinstance(requested_rules, list) or len(requested_rules) != len(rules):
+        raise ValueError("SCAN_DERIVATION_REQUEST_RULES")
+    for req, actual in zip(requested_rules, rules, strict=True):
+        if (not isinstance(req, dict) or not set(req).issubset({"field", "operator", "threshold", "weight"})
+                or type(req.get("threshold")) not in {int, float}
+                or type(req.get("weight", 1)) not in {int, float}
+                or actual != {**req, "weight": req.get("weight", 1)}):
+            raise ValueError("SCAN_DERIVATION_REQUEST_RULES")
+    rows = universe.get("records")
+    if not isinstance(rows, list) or not rows or not all(isinstance(row, dict) for row in rows):
+        raise ValueError("SCAN_DERIVATION_UNIVERSE_ROWS")
+    if (type(scan.get("screened_count")) is not int or scan["screened_count"] != len(rows)
+            or scan["candidate_count"] != min(top_n, len(rows))):
+        raise ValueError("SCAN_DERIVATION_COUNT")
+    columns = set(rows[0])
+    fields = _RECORD_KEYS - {"matched_rule_count", "research_priority_score"}
+    if not {"code", "asset"} <= columns or not columns <= fields:
+        raise ValueError("SCAN_DERIVATION_UNIVERSE_FIELDS")
+    seen = set()
+    finite_rule_fields = set()
+    ranked = []
+    for index, row in enumerate(rows):
+        code = row.get("code")
+        if (set(row) != columns or not isinstance(code, str) or re.fullmatch(r"[0-9]{6}", code) is None
+                or code in seen or row["asset"] != code):
+            raise ValueError("SCAN_DERIVATION_UNIVERSE_IDENTITY")
+        seen.add(code)
+        for key, value in row.items():
+            if key in {"code", "asset", "name"}:
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("SCAN_DERIVATION_UNIVERSE_TEXT")
+            elif value is not None and (type(value) not in {int, float} or not math.isfinite(value)):
+                raise ValueError("SCAN_DERIVATION_UNIVERSE_NUMBER")
+        score = 0.0
+        matches = 0
+        for rule in rules:
+            field = rule["field"]
+            if field not in row:
+                raise ValueError("SCAN_DERIVATION_RULE_FIELD")
+            value = row[field]
+            if value is None:
+                continue
+            finite_rule_fields.add(field)
+            x, threshold = float(value), float(rule["threshold"])
+            op = rule["operator"]
+            hit = ((op == "GT" and x > threshold) or (op == "GE" and x >= threshold)
+                   or (op == "LT" and x < threshold) or (op == "LE" and x <= threshold))
+            if hit:
+                score += float(rule["weight"])
+                matches += 1
+        if not math.isfinite(score):
+            raise ValueError("SCAN_DERIVATION_SCORE_NONFINITE")
+        ranked.append((score, matches, index, row))
+    if finite_rule_fields != {rule["field"] for rule in rules}:
+        raise ValueError("SCAN_DERIVATION_RULE_FIELD_NO_NUMERIC")
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    for candidate, (score, matches, _, source) in zip(scan["candidates"], ranked[:top_n], strict=True):
+        if set(candidate) != columns | {"matched_rule_count", "research_priority_score"}:
+            raise ValueError("SCAN_DERIVATION_CANDIDATE_FIELDS")
+        if any(candidate[key] != value for key, value in source.items()):
+            raise ValueError("SCAN_DERIVATION_ROW_MISMATCH")
+        # pandas record JSON serializes floating point with ten decimal places.
+        # The rank above is from unrounded score; this tolerance is only for
+        # serialized score comparison, not for determining candidate order.
+        observed_score = candidate["research_priority_score"]
+        if (type(observed_score) not in {int, float}
+                or abs(observed_score - score) > 5.1e-10
+                or candidate["matched_rule_count"] != matches):
+            raise ValueError("SCAN_DERIVATION_SCORE_MISMATCH")
+    return {"status": "MATCH", "selected": selected, "screened_count": len(rows),
+            "candidate_count": scan["candidate_count"], "stable_tie_order_verified": True,
+            "historical_membership_verified": False, "pit_safe": False, "decision_authority": False}
