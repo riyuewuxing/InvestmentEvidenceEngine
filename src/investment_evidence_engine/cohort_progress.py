@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from .prospective_diagnostics import assess_paired_direction_delta
 from .prospective_protocol import (
     CohortBatchRecord,
     CohortProtocol,
@@ -84,6 +85,12 @@ def describe_cohort_progress(
             "freeze_receipt_sha256": record.freeze_receipt_sha256 if record else None,
             "outcome_receipt_sha256": record.outcome_receipt_sha256 if record else None,
         })
+    matured = tuple(day for day in protocol.sessions() if maturity(day) <= now)
+    paired = assess_paired_direction_delta(
+        protocol.first, matured[-1], protocol.symbols,
+        tuple(record.batch for record in records if record.batch.session in matured),
+        now=now,
+    ) if matured else None
     return {
         "protocol_sha256": assessment["protocol_sha256"],
         "status": (
@@ -94,6 +101,7 @@ def describe_cohort_progress(
         "evaluated_at": now.isoformat(),
         "sessions": sessions,
         "assessment": assessment,
+        "paired_direction_diagnostics": paired,
         "model_validation_status": "NOT_VALIDATED",
         "probability_calibrated": False,
         "first_attempt_provenance_verified": False,

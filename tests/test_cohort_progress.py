@@ -1,4 +1,5 @@
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -117,3 +118,20 @@ def test_expired_interval_not_promoted_and_reused_receipt_blocked():
     assert result["model_validation_status"] == "NOT_VALIDATED"
     with pytest.raises(ValueError, match="RECEIPT_REUSE"):
         report(now, (record(("OBSERVED", "OBSERVED"), outcome_hash="a" * 64),))
+
+
+def test_actual_registered_protocol_is_not_started_at_r07_boundary():
+    path = Path(__file__).resolve().parents[1] / "pilot-protocols/public-daily-20261130-v1.json"
+    protocol = CohortProtocol.model_validate_json(path.read_text(encoding="utf-8"))
+    result = describe_cohort_progress(
+        protocol, (),
+        expected_protocol_sha256="d845cf330f008695e0dd220aa09118ed62e3952dc7238ab20110c7c4e732f0f0",
+        now=datetime(2026, 11, 27, 12, 7, tzinfo=UTC),
+    )
+    assert result["status"] == "WAITING_FOR_OBSERVATION"
+    assert len(result["sessions"]) == 20
+    assert all(row["state"] == "WAITING_FOR_PLANNING" for row in result["sessions"])
+    assert result["assessment"]["expected_slots_full_interval"] == 40
+    assert result["assessment"]["matured_sessions"] == 0
+    assert result["paired_direction_diagnostics"] is None
+    assert not result["activation_authorized"]
