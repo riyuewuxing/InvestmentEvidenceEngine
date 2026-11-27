@@ -20,7 +20,9 @@ jobs:
       - name: Install engine
         run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Observe bounded fixed attachments
+      - name: Observe same-version Jiangxi attachment only
+        env:
+          CSRC_JIANGXI_ONLY: '1'
         run: timeout --signal=TERM --kill-after=5s 195s python -m investment_evidence_engine.csrc_attachment_roster_control
         timeout-minutes: 4
 

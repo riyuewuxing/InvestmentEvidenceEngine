@@ -117,6 +117,7 @@ def summarize_workbook(raw: bytes) -> dict:
             raise ValueError("expanded archive outside limit")
     book = load_workbook(io.BytesIO(raw), read_only=True, data_only=True, keep_links=False)
     sheets = []
+    code_sets = {}
     try:
         if len(book.worksheets) > 12:
             raise ValueError("too many worksheets")
@@ -130,10 +131,12 @@ def summarize_workbook(raw: bytes) -> dict:
             rejected = 0
             numeric_unformatted = 0
             blank_code_nonempty = 0
+            nonempty_rows = 0
             for row_number, row in enumerate(sheet.iter_rows(), 1):
+                nonempty_rows += int(any(cell.value is not None for cell in row))
                 if header_row is None:
                     if row_number > 15:
-                        break
+                        continue
                     columns = [i for i, c in enumerate(row) if isinstance(c.value, str)
                                and re.sub(r"\s+", "", c.value) in HEADER_NAMES]
                     if len(columns) == 1:
@@ -149,20 +152,30 @@ def summarize_workbook(raw: bytes) -> dict:
                     numeric_unformatted += int(type(cell.value) is int)
                 else:
                     codes.append(code)
+            code_sets[index] = set(codes)
             candidate = Counter(board_candidate(c) for c in codes)
             bare_codes = [c.split(".")[0] for c in codes]
-            sheets.append({"index": index, "header_row": header_row, "rows": len(codes),
+            sheets.append({"index": index, "header_row": header_row, "rows": len(codes), "nonempty_rows": nonempty_rows,
                            "unique_codes": len(set(codes)), "unique_bare_codes": len(set(bare_codes)),
                            "rejected": rejected, "numeric_unformatted": numeric_unformatted,
                            "blank_code_nonempty": blank_code_nonempty,
                            "board_prefix_candidates_not_exchange_proof": dict(candidate),
                            "suffix_rows": sum("." in c for c in codes),
                            "code_set_sha256": digest(json.dumps(sorted(set(codes)), separators=(",", ":")).encode()),
-                           "status": "WARN" if header_row and codes and not rejected and not blank_code_nonempty
-                           and len(set(bare_codes)) == len(codes) and not candidate["SUFFIX_CONFLICT"] else "BLOCK"})
+                           "status": "EMPTY" if not nonempty_rows else ("WARN" if header_row and codes and not rejected and not blank_code_nonempty
+                           and len(set(bare_codes)) == len(codes) and not candidate["SUFFIX_CONFLICT"] else "BLOCK")})
     finally:
         book.close()
-    return {"sheets": sheets, "status": "WARN" if sheets and all(s["status"] == "WARN" for s in sheets) else "BLOCK",
+    partition = {"checked": False}
+    if len(sheets) == 4 and all(i in code_sets for i in (0, 2, 3)):
+        total, sh, sz = (code_sets[i] for i in (0, 2, 3))
+        partition = {"checked": True, "disjoint": not bool(sh & sz), "union_equals_total": (sh | sz) == total,
+                     "sh_suffix_exact": bool(sh) and all(v.endswith(".SH") for v in sh),
+                     "sz_suffix_exact": bool(sz) and all(v.endswith(".SZ") for v in sz)}
+    usable = any(s["status"] == "WARN" for s in sheets) and all(s["status"] in ("WARN", "EMPTY") for s in sheets)
+    if partition["checked"]:
+        usable = usable and all(partition.values())
+    return {"sheets": sheets, "partition_check": partition, "status": "WARN" if usable else "BLOCK",
             "regional_issuer_roster_only": True, "complete_historical_universe_verified": False,
             "pit_safe": False}
 
@@ -202,7 +215,8 @@ def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     observations = {}
-    for key in SOURCES:
+    selected = ("jiangxi",) if os.environ.get("CSRC_JIANGXI_ONLY") == "1" else tuple(SOURCES)
+    for key in selected:
         with TemporaryDirectory() as folder:
             result = run_json_worker((sys.executable, "-m", MODULE, "--observe", key, folder),
                                      timeout_seconds=60, max_bytes=65536)
@@ -213,6 +227,9 @@ def main() -> int:
                 data[name + "_parent_rehash"] = "MATCH" if target.is_file() and digest(target.read_bytes()) == data.get(hash_key) else "NOT_VERIFIED"
             if data["page.html_parent_rehash"] != "MATCH" or data["roster.xlsx_parent_rehash"] != "MATCH":
                 data["status"] = "BLOCK"
+            if selected == ("jiangxi",) and (data.get("page_sha256") != "b0e343022fd7edabe8ac56bf96aa5827a834e7e2161296ed19ce843a20e786e7" or data.get("attachment_sha256") != "a0133a28f6a3bcba3c3e056f29767f83436b8db1c6964cbd977924c99e6135c6"):
+                data["status"] = "BLOCK"
+                data["reason"] = "prior_version_mismatch"
             observations[key] = data
     status = "WARN" if any(x["status"] == "WARN" for x in observations.values()) else "BLOCK"
     report = {"status": status, "observations": observations, "as_of": "2024-12-31",
