@@ -4,9 +4,12 @@ import pytest
 
 from investment_evidence_engine.session_observation import (
     advance_ratio,
+    dated_daily_flow_reference,
     auction_reference_status,
     pool_count,
+    quote_reference_status,
     session_window_status,
+    structure_filter_status,
 )
 
 DAY = date(2026, 11, 27)
@@ -74,3 +77,50 @@ def test_empty_pool_and_incomplete_denominator():
     assert advance_ratio(5, float("inf"), 0) is None
     assert advance_ratio(5, 0, 0) == 100
     assert advance_ratio(0, 0, 0) is None
+
+
+def test_quote_time_is_not_collection_or_execution_time():
+    assert quote_reference_status(session=DAY, market_at=stamp("14:44:00"),
+                                  retrieved_at=stamp("14:45:00")) == "CHRONOLOGY_ONLY"
+    assert quote_reference_status(session=DAY, market_at=stamp("14:42:59"),
+                                  retrieved_at=stamp("14:45:00")) == "QUOTE_STALE"
+    assert quote_reference_status(session=DAY, market_at=stamp("14:45:01"),
+                                  retrieved_at=stamp("14:45:00")) == "QUOTE_AFTER_RETRIEVAL"
+    assert quote_reference_status(session=DAY, market_at=stamp("15:00:00"),
+                                  retrieved_at=stamp("15:00:00")) == "QUOTE_OUTSIDE_TAIL"
+    assert quote_reference_status(session=DAY, market_at=None,
+                                  retrieved_at=stamp("14:45:00")) == "QUOTE_TIME_UNKNOWN"
+
+
+def test_structure_filters_preserve_missing_zero_and_threshold_equality():
+    limits = {"timeline_above_avg_ratio": 80., "tail_30m_slope_min": 0.,
+              "tail_30m_amount_share_min": None, "intraday_drawback_max": 3.,
+              "require_main_inflow": False}
+    observed = {"timeline_above_avg_ratio": 80., "tail_30m_return_pct": 0.,
+                "intraday_drawback_pct": 3.}
+    assert structure_filter_status(observed, limits) == "MATCH"
+    assert structure_filter_status(observed | {"tail_30m_return_pct": None}, limits) == "UNAVAILABLE"
+    assert structure_filter_status(observed | {"intraday_drawback_pct": 3.01}, limits) == "EXCLUDED"
+    assert structure_filter_status(observed | {"timeline_above_avg_ratio": float("nan")}, limits) == "UNAVAILABLE"
+    limits["require_main_inflow"] = True
+    assert structure_filter_status(observed, limits) == "UNAVAILABLE"
+    assert structure_filter_status(observed | {"main_net_inflow_10k": 0.}, limits) == "EXCLUDED"
+    assert structure_filter_status(observed | {"main_net_inflow_10k": 1.}, limits) == "MATCH"
+
+
+def test_daily_flow_scope_does_not_leak_future_or_fill_missing_zero():
+    rows = [{"date": "2026-11-28", "mainNetInflow": 1000000},
+            {"date": "2026-11-27", "mainNetInflow": 0},
+            {"date": "2026-11-26", "mainNetInflow": 100000}]
+    assert dated_daily_flow_reference(rows, session=DAY, cutoff=stamp("14:45:00")) == (
+        None, "DAILY_FLOW_NOT_INTRADAY")
+    assert dated_daily_flow_reference(rows, session=DAY, cutoff=stamp("15:01:00")) == (
+        0., "DATED_DAILY_REFERENCE_ONLY")
+    assert dated_daily_flow_reference(rows[:1], session=DAY, cutoff=stamp("15:01:00")) == (
+        None, "FLOW_SESSION_UNAVAILABLE")
+    assert dated_daily_flow_reference(rows + [{"date": "2026-11-27", "mainNetInflow": 100}],
+                                      session=DAY, cutoff=stamp("15:01:00")) == (
+        None, "FLOW_DUPLICATE_CONFLICT")
+    assert dated_daily_flow_reference([{"date": "2026-11-27", "mainNetInflowYuan": 10000,
+                                        "mainNetInflowWan": 2}], session=DAY, cutoff=stamp("15:01:00")) == (
+        None, "FLOW_UNIT_CONFLICT")
