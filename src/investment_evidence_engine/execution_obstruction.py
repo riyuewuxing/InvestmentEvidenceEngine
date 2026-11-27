@@ -80,21 +80,29 @@ def inspect_explicit_eligibility(rows: list, *, identity: str, sessions: tuple[d
     for day, row in zip(sessions, rows, strict=True):
         if (not isinstance(row, (tuple, list)) or len(row) != 11 or any(type(v) is not str for v in row)
                 or row[0] != day.isoformat() or row[1] != identity or row[8] != "3"
-                or row[9] not in {"0", "1"} or row[10] not in {"0", "1"}):
+                or row[9] not in {"0", "1"}):
             raise ValueError("ELIGIBILITY_ROW_SCHEMA_OR_IDENTITY")
-        if not re.fullmatch(r"[0-9]{1,20}(?:\.[0-9]{1,8})?", row[7]):
-            raise ValueError("ELIGIBILITY_VOLUME")
-        volume = Decimal(row[7])
-        if volume != volume.to_integral_value():
-            raise ValueError("ELIGIBILITY_VOLUME")
         regime = regimes[day]
+        # Some suspended rows contain no volume or ST field. Preserve the
+        # missingness; only an explicit suspension flag plus the reviewed
+        # regime and independent absence of a trade bar can exclude the day.
+        if row[7] == "":
+            volume = None
+        else:
+            if not re.fullmatch(r"[0-9]{1,20}(?:\.[0-9]{1,8})?", row[7]):
+                raise ValueError("ELIGIBILITY_VOLUME")
+            volume = Decimal(row[7])
+            if volume != volume.to_integral_value():
+                raise ValueError("ELIGIBILITY_VOLUME")
         if regime == "SUSPENDED":
-            if row[9] != "0" or volume != 0:
+            if row[9] != "0" or volume not in (None, Decimal(0)) or row[10] not in ("", "0", "1"):
                 raise ValueError("ELIGIBILITY_SUSPENSION_CONFLICT")
             audit.append({"day": day.isoformat(), "status": "SUSPENDED_NOT_TRADE_ELIGIBLE",
-                          "vendor_st_flag": row[10], "trade_price_inferred": False})
+                          "vendor_st_flag": row[10] or None,
+                          "volume_observation": "MISSING_NOT_IMPUTED" if volume is None else "OBSERVED_ZERO",
+                          "trade_price_inferred": False})
             continue
-        if row[9] != "1" or volume <= 0 or row[10] != ("1" if regime == "ST_5" else "0"):
+        if row[9] != "1" or volume is None or volume <= 0 or row[10] != ("1" if regime == "ST_5" else "0"):
             raise ValueError("ELIGIBILITY_ST_OR_TRADE_FLAG_CONFLICT")
         opening, high, low, close, ref = map(tick_price, row[2:7])
         other = other_ohlc[day]

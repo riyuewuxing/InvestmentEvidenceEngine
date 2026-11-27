@@ -23,3 +23,5 @@ jobs:
         timeout-minutes: 4
       - run: timeout --signal=TERM --kill-after=5s 115s python scripts/public_st_transition.py
         timeout-minutes: 3
+
+# Targeted same-source correction for suspended row missingness and exact notice rehash.

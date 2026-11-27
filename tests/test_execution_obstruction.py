@@ -129,3 +129,17 @@ def test_conditional_five_percent_limit_tick():
     assert conditional_limits(Decimal("10.1"), Decimal("0.05")) == (Decimal("9.60"), Decimal("10.61"))
     with pytest.raises(ValueError):
         conditional_limits(Decimal("10"), Decimal("0.20"))
+
+
+def test_suspension_missing_volume_is_not_imputed():
+    dates, rows, regimes, other = status_transition_fixture()
+    rows[1][7] = ""
+    rows[1][10] = ""
+    r = inspect_explicit_eligibility(rows, identity="sz.002748", sessions=dates, regimes=regimes,
+                                     other_ohlc=other, event_references={})
+    assert r["audit"][1]["volume_observation"] == "MISSING_NOT_IMPUTED"
+    assert r["audit"][1]["vendor_st_flag"] is None
+    rows[2][7] = ""
+    with pytest.raises(ValueError, match="TRADE_FLAG_CONFLICT"):
+        inspect_explicit_eligibility(rows, identity="sz.002748", sessions=dates, regimes=regimes,
+                                     other_ohlc=other, event_references={})
