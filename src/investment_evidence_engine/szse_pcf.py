@@ -1,7 +1,7 @@
 """Strict SZSE PCF field decoder. Descriptive only: no order authority."""
+import re
 from datetime import date
 from decimal import Decimal
-import re
 from xml.etree import ElementTree as ET
 
 NS = "{http://ts.szse.cn/Fund}"

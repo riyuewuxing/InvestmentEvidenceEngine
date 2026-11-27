@@ -8,15 +8,15 @@ permissions:
   contents: read
 jobs:
   observation:
-    if: github.event.repository.private == false && github.run_attempt == 1
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - run: pip install -e .
         timeout-minutes: 4
-      - run: python -m investment_evidence_engine.public_szse_pcf_archive_control
+      - run: timeout --signal=TERM --kill-after=5s 170s python -m investment_evidence_engine.public_szse_pcf_archive_control
         timeout-minutes: 3

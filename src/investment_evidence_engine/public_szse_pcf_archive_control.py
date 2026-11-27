@@ -1,11 +1,12 @@
 """Fixed public XML and externally archived release byte comparison, no redistribution."""
-from base64 import b64decode, b64encode
-from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
-from hashlib import sha256
-from io import BytesIO
 import json
 import sys
+from base64 import b64decode, b64encode
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, date, datetime
+from hashlib import sha256
+from io import BytesIO
+from pathlib import Path
 from urllib.parse import urlparse
 from zipfile import ZipFile
 
@@ -81,7 +82,7 @@ def observe(task):
     key, route = task
     symbol, size, expected, published, asset_id = CASES[key]
     result = run_json_worker(
-        (sys.executable, "-m", __name__, "--worker", key, route),
+        (sys.executable, "-m", "investment_evidence_engine.public_szse_pcf_archive_control", "--worker", key, route),
         timeout_seconds=35, max_bytes=8 * 1024 * 1024,
     )
     out = {"date": key, "symbol": symbol, "route": route, "worker_status": result.status,
@@ -117,7 +118,6 @@ def observe(task):
 def main():
     if len(sys.argv) == 5 and sys.argv[1] == "--worker":
         key, route, dest = sys.argv[2:]
-        from pathlib import Path
         write_worker_result(Path(dest), fetch(key, route), max_bytes=8 * 1024 * 1024)
         return
     tasks = [(key, route) for key in CASES for route in ("archive", "official")]
@@ -132,7 +132,7 @@ def main():
             a["fields"] == b["fields"] if "fields" in a and "fields" in b else None
         )})
     print("PUBLIC_SZSE_PCF_ARCHIVE " + json.dumps({
-        "observed_at": datetime.now(timezone.utc).isoformat(), "rows": rows,
+        "observed_at": datetime.now(UTC).isoformat(), "rows": rows,
         "comparisons": comparisons, "historical_first_availability_verified": False,
         "archive_metadata_is_not_exchange_publication_time": True,
         "decision_authority": False, "raw_body_retained": False,
