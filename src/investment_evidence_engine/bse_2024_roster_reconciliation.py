@@ -10,7 +10,6 @@ import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import quote
 
 from .bounded_worker import run_json_worker, write_worker_result
 from .official_pdf_transport import read_bounded_pdf
@@ -18,7 +17,7 @@ from .official_pdf_transport import read_bounded_pdf
 REPO = "riyuewuxing/InvestmentEvidenceEngine"
 MODULE = "investment_evidence_engine.bse_2024_roster_reconciliation"
 URLS = {
-    "mapping": "https://capcofile.oss-cn-beijing.aliyuncs.com/2025/file/" + quote("附件：北交所存量上市公司股票新旧代码对照表.pdf"),
+    "mapping": "https://dataclouds.cninfo.com.cn/sjother/regulatory/2024/20241213/765a685e5d5545248d554c24fefc6684.pdf",
     "ipo": "https://pdf.dfcfw.com/pdf/H3_AP202501121641896845_1.pdf?1736711858000.pdf=",
 }
 CUTOFF = date(2024, 12, 31)
@@ -87,7 +86,8 @@ def reconcile(mapping: list[tuple[int, str, str, str]], ipo: list[tuple[int, str
         "candidate_code_set_sha256": digest(json.dumps(sorted(candidate), separators=(",", ":")).encode()),
         "old_new_suffix_counterexamples": sum(r[2][-3:] != r[3][-3:] for r in mapping),
         "selected_layer_date_rows": sum(r[1] < "2021-11-15" for r in mapping),
-        "mapping_later_publication": True, "ipo_report_later_publication": True,
+        "mapping_attachment_linked_to_notice_dated_2024_12_13": True,
+        "mapping_historical_bytes_availability_verified": False, "ipo_report_later_publication": True,
         "complete_historical_universe_verified": False,
         "historical_availability_verified": False, "pit_safe": False}
 
@@ -108,7 +108,7 @@ def download(kind: str, target: Path, result: Path) -> None:
         report.update(status="OBSERVED", source_bytes=len(raw), source_sha256=digest(raw),
                       observed_at=datetime.now(UTC).isoformat())
     except Exception as exc:
-        report.update(error_type=type(exc).__name__, http_status=getattr(getattr(exc, "response", None), "status_code", None))
+        report.update(error_type=type(exc).__name__, http_status=getattr(getattr(exc, "response", None), "status_code", None), error_reason=str(exc)[:140] if isinstance(exc, ValueError) else None)
     write_worker_result(result, report)
 
 
@@ -119,13 +119,13 @@ def parse(folder: Path, result: Path) -> None:
     r_map, r_ipo = PdfReader(folder / "mapping.pdf", strict=True), PdfReader(folder / "ipo.pdf", strict=True)
     report = {"status": "BLOCK", "mapping_input_sha256": digest(raw_map), "ipo_input_sha256": digest(raw_ipo),
               "mapping_pages": len(r_map.pages), "ipo_pages": len(r_ipo.pages)}
-    if not 1 <= len(r_map.pages) <= 12 or len(r_ipo.pages) != 14 or r_map.is_encrypted or r_ipo.is_encrypted:
+    if not 1 <= len(r_map.pages) <= 12 or len(r_ipo.pages) != 14 or r_map.is_encrypted or r_ipo.is_encrypted or digest(raw_ipo) != IPO_PRIOR_SHA256:
         write_worker_result(result, report | {"reason": "page_scope"})
         return
     mapping_text = "\n".join(p.extract_text(extraction_mode="layout") or "" for p in r_map.pages)
     ipo_text = "\n".join(r_ipo.pages[i].extract_text(extraction_mode="layout") or "" for i in (10, 11))
-    map_marker = "北交所存量上市公司股票新旧代码对照表" in re.sub(r"\s+", "", mapping_text)
-    ipo_marker = "20250112" in re.sub(r"\s+", "", r_ipo.pages[0].extract_text() or "")
+    map_marker = "存量上市公司股票新旧代码对照表" in re.sub(r"\s+", "", mapping_text)
+    ipo_marker = any(x in re.sub(r"\s+", "", r_ipo.pages[0].extract_text() or "") for x in ("20250112", "2025年01月12日", "2025年1月12日"))
     mapping, ipo = parse_mapping(mapping_text), parse_ipo(ipo_text)
     outcome = reconcile(mapping, ipo)
     report.update(mapping_marker=map_marker, ipo_report_date_marker=ipo_marker, reconciliation=outcome,

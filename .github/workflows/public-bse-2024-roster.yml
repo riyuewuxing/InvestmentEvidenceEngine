@@ -20,6 +20,6 @@ jobs:
       - name: Install engine
         run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Parse previously observed IPO original only
-        run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.bse_2024_roster_reconciliation --ipo-only
+      - name: Observe alternate CNINFO regulatory attachment and same-version IPO original
+        run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.bse_2024_roster_reconciliation
         timeout-minutes: 3
