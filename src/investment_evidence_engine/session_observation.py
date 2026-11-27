@@ -196,3 +196,18 @@ def dated_daily_flow_reference(rows: list[dict], *, session: date, cutoff: datet
     if len(set(values)) != 1:
         return None, "FLOW_DUPLICATE_CONFLICT"
     return values[0], "DATED_DAILY_REFERENCE_ONLY"
+
+
+def breadth_percentage(value: object) -> float | None:
+    """A bounded percentage, not a string or an invented default."""
+    v = _finite(value)
+    return v if v is not None and 0 <= v <= 100 else None
+
+
+def breadth_count(value: object) -> int | None:
+    """Integral nonnegative count; reject booleans and fractional values."""
+    if type(value) is int:
+        return value if value >= 0 else None
+    if type(value) is float and isfinite(value) and value >= 0 and value.is_integer():
+        return int(value)
+    return None

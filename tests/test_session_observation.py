@@ -5,6 +5,8 @@ import pytest
 from investment_evidence_engine.session_observation import (
     advance_ratio,
     auction_reference_status,
+    breadth_count,
+    breadth_percentage,
     dated_daily_flow_reference,
     pool_count,
     quote_reference_status,
@@ -169,3 +171,20 @@ def test_tail_market_time_cannot_mask_post_close_retrieval():
 def test_all_explicit_flow_aliases_must_agree(aliases, expected):
     assert dated_daily_flow_reference([{"date": DAY.isoformat()} | aliases],
                                       session=DAY, cutoff=stamp("15:01:00")) == expected
+
+
+@pytest.mark.parametrize("value", [-1, 100.01, float("inf"), float("nan"), True, "50", None])
+def test_invalid_breadth_percentage_is_unknown(value):
+    assert breadth_percentage(value) is None
+
+
+@pytest.mark.parametrize("value", [-1, 1.5, float("inf"), float("nan"), True, "5", None])
+def test_invalid_breadth_count_is_unknown(value):
+    assert breadth_count(value) is None
+
+
+def test_breadth_boundaries_preserve_actual_zero():
+    assert breadth_count(0) == 0
+    assert breadth_count(5.) == 5
+    assert breadth_percentage(0) == 0
+    assert breadth_percentage(100.) == 100
