@@ -1,5 +1,6 @@
 from investment_evidence_engine.csrc_attachment_roster_control import (
     board_candidate,
+    fixed_urls,
     normalize_code,
 )
 
@@ -13,3 +14,10 @@ def test_code_normalization_never_guesses_lost_leading_zeros():
     assert board_candidate("000001.SH") == "SUFFIX_CONFLICT"
     assert board_candidate("689009") == "SH_STAR"
     assert board_candidate("830896.BJ") == "BJ_CANDIDATE"
+
+
+def test_exact_official_attachment_path():
+    page, attachment = fixed_urls("shenzhen")
+    assert page.endswith("/c7535610/content.shtml")
+    assert "/c7535610/7535610/files/" in attachment
+    assert normalize_code(600000, "General") == "600000"

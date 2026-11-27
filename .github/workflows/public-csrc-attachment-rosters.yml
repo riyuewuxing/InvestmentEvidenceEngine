@@ -23,3 +23,5 @@ jobs:
       - name: Observe bounded fixed attachments
         run: timeout --signal=TERM --kill-after=5s 195s python -m investment_evidence_engine.csrc_attachment_roster_control
         timeout-minutes: 4
+
+# Retry only after exact publisher-path mismatch repair.

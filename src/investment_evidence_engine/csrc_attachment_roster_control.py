@@ -52,7 +52,7 @@ class Links(HTMLParser):
 
 def fixed_urls(key: str) -> tuple[str, str]:
     path, _, _, filename = SOURCES[key]
-    return BASE + path + "/content.shtml", BASE + path + "/" + path.rsplit("/", 1)[1] + "/files/" + quote(filename)
+    return BASE + path + "/content.shtml", BASE + path + "/" + path.rsplit("/", 1)[1].removeprefix("c") + "/files/" + quote(filename)
 
 
 def bounded_fetch(url: str, deadline: float) -> bytes:
@@ -78,6 +78,8 @@ def normalize_code(value, number_format: str) -> str | None:
         candidate = re.sub(r"\s+", "", value).upper()
     elif type(value) is int and 0 <= value <= 999999 and number_format == "000000":
         candidate = f"{value:06d}"
+    elif type(value) is int and 100000 <= value <= 999999:
+        candidate = str(value)
     else:
         return None
     return candidate if CODE.fullmatch(candidate) else None
@@ -173,6 +175,8 @@ def worker(key: str, folder: Path, result: Path) -> None:
     try:
         deadline = time.monotonic() + 45
         html_bytes = bounded_fetch(page, deadline)
+        with (folder / "page.html").open("xb") as out:
+            out.write(html_bytes)
         html = html_bytes.decode("utf-8")
         links = Links()
         links.feed(html)
@@ -185,9 +189,8 @@ def worker(key: str, folder: Path, result: Path) -> None:
         raw = bounded_fetch(attachment, deadline)
         report.update(attachment_bytes=len(raw), attachment_sha256=digest(raw),
                       observed_at=datetime.now(UTC).isoformat())
-        for name, data in (("page.html", html_bytes), ("roster.xlsx", raw)):
-            with (folder / name).open("xb") as out:
-                out.write(data)
+        with (folder / "roster.xlsx").open("xb") as out:
+            out.write(raw)
         report["workbook"] = summarize_workbook(raw)
         report["status"] = report["workbook"]["status"]
     except Exception as exc:
