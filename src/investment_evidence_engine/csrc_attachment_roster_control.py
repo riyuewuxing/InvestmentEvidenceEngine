@@ -223,6 +223,14 @@ def worker(key: str, folder: Path, result: Path) -> None:
     write_worker_result(result, report)
 
 
+def prior_jiangxi_version(data: dict) -> str:
+    expected = {"page_sha256": "b0e343022fd7edabe8ac56bf96aa5827a834e7e2161296ed19ce843a20e786e7",
+                "attachment_sha256": "a0133a28f6a3bcba3c3e056f29767f83436b8db1c6964cbd977924c99e6135c6"}
+    if not all(data.get(k) for k in expected):
+        return "NOT_OBSERVED"
+    return "MATCH" if all(data[k] == v for k, v in expected.items()) else "MISMATCH"
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
@@ -239,9 +247,12 @@ def main() -> int:
                 data[name + "_parent_rehash"] = "MATCH" if target.is_file() and digest(target.read_bytes()) == data.get(hash_key) else "NOT_VERIFIED"
             if data["page.html_parent_rehash"] != "MATCH" or data["roster.xlsx_parent_rehash"] != "MATCH":
                 data["status"] = "BLOCK"
-            if selected == ("jiangxi",) and (data.get("page_sha256") != "b0e343022fd7edabe8ac56bf96aa5827a834e7e2161296ed19ce843a20e786e7" or data.get("attachment_sha256") != "a0133a28f6a3bcba3c3e056f29767f83436b8db1c6964cbd977924c99e6135c6"):
-                data["status"] = "BLOCK"
-                data["reason"] = "prior_version_mismatch"
+            if selected == ("jiangxi",):
+                version = prior_jiangxi_version(data)
+                data["prior_version"] = version
+                if version != "MATCH":
+                    data["status"] = "BLOCK"
+                    data["reason"] = "prior_version_not_observed" if version == "NOT_OBSERVED" else "prior_version_mismatch"
             observations[key] = data
     status = "WARN" if any(x["status"] == "WARN" for x in observations.values()) else "BLOCK"
     report = {"status": status, "observations": observations, "as_of": "2024-12-31",

@@ -2,6 +2,7 @@ from investment_evidence_engine.csrc_attachment_roster_control import (
     board_candidate,
     fixed_urls,
     normalize_code,
+    prior_jiangxi_version,
 )
 
 
@@ -51,3 +52,10 @@ def test_empty_sheet_not_invented_and_exact_disjoint_partition():
     raw = io.BytesIO()
     book.save(raw)
     assert summarize_workbook(raw.getvalue())["status"] == "BLOCK"
+
+
+def test_timeout_without_bytes_is_not_a_changed_version():
+    assert prior_jiangxi_version({"worker_status": "WATCHDOG_TIMEOUT"}) == "NOT_OBSERVED"
+    assert prior_jiangxi_version({"page_sha256": "abc", "attachment_sha256": "def"}) == "MISMATCH"
+    assert prior_jiangxi_version({"page_sha256": "b0e343022fd7edabe8ac56bf96aa5827a834e7e2161296ed19ce843a20e786e7",
+                                 "attachment_sha256": "a0133a28f6a3bcba3c3e056f29767f83436b8db1c6964cbd977924c99e6135c6"}) == "MATCH"
