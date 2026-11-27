@@ -1,4 +1,7 @@
-from investment_evidence_engine.csrc_attachment_roster_control import board_candidate, normalize_code
+from investment_evidence_engine.csrc_attachment_roster_control import (
+    board_candidate,
+    normalize_code,
+)
 
 
 def test_code_normalization_never_guesses_lost_leading_zeros():
