@@ -1,13 +1,11 @@
 name: Public CSRC historical roster attachments
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-csrc-attachment-rosters.yml'
 permissions:
   contents: read
 jobs:
   observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:

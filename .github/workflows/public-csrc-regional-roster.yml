@@ -1,13 +1,11 @@
 name: Public CSRC retrospective regional roster diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-csrc-regional-roster.yml'
 permissions:
   contents: read
 jobs:
   observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:

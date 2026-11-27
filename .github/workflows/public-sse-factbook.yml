@@ -1,9 +1,6 @@
 name: Public SSE retrospective factbook diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-sse-factbook.yml'
 permissions:
   contents: read
 jobs:
