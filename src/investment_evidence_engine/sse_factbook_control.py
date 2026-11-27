@@ -119,11 +119,13 @@ def parse(target: Path, result: Path) -> None:
         return
     opening = "".join(reader.pages[i].extract_text() or "" for i in range(12))
     compact = re.sub(r"\s+", "", opening)
-    report["edition_marker"] = "2025卷" in compact and "上海证券交易所统计年鉴" in compact
+    report["edition_marker"] = "2025" in compact and "上海证券交易所统计年鉴" in compact
+    report["edition_diagnostics"] = {"year": "2025" in compact, "title": "上海证券交易所统计年鉴" in compact, "english_title": "SHANGHAISTOCKEXCHANGESTATISTICSANNUAL" in compact.upper()}
     report["period_marker"] = "2024年1月1日至12月31日" in compact
     rows = []
     malformed = 0
     page_receipts = []
+    diagnostic_shapes = []
     # Printed pp24-128 lie inside this bounded physical-page search window.
     for i in range(18, min(145, len(reader.pages))):
         text = reader.pages[i].extract_text(extraction_mode="layout") or ""
@@ -131,11 +133,16 @@ def parse(target: Path, result: Path) -> None:
         if "股票代码" not in normalized or "市价总值" not in normalized or "本年最低" not in normalized:
             continue
         parsed, bad = parse_rows(text)
+        if len(diagnostic_shapes) < 6:
+            for line in text.splitlines():
+                if CODE.match(line) and len(diagnostic_shapes) < 6:
+                    diagnostic_shapes.append(re.sub(r"[^0-9.,\\s—–-]", "X", line)[:300])
         if parsed or bad:
             page_receipts.append([i, len(parsed), bad, digest(text.encode())])
             rows.extend(parsed)
             malformed += bad
     report["selected_pages"] = page_receipts
+    report["diagnostic_shapes"] = diagnostic_shapes
     report["roster"] = summarize(rows, malformed)
     report["status"] = "WARN" if rows and report["edition_marker"] and report["period_marker"] else "BLOCK"
     write_worker_result(result, report)

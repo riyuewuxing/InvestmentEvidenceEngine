@@ -24,3 +24,5 @@ jobs:
       - name: Fixed public original PDF observation
         run: timeout --signal=TERM --kill-after=5s 175s python -m investment_evidence_engine.sse_factbook_control
         timeout-minutes: 4
+
+# Diagnostic: inspect anonymized numeric row layout; no full source retention.
