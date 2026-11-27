@@ -1,0 +1,25 @@
+name: Public BSE 2024 retrospective roster reconciliation
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/public-bse-2024-roster.yml'
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install engine
+        run: python -m pip install -e .
+        timeout-minutes: 4
+      - name: Observe two fixed retrospective documents
+        run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.bse_2024_roster_reconciliation
+        timeout-minutes: 3
