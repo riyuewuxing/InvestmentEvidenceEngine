@@ -22,8 +22,8 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Correct H2 issuer page identity only
+      - name: Reconcile yearbook tail with official monthly counts and issuer lifecycle
         env:
-          SZSE_RECONCILE_MODE: H2_ISSUER_ONLY
+          SZSE_RECONCILE_MODE: COUNTS_AND_TAIL
         run: timeout --signal=TERM --kill-after=5s 355s python -m investment_evidence_engine.szse_factbook_reconcile
         timeout-minutes: 6

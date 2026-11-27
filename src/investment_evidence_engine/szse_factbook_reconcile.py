@@ -35,6 +35,14 @@ URLS = {
     "h1_issuer": "https://static.cninfo.com.cn/finalpage/2024-10-30/1221553847.PDF",
     "h2_issuer": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-08-30/f9523108-47aa-4989-9acd-67429c8d9065.pdf",
 }
+TAIL_URLS = {
+    "month_counts": "https://docs.static.szse.cn/www/aboutus/research/secuities/daily/W020250108392800406412.pdf",
+    "b_identity": "https://disc.static.szse.cn/disc/disk03/finalpage/2024-04-01/c52d1b92-4cac-4c22-bd59-b118c8a32d0e.PDF",
+    "bailong_exit": "https://static.cninfo.com.cn/finalpage/2024-01-23/1218989547.PDF",
+    "dongxu_exit": "https://static.cninfo.com.cn/finalpage/2024-10-11/1221359894.PDF",
+}
+ORIGINAL_KEYS = tuple(URLS)
+URLS.update(TAIL_URLS)
 TOTALS = {"main": Decimal("20587080.87"), "chinext": Decimal("12454072.25")}
 START = {"main": 136, "chinext": 230}
 BOARD_HASH = {
@@ -309,6 +317,121 @@ def parse_all(folder: Path, receipt: Path) -> None:
     write_worker_result(receipt,report)
 
 
+def counts_from_text(text: str) -> dict:
+    """Read the domestic stock listing rows, never the earlier global table."""
+    start = text.find("国内证券市场数据")
+    if start < 0 or "2024年12月底" not in normalize_text(text[start:start+80]):
+        raise ValueError("MONTH_COUNTS_TITLE")
+    text = text[start:]
+    result = {}
+    for key, label in (("a", r"A\s*股\s*[\(（]只[\)）]"), ("b", r"B\s*股\s*[\(（]只[\)）]"),
+                       ("total", r"合计\s*[\(（]只[\)）]"), ("company", r"上市公司数\s*[\(（]家[\)）]")):
+        match = re.search(label + r"\s+((?:[0-9,]+\s+){7}[0-9,]+)(?![0-9,])", text)
+        if match is None:
+            raise ValueError("MONTH_COUNTS_ROW_" + key)
+        result[key] = [int(v.replace(",", "")) for v in match.group(1).split()]
+    a, b, total, company = (result[k] for k in ("a", "b", "total", "company"))
+    for values in result.values():
+        if values[0]!=values[1]+values[2] or values[3]!=values[4]+values[5] or values[7]!=values[0]+values[3]+values[6]:
+            raise ValueError("MONTH_COUNTS_SCOPE_SUM")
+    if [x+y for x,y in zip(a,b,strict=True)]!=total:
+        raise ValueError("MONTH_COUNTS_SHARE_SUM")
+    if min(company)<0:
+        raise ValueError("MONTH_COUNTS_COMPANY")
+    return {"scope":"SZSE_PUBLICATION_DOMESTIC_STOCK_COUNTS_2024_12",
+            "columns":["SZ_total","SZ_main","SZ_chinext","SH_total","SH_main","SH_star","BSE","all"],
+            "counts":result,"publication_issue":"2025-01","first_availability_verified":False,
+            "member_identities_verified":False}
+
+
+def tail_partition(rows: list[tuple], n: int, confirmed_b: str | None) -> dict:
+    """Diagnostic partition, NOT an admitted correction of the publication."""
+    first, tail = rows[:n], rows[n:]
+    first_left, first_right = ({r[i] for r in first} for i in (1,2))
+    tail_left, tail_right = ({r[i] for r in tail} for i in (1,2))
+    def kinds(codes: set[str]) -> dict:
+        return {"a":sum(c.startswith(("000","001","002","003")) for c in codes),
+                "b":sum(c.startswith("200") or c==confirmed_b for c in codes),
+                "unknown":sum(not c.startswith(("000","001","002","003","200")) and c!=confirmed_b for c in codes)}
+    return {"first_rows":len(first),"tail_rows":len(tail),
+            "first_unique_left":len(first_left),"first_unique_right":len(first_right),
+            "first_sets_match":first_left==first_right,"first_left_class_counts":kinds(first_left),
+            "first_right_class_counts":kinds(first_right),
+            "first_descending":all(Decimal(a[3])>=Decimal(b[3]) and Decimal(a[4])>=Decimal(b[4])
+                                   for a,b in zip(first[:-1],first[1:],strict=True)),
+            "tail_only_left":sorted(tail_left-first_left),"tail_only_right":sorted(tail_right-first_right),
+            "tail_repeat_left_count":len(tail_left&first_left),"tail_repeat_right_count":len(tail_right&first_right),
+            "first_market_value_delta_million":str(sum((Decimal(r[3]) for r in first),Decimal(0))-TOTALS["main"]),
+            "first_code_set_sha256":digest_projection(sorted(first_left)),
+            "historical_member_admission":False,"official_correction_claimed":False}
+
+
+def parse_tail(folder: Path, receipt: Path) -> None:
+    from pypdf import PdfReader
+
+    report={"status":"BLOCK","observed_file_sha256":{},"references":{},"historical_universe_complete":False,
+            "pit_safe":False}
+    for key in ("yearbook", *TAIL_URLS):
+        path=folder/(key+".pdf")
+        if path.is_file():
+            report["observed_file_sha256"][key]=hashlib.sha256(path.read_bytes()).hexdigest()
+    for key in TAIL_URLS:
+        path=folder/(key+".pdf")
+        if not path.is_file():
+            continue
+        try:
+            reader=PdfReader(path,strict=True)
+            if reader.is_encrypted or not 1<=len(reader.pages)<=20:
+                raise ValueError("TAIL_REFERENCE_PAGE_SCOPE")
+            if key=="month_counts":
+                item=counts_from_text(reader.pages[1].extract_text(extraction_mode="layout") or "")
+                report["references"][key]=item
+                continue
+            flat="".join(normalize_text(page.extract_text() or "") for page in reader.pages[:3])
+            if key=="b_identity":
+                marks=("招商局港口集团股份有限公司","001872/201872","招港B","深圳证券交易所")
+                fields={"a_code":"001872","b_code":"201872","issuer_document_day":"2024-04-01"}
+            elif key=="bailong_exit":
+                marks=("广东柏堡龙股份有限公司","002776","摘牌日期:2024年1月25日","终止上市决定日期:2024年1月19日")
+                fields={"codes":["002776"],"issuer_reported_delisting_day":"2024-01-25"}
+            else:
+                marks=("东旭光电科技股份有限公司","000413","200413","摘牌日期:2024年10月11日","2024年9月20日")
+                fields={"codes":["000413","200413"],"issuer_reported_delisting_day":"2024-10-11"}
+            if not all(m in flat for m in marks):
+                raise ValueError("TAIL_REFERENCE_FIELDS")
+            report["references"][key]={"status":"OBSERVED_ISSUER_FIELDS",**fields,"first_availability_verified":False}
+        except (ValueError,TypeError,KeyError,RuntimeError,IndexError) as exc:
+            report["references"][key]={"status":"BLOCK","reason":str(exc) if str(exc).startswith(("TAIL_","MONTH_")) else type(exc).__name__}
+    if report["observed_file_sha256"].get("yearbook")==YEARBOOK_SHA:
+        reader=PdfReader(folder/"yearbook.pdf",strict=True)
+        rows=[]
+        malformed=0
+        for i in range(START["main"],START["main"]+TABLES["main"][1]):
+            parsed,bad=parse_rows(reader.pages[i].extract_text(extraction_mode="layout") or "")
+            rows.extend(parsed)
+            malformed+=bad
+        projection=summarize_rows(rows,"main",malformed)
+        report["prior_rank_projection_match"]=projection["ranked_code_projection_sha256"]==BOARD_HASH["main"]
+        if report["prior_rank_projection_match"] and not malformed:
+            ref=report["references"]
+            bcode="201872" if ref.get("b_identity",{}).get("status")=="OBSERVED_ISSUER_FIELDS" else None
+            part=tail_partition(rows,TABLES["main"][2],bcode)
+            report["partition"]=part
+            listed=ref.get("month_counts",{}).get("counts")
+            if listed:
+                report["first_partition_counts_match_month"]=(part["first_left_class_counts"]==part["first_right_class_counts"]==
+                    {"a":listed["a"][1],"b":listed["b"][1],"unknown":0})
+            exit_codes={c for key in ("bailong_exit","dongxu_exit")
+                        for c in ref.get(key,{}).get("codes",[])}
+            report["tail_only_issuer_reported_exit_codes"]=sorted((set(part["tail_only_left"])|set(part["tail_only_right"]))&exit_codes)
+            report["unexplained_tail_only_codes"]=sorted((set(part["tail_only_left"])|set(part["tail_only_right"]))-exit_codes)
+    if (report.get("prior_rank_projection_match") and report.get("first_partition_counts_match_month")
+            and len(report["references"])==4
+            and all(v.get("status")=="OBSERVED_ISSUER_FIELDS" for k,v in report["references"].items() if k!="month_counts")):
+        report["status"]="WARN"
+    write_worker_result(receipt,report)
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY")!=REPO:
         raise SystemExit("public repository required")
@@ -318,11 +441,15 @@ def main() -> int:
     with TemporaryDirectory() as temp:
         folder=Path(temp)
         receipts={}
-        for key in (("h2_issuer",) if os.environ.get("SZSE_RECONCILE_MODE")=="H2_ISSUER_ONLY" else URLS):
+        mode = os.environ.get("SZSE_RECONCILE_MODE", "")
+        keys = ("h2_issuer",) if mode=="H2_ISSUER_ONLY" else ORIGINAL_KEYS
+        if mode=="COUNTS_AND_TAIL":
+            keys=("yearbook", *TAIL_URLS)
+        for key in keys:
             _,receipts[key]=observe(key,folder)
         report["observations"]=receipts
         parser=run_json_worker((sys.executable,"-m","investment_evidence_engine.szse_factbook_reconcile",
-                                "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
+                                "--parse-tail" if mode=="COUNTS_AND_TAIL" else "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
         report["parser_worker"]={"status":parser.status,"elapsed_seconds":parser.elapsed_seconds}
         if parser.status=="OK" and parser.payload is not None:
             parsed=parser.payload
@@ -345,6 +472,8 @@ if __name__=="__main__":
         fetch(sys.argv[2],Path(sys.argv[3]),Path(sys.argv[4]))
     elif len(sys.argv)==4 and sys.argv[1]=="--parse":
         parse_all(Path(sys.argv[2]),Path(sys.argv[3]))
+    elif len(sys.argv)==4 and sys.argv[1]=="--parse-tail":
+        parse_tail(Path(sys.argv[2]),Path(sys.argv[3]))
     elif len(sys.argv)==1:
         raise SystemExit(main())
     else:
