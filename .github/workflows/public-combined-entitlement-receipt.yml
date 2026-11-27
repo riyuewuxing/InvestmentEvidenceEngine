@@ -1,9 +1,7 @@
 name: Public combined entitlement receipt diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-combined-entitlement-receipt.yml'
+
 permissions:
   contents: read
 jobs:
