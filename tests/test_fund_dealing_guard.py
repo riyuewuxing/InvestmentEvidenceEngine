@@ -86,3 +86,12 @@ def test_pcf_later_same_day_capture_is_not_visible_at_earlier_query_time():
     assert result["status"] == "PCF_CAPTURE_AFTER_QUERY_TIME_REFERENCE_ONLY"
     assert result["creation_allowed_reported"] is None
     assert result["redemption_allowed_reported"] is None
+
+
+def test_pcf_announced_in_advance_is_not_current_at_cutoff():
+    result = pcf(effective_date=DAY + timedelta(days=1),
+                 effective_at=CUTOFF + timedelta(days=1))
+    assert result["status"] == "PCF_FUTURE_SESSION_REFERENCE_ONLY"
+    assert result["creation_allowed_reported"] is None
+    assert result["redemption_allowed_reported"] is None
+    assert not result["decision_authority"]

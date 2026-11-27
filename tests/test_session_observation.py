@@ -124,3 +124,48 @@ def test_daily_flow_scope_does_not_leak_future_or_fill_missing_zero():
     assert dated_daily_flow_reference([{"date": "2026-11-27", "mainNetInflowYuan": 10000,
                                         "mainNetInflowWan": 2}], session=DAY, cutoff=stamp("15:01:00")) == (
         None, "FLOW_UNIT_CONFLICT")
+
+
+def test_pool_schema_and_duplicate_identities_are_not_zero_or_counts():
+    class Pool:
+        def __init__(self, codes, columns=("code",)):
+            self.codes = codes
+            self.columns = columns
+            self.empty = not codes
+
+        def __len__(self):
+            return len(self.codes)
+
+        def __getitem__(self, key):
+            return self
+
+        def tolist(self):
+            return self.codes
+
+    assert pool_count(Pool([], ())) is None
+    assert pool_count(Pool([], ("wrong",))) is None
+    assert pool_count(Pool([], ("代码",)), identity_column="代码") == 0
+    assert pool_count(Pool(["000001", "600000"])) == 2
+    assert pool_count(Pool(["000001", "000001"])) is None
+    assert pool_count(Pool(["000001", None])) is None
+    assert pool_count(Pool(["000001", "1"])) is None
+    assert pool_count(Pool(["000001"], ("code", "code"))) is None
+    assert advance_ratio(5.5, 2, 0) is None
+    assert advance_ratio(True, 2, 0) is None
+    assert advance_ratio(5., 5., 0.) == 50.
+
+
+def test_tail_market_time_cannot_mask_post_close_retrieval():
+    assert quote_reference_status(session=DAY, market_at=stamp("14:59:59"),
+                                  retrieved_at=stamp("15:00:00").astimezone(UTC)) == "QUOTE_RETRIEVAL_OUTSIDE_TAIL"
+
+
+@pytest.mark.parametrize(("aliases", "expected"), [
+    ({"mainNetInflowYuan": 10000, "mainNetInflow": 20000}, (None, "FLOW_UNIT_CONFLICT")),
+    ({"mainNetInflowWan": 1, "mainNetInflow": 20000}, (None, "FLOW_UNIT_CONFLICT")),
+    ({"mainNetInflowYuan": 0, "mainNetInflowWan": 0, "mainNetInflow": 0}, (0., "DATED_DAILY_REFERENCE_ONLY")),
+    ({"mainNetInflowYuan": 0, "mainNetInflow": "bad"}, (None, "FLOW_VALUE_UNKNOWN")),
+])
+def test_all_explicit_flow_aliases_must_agree(aliases, expected):
+    assert dated_daily_flow_reference([{"date": DAY.isoformat()} | aliases],
+                                      session=DAY, cutoff=stamp("15:01:00")) == expected

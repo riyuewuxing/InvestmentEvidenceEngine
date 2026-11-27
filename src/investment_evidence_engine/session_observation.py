@@ -61,19 +61,39 @@ def auction_reference_status(*, session: date, market_at: datetime | None,
     return "CHRONOLOGY_ONLY"
 
 
-def pool_count(value: object) -> int | None:
-    """None or schema-less objects are not a verified empty pool."""
-    if value is None or not hasattr(value, "columns") or not hasattr(value, "empty"):
+def pool_count(value: object, *, identity_column: str = "code") -> int | None:
+    """Count distinct identities only in a schema-known provider pool.
+
+    A known empty table is zero; a columnless response, duplicate identities,
+    or malformed codes is unavailable. This does not verify market coverage.
+    """
+    try:
+        if list(value.columns).count(identity_column) != 1:
+            return None
+        count = len(value)
+        if bool(value.empty) != (count == 0):
+            return None
+        if count == 0:
+            return 0
+        codes = value[identity_column].tolist()
+        if len(codes) != count or any(
+            not isinstance(code, str) or len(code) != 6
+            or not code.isascii() or not code.isdigit() for code in codes
+        ):
+            return None
+        return count if len(set(codes)) == count else None
+    except (AttributeError, TypeError, KeyError, ValueError):
         return None
-    return len(value)
 
 
 def advance_ratio(up: object, down: object, flat: object) -> float | None:
     values = (up, down, flat)
-    if any(type(x) not in (int, float) or not isfinite(x) or x < 0 for x in values):
+    if any(type(x) not in (int, float) or x < 0
+           or (type(x) is float and (not isfinite(x) or not x.is_integer())) for x in values):
         return None
-    total = sum(values)
-    return up / total * 100 if total > 0 else None
+    counts = tuple(int(x) for x in values)
+    total = sum(counts)
+    return counts[0] / total * 100 if total > 0 else None
 
 
 def quote_reference_status(*, session: date, market_at: datetime | None,
@@ -90,6 +110,8 @@ def quote_reference_status(*, session: date, market_at: datetime | None,
     age = (r - m).total_seconds()
     if age < 0:
         return "QUOTE_AFTER_RETRIEVAL"
+    if not time(14, 30) <= r.time() < time(15):
+        return "QUOTE_RETRIEVAL_OUTSIDE_TAIL"
     if age > max_age_seconds:
         return "QUOTE_STALE"
     return "CHRONOLOGY_ONLY"
@@ -153,20 +175,22 @@ def dated_daily_flow_reference(rows: list[dict], *, session: date, cutoff: datet
     for row in rows:
         if row.get("date") != session.isoformat():
             continue
-        value_yuan = _finite(row.get("mainNetInflowYuan"))
-        value_wan = _finite(row.get("mainNetInflowWan"))
-        legacy = _finite(row.get("mainNetInflow"))
-        if value_yuan is not None and value_wan is not None:
-            if abs(value_yuan / 10000 - value_wan) > 1e-8:
-                return None, "FLOW_UNIT_CONFLICT"
-        value = value_yuan / 10000 if value_yuan is not None else value_wan
-        if value is None and legacy is not None:
-            # Existing daily-provider contract is yuan. Generic netInflow
-            # without a declared main-flow field is deliberately not accepted.
-            value = legacy / 10000
-        if value is None:
+        aliases = []
+        # The existing daily-provider legacy field is yuan. A conflicting
+        # explicitly supplied alias cannot be silently ignored.
+        for key, scale in (("mainNetInflowYuan", 10000), ("mainNetInflowWan", 1),
+                           ("mainNetInflow", 10000)):
+            if row.get(key) is None:
+                continue
+            value = _finite(row[key])
+            if value is None:
+                return None, "FLOW_VALUE_UNKNOWN"
+            aliases.append(value / scale)
+        if not aliases:
             return None, "FLOW_VALUE_UNKNOWN"
-        values.append(value)
+        if any(abs(value - aliases[0]) > 1e-8 for value in aliases[1:]):
+            return None, "FLOW_UNIT_CONFLICT"
+        values.append(aliases[0])
     if not values:
         return None, "FLOW_SESSION_UNAVAILABLE"
     if len(set(values)) != 1:

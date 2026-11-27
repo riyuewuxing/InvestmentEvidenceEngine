@@ -76,25 +76,29 @@ def retrospective_t_close_sensitivity(primary: dict, secondary: dict | None, dai
               "actual_fills_verified": False, "bid_ask_observed": False,
               "broker_fee_verified": False, "decision_authority": False,
               "execution_allowed": False, "research_only": True}
-    if (primary.get("source") != "baostock" or primary.get("session") != session.isoformat()
-            or primary.get("complete") is not True or set(primary.get("bars", {})) != set(expected_endpoints(session))
-            or primary.get("normalized_sha256") != canonical_sha256(primary["bars"])):
+    def complete_reference(value, source):
+        return (value.get("source") == source and value.get("session") == session.isoformat()
+                and value.get("complete") is True
+                and type(value.get("count")) is int and value["count"] == len(expected_endpoints(session))
+                and type(value.get("missing_count")) is int and value["missing_count"] == 0
+                and isinstance(value.get("bars"), dict)
+                and set(value["bars"]) == set(expected_endpoints(session))
+                and value.get("normalized_sha256") == canonical_sha256(value["bars"]))
+
+    if not complete_reference(primary, "baostock"):
         return result | {"reason": "PRIMARY_COMPLETE_SESSION_REQUIRED"}
     b = primary["bars"]
     match = "UNAVAILABLE"
     if secondary is not None:
-        if (secondary.get("source") != "sina" or secondary.get("session") != session.isoformat()
-                or secondary.get("complete") is not True
-                or set(secondary.get("bars", {})) != set(expected_endpoints(session))
-                or secondary.get("normalized_sha256") != canonical_sha256(secondary["bars"])):
+        if not complete_reference(secondary, "sina"):
             match = "INCOMPLETE"
         else:
             match = "MATCH" if all(Decimal(b[t]["close"]) == Decimal(secondary["bars"][t]["close"])
                                    for t in b) else "CONFLICT"
     result |= {"close_crosscheck": match, "observed_primary_count": primary["count"],
-               "observed_secondary_count": secondary["count"] if secondary else 0,
+               "observed_secondary_count": len(secondary["bars"]) if secondary and isinstance(secondary.get("bars"), dict) else None,
                "primary_normalized_sha256": primary["normalized_sha256"],
-               "secondary_normalized_sha256": secondary["normalized_sha256"] if secondary else None}
+               "secondary_normalized_sha256": secondary.get("normalized_sha256") if secondary else None}
     if match == "CONFLICT":
         return result | {"reason": "MINUTE_SOURCE_CLOSE_CONFLICT",
                          "conflicting_close_count": sum(Decimal(b[t]["close"]) != Decimal(secondary["bars"][t]["close"]) for t in b)}
@@ -119,6 +123,8 @@ def retrospective_t_close_sensitivity(primary: dict, secondary: dict | None, dai
             return result | {"reason": "MINUTE_DAILY_OHLC_CONFLICT"}
     except (KeyError, ArithmeticError, ValueError, TypeError):
         return result | {"reason": "DAILY_OHLC_INVALID"}
+    if match != "MATCH":
+        return result | {"reason": "SECONDARY_COMPLETE_SESSION_REQUIRED"}
     # Use a synthetic envelope independent of any real account. Both side
     # prices equal a bar's last price; this assumes zero spread and is NOT a fill.
     first, second = (b[t]["close"] for t in ("10:00", "14:30"))
@@ -141,9 +147,9 @@ def retrospective_t_close_sensitivity(primary: dict, secondary: dict | None, dai
         "reason": "ZERO_SPREAD_ASSUMED_BAR_CLOSES_NOT_QUOTES_OR_FILL",
         "close_crosscheck": match,
         "observed_primary_count": primary["count"],
-        "observed_secondary_count": secondary["count"] if secondary else 0,
+        "observed_secondary_count": len(secondary["bars"]) if secondary and isinstance(secondary.get("bars"), dict) else None,
         "primary_normalized_sha256": primary["normalized_sha256"],
-        "secondary_normalized_sha256": secondary["normalized_sha256"] if secondary else None,
+        "secondary_normalized_sha256": secondary.get("normalized_sha256") if secondary else None,
         "daily_ohlc_match": True,
         "daily_state_provider": "baostock_same_provider_not_independent",
         "close_change_10_to_1430_pct": float((Decimal(second)/Decimal(first)-1)*100),

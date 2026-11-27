@@ -23,6 +23,8 @@ def pcf_channel_diagnostic(*, effective_date: datetime | None, effective_at: dat
     if not source_visible(available_at=available_at, retrieved_at=ingested_at,
                           published_at=None, cutoff=cutoff):
         return result
+    if effective_at > cutoff:
+        return result | {"status": "PCF_FUTURE_SESSION_REFERENCE_ONLY"}
     if effective_date.astimezone(SHANGHAI).date() != effective_at.astimezone(SHANGHAI).date():
         return result | {"status": "PCF_OTHER_SESSION_REFERENCE_ONLY"}
     if effective_date > effective_at:

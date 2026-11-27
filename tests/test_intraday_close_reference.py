@@ -68,3 +68,27 @@ def test_duplicates_bad_adjustment_and_lunch_bar_fail_closed():
     data[0]["time"] = "2026-11-27 12:00:00"
     with pytest.raises(ValueError):
         norm(data)
+
+
+@pytest.mark.parametrize("secondary_kind", ["missing", "incomplete", "bad_count", "bad_missing_count"])
+def test_missing_or_inconsistent_second_source_never_yields_comparative_sensitivity(secondary_kind):
+    b = norm(rows(), "sina")
+    if secondary_kind == "missing":
+        b = None
+    elif secondary_kind == "incomplete":
+        b = norm(rows()[1:], "sina")
+    elif secondary_kind == "bad_count":
+        b["count"] = 47
+    else:
+        b["missing_count"] = 1
+    out = retrospective_t_close_sensitivity(norm(rows()), b, daily(), session=DAY, evaluated_at=NOW)
+    assert out["status"] == "BLOCK"
+    assert out["reason"] == "SECONDARY_COMPLETE_SESSION_REQUIRED"
+    assert "conditional_results" not in out
+    assert out["actual_fills_verified"] is False
+
+
+def test_forged_primary_count_never_qualifies():
+    a = norm(rows()) | {"count": 47}
+    out = retrospective_t_close_sensitivity(a, norm(rows(), "sina"), daily(), session=DAY, evaluated_at=NOW)
+    assert out["reason"] == "PRIMARY_COMPLETE_SESSION_REQUIRED"
