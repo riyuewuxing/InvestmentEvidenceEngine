@@ -20,6 +20,6 @@ jobs:
       - name: Install engine
         run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Observe separate dated regulatory notice
+      - name: Compare plain and layout extraction of exact previously observed notice
         run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.bse_2024_roster_reconciliation --notice-only
         timeout-minutes: 3

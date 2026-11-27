@@ -20,6 +20,7 @@ URLS = {
     "mapping": "https://dataclouds.cninfo.com.cn/sjother/regulatory/2024/20241213/765a685e5d5545248d554c24fefc6684.pdf",
     "ipo": "https://pdf.dfcfw.com/pdf/H3_AP202501121641896845_1.pdf?1736711858000.pdf=",
 }
+NOTICE_PRIOR_SHA256 = "46535d7c7301514e83a7856968b5ee8e60069c5707fb87d79fcfd07a9974cf59"
 NOTICE_URL = "https://dataclouds.cninfo.com.cn/sjother/regulatory/2024/20241213/d7cfc96e816541629e69b0e257d98dbe.pdf"
 CUTOFF = date(2024, 12, 31)
 MAX_BYTES = 8 * 1024 * 1024
@@ -209,8 +210,13 @@ def notice_child(target: Path, result: Path) -> None:
     raw = target.read_bytes()
     reader = PdfReader(target, strict=True)
     report = {"input_sha256": digest(raw), "pages": len(reader.pages), "status": "BLOCK"}
-    if not reader.is_encrypted and 1 <= len(reader.pages) <= 8:
-        report.update(parse_notice_text("\n".join(page.extract_text() or "" for page in reader.pages)))
+    if not reader.is_encrypted and 1 <= len(reader.pages) <= 8 and report["input_sha256"] == NOTICE_PRIOR_SHA256:
+        plain = "\n".join(page.extract_text() or "" for page in reader.pages)
+        layout = "\n".join(page.extract_text(extraction_mode="layout") or "" for page in reader.pages)
+        plain_checks, layout_checks = parse_notice_text(plain), parse_notice_text(layout)
+        report.update(layout_checks if layout_checks["status"] == "WARN" else plain_checks)
+        report["plain_checks"] = plain_checks["checks"]
+        report["layout_checks"] = layout_checks["checks"]
     write_worker_result(result, report)
 
 
