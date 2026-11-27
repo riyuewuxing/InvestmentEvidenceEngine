@@ -1,0 +1,104 @@
+{
+  "source_run": 45958440503,
+  "source_job": 140370277263,
+  "source_executor_commit": "cd13bc608947a1fb72f4badf34a0c9c1c72564a6",
+  "documents": [
+    {
+      "symbol": "510330",
+      "sha256": "f0b3d948633558c55317fbc852257eb9657dfef3c47e89d5a9e5fe80ab099826",
+      "fields": {
+        "begin_units": "7489149828",
+        "benchmark_label": "沪深300指数",
+        "created_units": "2558700000",
+        "declared_report_day": "2026-10-27",
+        "end_assets_cny": "39308243289.09",
+        "end_nav_cny": "4.6207",
+        "end_units": "8507049828",
+        "overview_end_units": "8507049828",
+        "performance": {
+          "1Y": {
+            "benchmark_return_pct": "-6.10",
+            "benchmark_std_pct": "1.13",
+            "nav_return_pct": "-3.98",
+            "nav_std_pct": "1.13",
+            "return_difference_pp": "2.12",
+            "std_difference_pp": "0.00"
+          },
+          "3M": {
+            "benchmark_return_pct": "-12.49",
+            "benchmark_std_pct": "1.28",
+            "nav_return_pct": "-11.62",
+            "nav_std_pct": "1.27",
+            "return_difference_pp": "0.87",
+            "std_difference_pp": "-0.01"
+          },
+          "6M": {
+            "benchmark_return_pct": "-2.08",
+            "benchmark_std_pct": "1.28",
+            "nav_return_pct": "-0.45",
+            "nav_std_pct": "1.27",
+            "return_difference_pp": "1.63",
+            "std_difference_pp": "-0.01"
+          }
+        },
+        "period_end": "2026-09-30",
+        "period_start": "2026-07-01",
+        "profit_cny": "-4777560371.38",
+        "realized_profit_cny": "1463241104.82",
+        "redeemed_units": "1540800000",
+        "split_units_label": "DASH",
+        "symbol": "510330"
+      },
+      "observed_at": "2026-11-27T07:26:36.668538+00:00"
+    },
+    {
+      "symbol": "510320",
+      "sha256": "bce1bb11a2e0898b37f174ebbb96bba30794167a0cffc4e8b3182365dd86241c",
+      "fields": {
+        "begin_units": "676068476.00",
+        "benchmark_label": "沪深300指数收益率",
+        "created_units": "90000000.00",
+        "declared_report_day": "2026-10-27",
+        "end_assets_cny": "798572698.20",
+        "end_nav_cny": "1.1918",
+        "end_units": "670068476.00",
+        "overview_end_units": "670068476.00",
+        "performance": {
+          "1Y": {
+            "benchmark_return_pct": "-6.10",
+            "benchmark_std_pct": "1.13",
+            "nav_return_pct": "-4.24",
+            "nav_std_pct": "1.11",
+            "return_difference_pp": "1.86",
+            "std_difference_pp": "-0.02"
+          },
+          "3M": {
+            "benchmark_return_pct": "-12.49",
+            "benchmark_std_pct": "1.28",
+            "nav_return_pct": "-11.55",
+            "nav_std_pct": "1.26",
+            "return_difference_pp": "0.94",
+            "std_difference_pp": "-0.02"
+          },
+          "6M": {
+            "benchmark_return_pct": "-2.08",
+            "benchmark_std_pct": "1.28",
+            "nav_return_pct": "-0.66",
+            "nav_std_pct": "1.25",
+            "return_difference_pp": "1.42",
+            "std_difference_pp": "-0.03"
+          }
+        },
+        "period_end": "2026-09-30",
+        "period_start": "2026-07-01",
+        "profit_cny": "-96460547.49",
+        "realized_profit_cny": "15731715.78",
+        "redeemed_units": "96000000.00",
+        "split_units_label": "DASH",
+        "symbol": "510320"
+      },
+      "observed_at": "2026-11-27T07:26:42.879381+00:00"
+    }
+  ],
+  "formal_research_admitted": false
+}

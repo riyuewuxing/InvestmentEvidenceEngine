@@ -1,0 +1,31 @@
+name: Public ETF retrospective close NAV evidence
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-etf-close-nav-control.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-etf-close-nav-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e ".[dev]"
+      - name: Crosscheck fixed past-session closes
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 120s python -m investment_evidence_engine.public_etf_close_nav_control

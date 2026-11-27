@@ -1,10 +1,6 @@
 name: Public ETF Q3 report evidence
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-etf-q3-control.yml'
 permissions:
   contents: read
 concurrency:
