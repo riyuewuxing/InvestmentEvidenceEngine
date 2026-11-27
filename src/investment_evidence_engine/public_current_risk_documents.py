@@ -10,6 +10,7 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from .bounded_worker import run_json_worker, write_worker_result
@@ -22,6 +23,8 @@ DOCS = {
     "pledge": ("2026-11-19/1225677917.PDF", "000035"),
     "guarantee": ("2026-11-20/1225679474.PDF", "000035"),
     "release": ("2026-11-25/1225685289.PDF", "000035"),
+    "purchase_plan": ("2026-08-06/1225458827.PDF", "000035"),
+    "purchase_completion": ("2026-11-06/1225659178.PDF", "000035"),
 }
 
 
@@ -67,6 +70,34 @@ def parse_notice(key: str, pages: tuple[str, ...]) -> dict:
         fields = {"kind": "CONTROLLER_GROUP_RELEASE", "released_shares": 32258065,
                   "after_group_pledged_shares": 379070000, "group_holdings_shares": 612152769,
                   "reported_group_pct": "61.92", "reported_issuer_pct": "15.87"}
+    elif key == "purchase_plan":
+        checks |= {
+            "title": present(first, "关于控股股东取得金融机构增持贷款承诺函暨增持公司股份计划的公告"),
+            "notice": present(first, "TY2026-36"),
+            "plan_min": present(full, "不低于人民币5,000万元"),
+            "plan_max": present(full, "不超过人民币10,000万元"),
+            "loan_commitment": present(full, "不超过人民币9,000万元的股票增持专项贷款"),
+            "loan_term": present(full, "贷款期限3年"),
+            "commitment_validity": present(full, "该承诺函有效期1年"),
+            "borrower": present(full, "南通乾创"),
+        }
+        fields = {"kind": "CONTROLLER_PURCHASE_PLAN", "plan_min_cny": 50000000,
+                  "plan_max_cny": 100000000, "loan_commitment_max_cny": 90000000,
+                  "loan_term_years": 3, "commitment_validity_years": 1}
+    elif key == "purchase_completion":
+        checks |= {
+            "title": present(first, "关于控股股东增持公司股份计划实施完成暨增持结果的公告"),
+            "notice": present(first, "TY2026-55"),
+            "shares": present(full, "累计增持公司股份21,383,824股"),
+            "amount": present(full, "增持股份金额合计为9,997.04万元(不含交易费用)"),
+            "group_before": present(full, "合计持有公司股份590,768,945股"),
+            "group_after": present(full, "合计持有公司股份612,152,769股"),
+            "completed": present(full, "截至2026年11月5日", "截至2026年11月5日,"),
+            "prior_plan": present(full, "TY2026-36"),
+        }
+        fields = {"kind": "CONTROLLER_PURCHASE_COMPLETION", "reported_purchased_shares": 21383824,
+                  "reported_purchase_cny": 99970400, "group_before_shares": 590768945,
+                  "group_after_shares": 612152769, "reported_completed_day": "2026-11-05"}
     else:
         checks |= {
             "title": present(first, "关于为子公司提供担保的公告"),
@@ -82,7 +113,8 @@ def parse_notice(key: str, pages: tuple[str, ...]) -> dict:
                   "reported_aggregate_to_audited_net_assets_pct": "133.86",
                   "reported_ownership_pct": "95", "joint_liability_reported": True}
     # Do not output a value if any anchor for that notice fails.
-    return {"anchor_checks": checks, "fields": fields if all(checks.values()) else None}
+    return {"anchor_checks": checks, "field_validation": "REVIEWED_TEXT_ANCHORS_NOT_INDEPENDENT_TABLE_EXTRACTION",
+            "fields": fields if all(checks.values()) else None}
 
 
 def summarize(notices: list[dict]) -> dict:
@@ -161,20 +193,47 @@ def observe(key: str) -> dict:
         return out | {"error": msg if re.fullmatch(r"[A-Z0-9_]{3,80}", msg) else type(exc).__name__}
 
 
-def main() -> int:
+def purchase_summary(notices: list[dict]) -> dict:
+    verified = {r["key"]: r["fields"] for r in notices
+                if r["status"] == "OBSERVED" and r.get("fields") is not None}
+    plan, completion = verified.get("purchase_plan"), verified.get("purchase_completion")
+    matched = None
+    average = None
+    if plan and completion:
+        matched = (plan["plan_min_cny"] <= completion["reported_purchase_cny"] <= plan["plan_max_cny"]
+                   and completion["group_before_shares"] + completion["reported_purchased_shares"]
+                   == completion["group_after_shares"])
+        if matched:
+            average = str((Decimal(completion["reported_purchase_cny"])
+                           / completion["reported_purchased_shares"]).quantize(Decimal("0.0001")))
+    return {"status": "WARN" if matched else "BLOCK", "notices": notices,
+            "reported_purchase_plan_and_completion_match": matched,
+            "reported_average_price_ex_fees_cny": average,
+            "loan_actual_drawdown_cny": None, "loan_actual_repayment_cny": None,
+            "issuer_received_purchase_cash_cny": None, "shareholder_cost_not_fair_value": True,
+            "actual_individual_fills_verified": False, "historical_first_availability_verified": False,
+            "durable_original_bytes_verified": False, "research_only": True,
+            "decision_authority": False, "execution_allowed": False}
+
+
+def main(*, purchase: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     with ThreadPoolExecutor(max_workers=2) as pool:
-        notices = list(pool.map(observe, DOCS))
-    result = summarize(notices) | {"executor_commit": os.environ["GITHUB_SHA"],
+        keys = ("purchase_plan", "purchase_completion") if purchase else ("pledge", "guarantee", "release")
+        notices = list(pool.map(observe, keys))
+    result = (purchase_summary(notices) if purchase else summarize(notices)) | {"executor_commit": os.environ["GITHUB_SHA"],
                                   "observed_cutoff": datetime.now(UTC).isoformat()}
-    print("PUBLIC_CURRENT_RISK_DOCUMENTS " + json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False), flush=True)
+    marker = "PUBLIC_CONTROLLER_PURCHASE_CHAIN " if purchase else "PUBLIC_CURRENT_RISK_DOCUMENTS "
+    print(marker + json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False), flush=True)
     return 0 if result["status"] == "WARN" else 2
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--child" and sys.argv[2] in DOCS:
         _child(sys.argv[2], Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--purchase"]:
+        raise SystemExit(main(purchase=True))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:

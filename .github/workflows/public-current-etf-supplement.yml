@@ -1,9 +1,6 @@
 name: Public current alternative one-route supplement
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-current-etf-supplement.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
