@@ -101,3 +101,29 @@ def test_replay_exact_observed_public_metadata():
     assert rows["015558"]["estimated_operation_rate_pct_reported"] == "0.71"
     assert rows["013125"]["document_day"] == "2025-06-30"
     assert all(not row["formal_admission"] and not row["candidate_rank_membership_verified"] for row in rows.values())
+
+def test_active_identity_requires_separate_listing_and_never_imputes_cost_or_tracking():
+    r = report()
+    x = r["records"][0]
+    x["fields"].update(product_kind="ACTIVE_ETF", share_class_codes=["123456"],
+                       listed_exchange_reported="SZSE", manager_start_reported=None,
+                       fee_basis="FUND_ASSET_NAV", estimated_operation_rate_pct={"123456": None},
+                       not_index_tracking_objective=True)
+    with pytest.raises((ValueError, KeyError)):
+        parse(r)
+    listing = dict(x, code="123456_listing", page_count=1,
+                   url="https://static.cninfo.com.cn/finalpage/2026-11-23/123457.PDF")
+    listing["fields"] = {"code": "123456", "product_kind": "ACTIVE_ETF",
+                         "document_day": "2026-11-23", "listing_day_reported": "2026-11-23",
+                         "listed_exchange_reported": "SZSE", "actual_dealing_verified": False,
+                         "formal_admission": False}
+    x["listing_notice"] = listing
+    row = parse(r)["123456"]
+    assert row["product_kind_reported"] == "ACTIVE_ETF"
+    assert row["listing_day_reported"] == "2026-11-23"
+    assert row["manager_start_reported"] is None
+    assert row["estimated_operation_rate_pct_reported"] is None
+    assert row["tracking_error_target_pct_reported"] is None
+    listing["fields"]["listed_exchange_reported"] = "SSE"
+    with pytest.raises(ValueError):
+        parse(r)

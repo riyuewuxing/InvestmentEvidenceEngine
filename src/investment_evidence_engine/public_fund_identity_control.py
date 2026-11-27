@@ -26,6 +26,8 @@ DOCS = {
     "510300": "https://www.sse.com.cn/disclosure/fund/announcement/c/new/2026-11-24/510300_20261124_2XJH.pdf",
     "161907": "https://static.cninfo.com.cn/finalpage/2025-11-05/1224785388.PDF",
     "013125": "https://static.cninfo.com.cn/finalpage/2025-06-30/1224031441.PDF",
+    "158909": "https://static.cninfo.com.cn/finalpage/2026-10-20/1225611350.PDF",
+    "158909_listing": "https://static.cninfo.com.cn/finalpage/2026-11-23/1225682591.PDF",
 }
 
 
@@ -35,6 +37,15 @@ def require(text: str, *terms: str) -> None:
 
 
 def parse_summary(code: str, pages: tuple[str, ...]) -> dict:
+    if code == "158909_listing":
+        if len(pages) != 1:
+            raise ValueError("ACTIVE_LISTING_PAGE_SCOPE")
+        page = compact(pages[0])
+        require(page, "建信均衡优选主动管理交易型开放式股票证券投资基金上市交易提示性公告",
+                "2026年11月23日开始在深圳证券交易所上市交易", "代码:158909")
+        return {"code": "158909", "document_day": "2026-11-23", "listing_day_reported": "2026-11-23",
+                "listed_exchange_reported": "SZSE", "product_kind": "ACTIVE_ETF",
+                "actual_dealing_verified": False, "formal_admission": False}
     if code not in DOCS or not 3 <= len(pages) <= 8 or any(not isinstance(p, str) for p in pages):
         raise ValueError("IDENTITY_PAGE_SCOPE")
     first = compact(pages[0])
@@ -55,6 +66,18 @@ def parse_summary(code: str, pages: tuple[str, ...]) -> dict:
                   "management_rate_pct": "0.15", "custody_rate_pct": "0.05",
                   "fee_basis": "FUND_ASSET_NAV", "estimated_operation_rate_pct": {"510300": "0.20"},
                   "tracking_error_target_pct": "2", "target_not_realized_tracking_error": True}
+    elif code == "158909":
+        require(first, "建信均衡优选主动管理交易型开放式股票证券投资基金",
+                "送出日期:2026年10月20日", "深圳证券交易所", "陶灿", "郭志腾")
+        require(strategy, "不以跟踪特定指数为投资目标", "中证800指数收益率")
+        require(fees, "管理费1.00%", "托管费0.15%")
+        fields = {"product_kind": "ACTIVE_ETF", "share_class_codes": [code],
+                  "document_day": "2026-10-20", "listed_exchange_reported": "SZSE",
+                  "manager_name_reported": "陶灿、郭志腾", "manager_start_reported": None,
+                  "benchmark": "中证800指数收益率", "management_rate_pct": "1.00",
+                  "custody_rate_pct": "0.15", "fee_basis": "FUND_ASSET_NAV",
+                  "estimated_operation_rate_pct": {code: None},
+                  "not_index_tracking_objective": True}
     elif code == "161907":
         require(first, "万家中证红利交易型开放式指数证券投资基金联接基金",
                 "送出日期:2025年11月05日", "下属基金交易代码161907", "下属基金交易代码015558",
@@ -136,7 +159,7 @@ def observe(code: str) -> dict:
         from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(raw), strict=True)
-        if reader.is_encrypted or not 3 <= len(reader.pages) <= 8:
+        if reader.is_encrypted or not (len(reader.pages) == 1 if code.endswith("_listing") else 3 <= len(reader.pages) <= 8):
             raise ValueError("IDENTITY_PAGE_SCOPE")
         pages = tuple(page.extract_text() or "" for page in reader.pages)
         result["page_count"] = len(pages)
@@ -146,13 +169,17 @@ def observe(code: str) -> dict:
         return result | {"error": message if re.fullmatch(r"[A-Z0-9_]{3,80}", message) else type(exc).__name__}
 
 
-def main() -> int:
+def main(*, active_only: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     start = datetime.now(UTC)
     with ThreadPoolExecutor(max_workers=3) as pool:
-        records = list(pool.map(observe, DOCS))
+        keys = ("158909", "158909_listing") if active_only else ("510300", "161907", "013125")
+        records = list(pool.map(observe, keys))
     complete = all(r["status"] == "OBSERVED" for r in records)
+    if active_only and complete:
+        records[0]["listing_notice"] = records[1]
+        records = records[:1]
     report = {"status": "WARN" if complete else "BLOCK_PARTIAL",
               "executor_commit": os.environ["GITHUB_SHA"], "started_at": start.isoformat(),
               "finished_at": datetime.now(UTC).isoformat(), "records": records,
@@ -168,5 +195,7 @@ if __name__ == "__main__":
         child(sys.argv[2], Path(sys.argv[3]))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
+    elif sys.argv[1:] == ["--active-only"]:
+        raise SystemExit(main(active_only=True))
     else:
         raise SystemExit(2)

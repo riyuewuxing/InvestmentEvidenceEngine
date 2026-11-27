@@ -127,10 +127,15 @@ def parse_identity_receipt(log_line: str, *, expected_commit: str, now: datetime
             raise ValueError("IDENTITY_DOCUMENT_DAY")
         if urlsplit(url).hostname == "www.sse.com.cn" and not urlsplit(url).path.rsplit("/", 1)[-1].startswith(code + "_"):
             raise ValueError("IDENTITY_EXCHANGE_CODE")
-        manager_start = _date(f["manager_start_reported"])
-        if manager_start > doc:
-            raise ValueError("IDENTITY_MANAGER_DATE")
         kind = f["product_kind"]
+        manager_start = f["manager_start_reported"]
+        if manager_start is None:
+            if kind != "ACTIVE_ETF":
+                raise ValueError("IDENTITY_MANAGER_DATE")
+        else:
+            manager_start = _date(manager_start)
+            if manager_start > doc:
+                raise ValueError("IDENTITY_MANAGER_DATE")
         classes = f["share_class_codes"]
         if not isinstance(classes, list) or not 1 <= len(classes) <= 16:
             raise ValueError("IDENTITY_CLASS_SCOPE")
@@ -140,16 +145,48 @@ def parse_identity_receipt(log_line: str, *, expected_commit: str, now: datetime
         rates = f["estimated_operation_rate_pct"]
         if not isinstance(rates, dict) or set(rates) != set(classes):
             raise ValueError("IDENTITY_RATE_SCOPE")
-        rates = {c: _rate(v) for c, v in rates.items()}
+        rates = {c: (None if v is None and kind == "ACTIVE_ETF" else _rate(v)) for c, v in rates.items()}
+        listing_day = None
+        listing_url = None
+        listing_hash = None
+        listing_capture = None
         basis = f["fee_basis"]
         if kind == "INDEX_ETF":
             if classes != [code] or basis != "FUND_ASSET_NAV" or f.get("listed_exchange_reported") not in {"SSE", "SZSE"}:
                 raise ValueError("IDENTITY_ETF_SCOPE")
             if urlsplit(url).hostname == "www.sse.com.cn" and f["listed_exchange_reported"] != "SSE":
                 raise ValueError("IDENTITY_EXCHANGE_CONFLICT")
-            if _date(f["listing_day_reported"]) > doc or f.get("target_not_realized_tracking_error") is not True:
+            listing_day = _date(f["listing_day_reported"])
+            if listing_day > doc or f.get("target_not_realized_tracking_error") is not True:
                 raise ValueError("IDENTITY_ETF_SCOPE")
             target = _rate(f["tracking_error_target_pct"])
+        elif kind == "ACTIVE_ETF":
+            if (classes != [code] or basis != "FUND_ASSET_NAV"
+                    or f.get("listed_exchange_reported") not in {"SSE", "SZSE"}
+                    or f.get("not_index_tracking_objective") is not True
+                    or "tracking_error_target_pct" in f or "listing_day_reported" in f):
+                raise ValueError("IDENTITY_ACTIVE_SCOPE")
+            listing = r["listing_notice"]
+            listing_url = listing["url"]
+            la, lb, lc = (_time(listing[k]) for k in ("started_at", "finished_at", "retrieved_at"))
+            lf = listing["fields"]
+            listing_day = _date(lf["listing_day_reported"])
+            if (listing.get("code") != code + "_listing" or lf.get("code") != code
+                    or listing["status"] != "OBSERVED" or listing["worker_status"] != "OK"
+                    or listing["parent_rehash"] != "MATCH" or listing["raw_body_retained"] is not False
+                    or type(listing["bytes"]) is not int or not 0 < listing["bytes"] <= 2 * 1024 * 1024
+                    or type(listing["page_count"]) is not int or listing["page_count"] != 1
+                    or canonical_official_pdf_url(listing_url) != listing_url
+                    or not start <= la <= lc <= lb <= end
+                    or lf.get("product_kind") != kind or lf.get("listed_exchange_reported") != f["listed_exchange_reported"]
+                    or lf.get("actual_dealing_verified") is not False or lf.get("formal_admission") is not False
+                    or _date(lf["document_day"]) != listing_day
+                    or listing_day not in urlsplit(listing_url).path.split("/")
+                    or not doc <= listing_day <= lc.date().isoformat()):
+                raise ValueError("IDENTITY_ACTIVE_LISTING_SCOPE")
+            listing_hash = _hash(listing["sha256"], 64)
+            listing_capture = lc.isoformat()
+            target = None
         elif kind == "ETF_FEEDER_FUND":
             if basis != "NAV_EXCLUDING_TARGET_ETF_ASSETS" or "tracking_error_target_pct" in f:
                 raise ValueError("IDENTITY_FEEDER_SCOPE")
@@ -164,7 +201,9 @@ def parse_identity_receipt(log_line: str, *, expected_commit: str, now: datetime
             out[share] = {
                 "share_code": share, "product_main_code": code, "product_kind_reported": kind,
                 "document_day": doc, "retrieved_at": capture.isoformat(),
-                "listed_exchange_reported": f["listed_exchange_reported"] if kind == "INDEX_ETF" else None,
+                "listed_exchange_reported": f["listed_exchange_reported"] if kind in {"INDEX_ETF", "ACTIVE_ETF"} else None,
+                "listing_day_reported": listing_day, "listing_source_url": listing_url,
+                "listing_reported_original_sha256": listing_hash, "listing_retrieved_at": listing_capture,
                 "source_url": url, "reported_original_sha256": digest, "page_count": r["page_count"],
                 "manager_name_reported": _text(f["manager_name_reported"], 80),
                 "manager_start_reported": manager_start, "benchmark_reported": _text(f["benchmark"], 200),
