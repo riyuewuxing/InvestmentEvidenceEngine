@@ -1,0 +1,26 @@
+name: Public procurement counterparty and issuer chain
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/investment_evidence_engine/public_procurement_chain.py'
+      - '.github/workflows/public-procurement-chain.yml'
+permissions:
+  contents: read
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -e .
+        timeout-minutes: 4
+      - run: timeout --signal=TERM --kill-after=5s 75s python -m investment_evidence_engine.public_procurement_chain
+        timeout-minutes: 2
