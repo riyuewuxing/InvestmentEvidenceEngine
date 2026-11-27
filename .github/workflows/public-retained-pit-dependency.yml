@@ -1,10 +1,6 @@
 name: Public retained PIT dependency proof
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-retained-pit-dependency.yml'
 permissions:
   contents: read
 concurrency:

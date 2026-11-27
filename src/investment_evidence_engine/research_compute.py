@@ -142,6 +142,7 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         raise ValueError("PIT_REPLAY_INVALID_FIELD_OR_STRICT_SCOPE")
 
     eligible = []
+    eligible_indices = []
     future = []
     missing_availability = []
     invalid_chronology = []
@@ -200,6 +201,7 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
             invalid_chronology.append(index)
             continue
         eligible.append(record)
+        eligible_indices.append(index)
 
     blockers = []
     if day_scope:
@@ -229,8 +231,7 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         "missing_availability_count": len(missing_availability),
         "invalid_chronology_count": len(invalid_chronology),
         "eligible_records": eligible,
-        "eligible_input_indices": [index for index in range(len(records))
-                                   if index not in set(future + missing_availability + invalid_chronology)],
+        "eligible_input_indices": eligible_indices,
         "strict": strict,
         "chronology_complete": not blockers,
         "pit_safe": False,
