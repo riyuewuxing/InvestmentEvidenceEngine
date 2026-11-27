@@ -1,9 +1,6 @@
 name: Public retained original locator control
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-retained-pdf-locator.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

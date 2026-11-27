@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime
 
+from .evidence_time_guard import aware
 from .snapshot_integrity import strict_json_loads
 
 _STOCK_PREFIXES = {
@@ -93,3 +95,16 @@ def original_support_blocker(raw: bytes, *, source_class: str, expected_sha256: 
     except (ValueError, TypeError, RecursionError, UnicodeError):
         return "SUPPORT_JSON_INVALID"
     return None
+
+
+def decoded_context_visible(*, source_class: str, pit_eligible: bool,
+                            retrieved_at: datetime | None, admitted_at: datetime | None,
+                            cutoff: datetime, stance: str) -> bool:
+    """A decoded observation may bind identity, never serve as original support.
+
+    The actual snapshot bytes, exact claim/indicator binding, independent
+    original support and Sol review must all be validated by the caller.
+    """
+    return (source_class == "DYNAMIC_CARD_DECODED_INPUTS" and pit_eligible is False
+            and stance == "CONTEXT" and all(aware(t) for t in (retrieved_at, admitted_at, cutoff))
+            and retrieved_at <= admitted_at <= cutoff)

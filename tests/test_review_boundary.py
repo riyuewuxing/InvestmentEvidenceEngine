@@ -1,10 +1,15 @@
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from investment_evidence_engine.review_boundary import original_support_blocker, stock_review_scope
+from investment_evidence_engine.review_boundary import (
+    decoded_context_visible,
+    original_support_blocker,
+    stock_review_scope,
+)
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/current_case/observed_000035_20261127.json"
 
@@ -66,3 +71,26 @@ def test_ordinary_non_authoritative_source_is_not_automatically_admitted_or_reje
     assert check(b'plain text', "DYNAMIC_CARD_DECODED_INPUTS") == "SUPPORT_METADATA_ONLY"
     assert original_support_blocker(b"changed", source_class="ORIGINAL",
                                     expected_sha256="a" * 64) == "SUPPORT_BYTES_MISMATCH"
+
+
+NOW = datetime(2026, 11, 27, 10, tzinfo=UTC)
+
+
+def context(**changes):
+    args = {"source_class": "DYNAMIC_CARD_DECODED_INPUTS", "pit_eligible": False,
+            "retrieved_at": NOW-timedelta(minutes=2), "admitted_at": NOW-timedelta(minutes=1),
+            "cutoff": NOW, "stance": "CONTEXT"}
+    return decoded_context_visible(**(args | changes))
+
+
+def test_decoded_context_can_only_bind_non_pit_observation_identity():
+    assert context()
+
+
+@pytest.mark.parametrize("changes", [
+    {"source_class": "ORIGINAL"}, {"pit_eligible": True}, {"stance": "SUPPORTS"},
+    {"retrieved_at": None}, {"retrieved_at": NOW}, {"admitted_at": NOW+timedelta(seconds=1)},
+    {"retrieved_at": NOW.replace(tzinfo=None)}, {"cutoff": NOW.replace(tzinfo=None)},
+])
+def test_decoded_context_rejects_false_pit_promotion_and_late_capture(changes):
+    assert not context(**changes)
