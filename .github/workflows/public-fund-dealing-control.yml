@@ -1,8 +1,5 @@
 name: Public fund dealing notice controls
 on:
-  push:
-    paths:
-      - ".github/workflows/public-fund-dealing-control.yml"
   workflow_dispatch:
 permissions:
   contents: read
