@@ -30,6 +30,7 @@ URLS = {
     "index": "https://www1.hkexnews.hk/search/titlesearch.xhtml?category=0&from=20070625&lang=EN&market=SEHK&stockId=2696&t1code=10000&t2Gcode=3&t2code=13400&to=20260923",
     "hk": "https://www1.hkexnews.hk/listedco/listconews/sehk/2024/0828/2024082800846.pdf",
     "sz": "https://disc.static.szse.cn/disc/disk03/finalpage/2024-08-28/e1dfbd94-fe97-4eec-b251-2d7866493ac8.PDF",
+    "cninfo": "https://static.cninfo.com.cn/finalpage/2024-08-29/1221030553.PDF",
 }
 MAX_BYTES = 8 * 1024 * 1024
 HK_PRIOR_SHA = "26a35387d756dc436ac9dc536f92af3cf2359ab8df47fc20459f2d7058aeb0de"
@@ -113,7 +114,7 @@ def row_pair(text: str, label: str, *, scale: int, note: bool = False) -> tuple[
     return values
 
 
-def parse_sz(pages: dict[int, str]) -> dict:
+def parse_sz(pages: dict[int, str], *, path_day: str = "2024-08-28") -> dict:
     first = "".join(normalize(pages[0]).split())
     last = "".join(normalize(pages[3]).split())
     if not all(v in first for v in ("比亚迪股份有限公司2024年半年度报告摘要", "002594", "01211", "81211", "2024-069")):
@@ -121,7 +122,7 @@ def parse_sz(pages: dict[int, str]) -> dict:
     if "董事会批准报送日期:2024年8月28日" not in last:
         raise ValueError("SZ_BOARD_DATE")
     return {"report_period_end": PERIOD_END, "board_approval_day": "2024-08-28",
-            "publisher_path_day": "2024-08-28", "source_unit": "CNY",
+            "publisher_path_day": path_day, "source_unit": "CNY",
             "values_cny": {
                 "revenue": row_pair(pages[0], "营业收入(元)", scale=1),
                 "parent_profit": row_pair(pages[0], "归属于上市公司股东的净利润(元)", scale=1),
@@ -250,7 +251,8 @@ def child(kind: str, target: Path, result: Path) -> None:
             for mode in ("plain", "layout"):
                 pages = {i: reader.pages[i].extract_text(extraction_mode=mode) or "" for i in indices}
                 try:
-                    parsed = parse_hk(pages) if kind == "hk" else parse_sz(pages)
+                    parsed = (parse_hk(pages) if kind == "hk" else
+                              parse_sz(pages, path_day="2024-08-29" if kind == "cninfo" else "2024-08-28"))
                     out.update(parsed=parsed, extraction_mode=mode, page_text_hashes={str(i): digest(t.encode()) for i, t in pages.items()})
                     break
                 except ValueError as exc:
@@ -286,12 +288,46 @@ def hk_only() -> int:
     return 0 if report["status"] == "WARN" else 2
 
 
+def cninfo_only() -> int:
+    """Compare the exact A-share disclosure ID, platform clock and PDF bytes."""
+    from .issuer_disclosure_index import observe
+
+    if os.environ.get("GITHUB_REPOSITORY") != REPO:
+        raise SystemExit("public repository required")
+    directory, org = observe("byd-directory", "-")
+    index = {"status": "BLOCK"}
+    data = {"status": "BLOCK"}
+    if directory["status"] == "OBSERVED":
+        index, _ = observe("byd-h1", org)
+    if index["status"] == "OBSERVED":
+        with TemporaryDirectory() as folder:
+            target = Path(folder) / "cninfo"
+            worker = run_json_worker((sys.executable, "-m", MODULE, "--child", "cninfo", str(target)),
+                                     timeout_seconds=45, max_bytes=65536)
+            data = worker.payload or {"status": "BLOCK"}
+            data.update(worker_status=worker.status, elapsed_seconds=worker.elapsed_seconds)
+            data["parent_rehash"] = "MATCH" if target.is_file() and digest(target.read_bytes()) == data.get("source_sha256") else "NOT_VERIFIED"
+            if data["parent_rehash"] != "MATCH":
+                data["status"] = "BLOCK"
+    observed = data["status"] == "OBSERVED"
+    match = observed and {k: tuple(v) for k, v in data["parsed"]["values_cny"].items()} == EXPECTED
+    report = {"status": "WARN" if match else "BLOCK",
+              "executor_commit": os.environ["GITHUB_SHA"], "directory": directory,
+              "index": index, "pdf": data, "exact_financial_fields_match": match,
+              "szse_prior_source_sha256": "efa9b512e85b259c85c481c6d6a49e450a2f9e739886fd5255da136841986216",
+              "same_bytes_as_prior_szse": (data.get("source_sha256") == "efa9b512e85b259c85c481c6d6a49e450a2f9e739886fd5255da136841986216") if observed else None,
+              "historical_first_availability_verified": False, "raw_source_retained": False,
+              "pit_safe": False, "decision_authority": False, "execution_allowed": False}
+    print("PUBLIC_CROSS_EXCHANGE_CNINFO " + json.dumps(report, sort_keys=True, allow_nan=False), flush=True)
+    return 0 if report["status"] == "WARN" else 2
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
     observations = {}
     with TemporaryDirectory() as folder:
-        for kind in URLS:
+        for kind in ("index", "hk", "sz"):
             target = Path(folder) / kind
             worker = run_json_worker((sys.executable, "-m", MODULE, "--child", kind, str(target)),
                                      timeout_seconds=45, max_bytes=65536)
@@ -317,6 +353,8 @@ if __name__ == "__main__":
         child(sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
     elif sys.argv[1:] == ["--hk-only"]:
         raise SystemExit(hk_only())
+    elif sys.argv[1:] == ["--cninfo-only"]:
+        raise SystemExit(cninfo_only())
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:

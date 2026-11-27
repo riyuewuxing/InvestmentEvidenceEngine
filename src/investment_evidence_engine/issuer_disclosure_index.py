@@ -27,6 +27,9 @@ MAX_BYTES = 4 * 1024 * 1024
 PAGE_SIZE = 100
 Q3_WINDOW = ("2026-10-01", "2026-11-26")
 OBSERVED_ORG_ID = "gssz0000035"  # Exact directory receipt, run 45816874081.
+BYD_SUBJECT = "002594"
+BYD_DOCS = {"half_2024": ("2024-08-29/1221030553.PDF", None, "2024年半年度报告摘要")}
+BYD_WINDOW = ("2024-08-28", "2024-08-30", ("half_2024",))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -49,11 +52,11 @@ def decode_object(raw: bytes) -> dict:
     return value
 
 
-def select_org(raw: bytes) -> str:
+def select_org(raw: bytes, *, subject: str = SUBJECT) -> str:
     rows = decode_object(raw).get("stockList")
     if not isinstance(rows, list):
         raise ValueError("DIRECTORY_SCHEMA")
-    matches = [row for row in rows if isinstance(row, dict) and row.get("code") == SUBJECT]
+    matches = [row for row in rows if isinstance(row, dict) and row.get("code") == subject]
     if len(matches) != 1:
         raise ValueError("DIRECTORY_SUBJECT_IDENTITY")
     org = matches[0].get("orgId")
@@ -62,7 +65,9 @@ def select_org(raw: bytes) -> str:
     return org
 
 
-def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime) -> dict:
+def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime, *,
+                subject: str = SUBJECT, docs: dict | None = None) -> dict:
+    docs = DOCS if docs is None else docs
     start, end, targets = window
     body = decode_object(raw)
     rows = body.get("announcements")
@@ -72,9 +77,9 @@ def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime) -> d
         raise ValueError("INDEX_PAGE_COUNT_OR_COVERAGE")
     found = {}
     seen = set()
-    expected = {DOCS[k][0].split("/")[-1].split(".")[0]: k for k in targets}
+    expected = {docs[k][0].split("/")[-1].split(".")[0]: k for k in targets}
     for row in rows:
-        if (not isinstance(row, dict) or row.get("secCode") != SUBJECT
+        if (not isinstance(row, dict) or row.get("secCode") != subject
                 or row.get("orgId") != org):
             raise ValueError("INDEX_SUBJECT_MISMATCH")
         aid = row.get("announcementId")
@@ -86,7 +91,7 @@ def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime) -> d
         if aid not in expected:
             continue
         kind = expected[aid]
-        suffix, _, title = DOCS[kind]
+        suffix, _, title = docs[kind]
         actual_title = row.get("announcementTitle")
         if not isinstance(actual_title, str) or title not in actual_title:
             raise ValueError("INDEX_TITLE_MISMATCH")
@@ -161,14 +166,15 @@ def discover_q3(raw: bytes, org: str, observed_at: datetime) -> dict:
 
 def _child(mode: str, org: str, path: Path) -> None:
     started = datetime.now(UTC)
-    if mode == "directory":
+    if mode in {"directory", "byd-directory"}:
         url, data = DIRECTORY, None
     else:
-        start, end = Q3_WINDOW if mode == "q3" else WINDOWS[int(mode)][:2]
+        start, end = (BYD_WINDOW[:2] if mode == "byd-h1" else
+                      Q3_WINDOW if mode == "q3" else WINDOWS[int(mode)][:2])
         url = QUERY
         data = urlencode({
             "pageNum": "1", "pageSize": str(PAGE_SIZE), "column": "szse",
-            "tabName": "fulltext", "stock": SUBJECT + "," + org,
+            "tabName": "fulltext", "stock": (BYD_SUBJECT if mode == "byd-h1" else SUBJECT) + "," + org,
             "plate": "", "searchkey": "", "secid": "", "category": "", "trade": "",
             "seDate": start + "~" + end, "sortName": "", "sortType": "", "isHLtitle": "false",
         }).encode()
@@ -209,7 +215,7 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
             raise ValueError("INDEX_RECEIPT_MODE")
         if p.get("error"):
             return out | {"error": p["error"], "http_status": p.get("http_status")}, org
-        if p["url"] != (DIRECTORY if mode == "directory" else QUERY):
+        if p["url"] != (DIRECTORY if mode in {"directory", "byd-directory"} else QUERY):
             raise ValueError("INDEX_RECEIPT_URL")
         start = datetime.fromisoformat(p["started_at"])
         end = datetime.fromisoformat(p["retrieved_at"])
@@ -220,9 +226,11 @@ def observe(mode: str, org: str) -> tuple[dict, str]:
             raise ValueError("INDEX_BODY_HASH")
         out |= {"sha256": p["sha256"], "bytes": len(raw), "parent_rehash": "MATCH",
                 "retrieved_at": end.isoformat(), "raw_body_retained": False}
-        if mode == "directory":
-            org = select_org(raw)
+        if mode in {"directory", "byd-directory"}:
+            org = select_org(raw, subject=BYD_SUBJECT if mode == "byd-directory" else SUBJECT)
             out["org_id"] = org
+        elif mode == "byd-h1":
+            out |= parse_index(raw, org, BYD_WINDOW, end, subject=BYD_SUBJECT, docs=BYD_DOCS)
         elif mode == "q3":
             out |= discover_q3(raw, org, end)
         else:

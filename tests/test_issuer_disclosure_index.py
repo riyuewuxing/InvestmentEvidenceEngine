@@ -3,7 +3,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from investment_evidence_engine.issuer_disclosure_index import WINDOWS, parse_index, select_org
+from investment_evidence_engine.issuer_disclosure_index import (
+    BYD_DOCS,
+    BYD_SUBJECT,
+    BYD_WINDOW,
+    WINDOWS,
+    parse_index,
+    select_org,
+)
 
 NOW = datetime(2026, 11, 26, tzinfo=UTC)
 
@@ -58,3 +65,15 @@ def test_directory_entry_uses_nonempty_worker_argument(monkeypatch):
     assert report["status"] == "BLOCK"
     assert len(report["observations"]) == 1
     assert report["observations"][0]["worker_status"] == "WATCHDOG_TIMEOUT"
+
+
+def test_byd_index_keeps_platform_timestamp_separate_from_availability():
+    assert select_org(b'{"stockList":[{"code":"002594","orgId":"byd"}]}', subject=BYD_SUBJECT) == "byd"
+    raw = body(secCode=BYD_SUBJECT, orgId="byd", announcementId="1221030553",
+               announcementTitle="比亚迪：2024年半年度报告摘要",
+               adjunctUrl="finalpage/2024-08-29/1221030553.PDF",
+               announcementTime=int(datetime.fromisoformat("2024-08-29T00:00:00+08:00").timestamp()*1000))
+    record = parse_index(raw, "byd", BYD_WINDOW, NOW, subject=BYD_SUBJECT, docs=BYD_DOCS)["target_records"]["half_2024"]
+    assert record["platform_midnight"] and not record["first_availability_verified"]
+    with pytest.raises(ValueError):
+        parse_index(raw, "byd", BYD_WINDOW, NOW)
