@@ -1,8 +1,5 @@
 name: Public strict reference chain diagnostic
 on:
-  push:
-    paths:
-      - 'scripts/public_strict_reference_chain.py'
   workflow_dispatch:
 permissions:
   contents: read
