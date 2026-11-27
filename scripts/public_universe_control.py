@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
+from investment_evidence_engine.public_scan_packet import verify_public_scan_packet
 from investment_evidence_engine.runner import execute_request
 from investment_evidence_engine.snapshot_integrity import strict_json_loads
 from investment_evidence_engine.transport_integrity import observe_artifact_file
@@ -79,8 +80,21 @@ def main():
                         "screened_count", "candidate_count", "ranking_semantics",
                         "rule_origin", "pit_safe", "research_only")}
             summary["operations"].append(record)
+        if result.status in {"PASS", "WARN"}:
+            try:
+                receipt, _, codes, _ = verify_public_scan_packet(out, repo=repo, commit=commit)
+                summary["packet_verification"] = receipt
+                summary["normalized_universe_rows_verified"] = len(codes)
+                summary["independent_rank_derivation_verified"] = True
+            except (ValueError, TypeError, KeyError, OSError) as exc:
+                summary["status"] = "BLOCK"
+                summary["packet_verification_error"] = str(exc)
+                summary["independent_rank_derivation_verified"] = False
+        # Same-day snapshot, never assume closing quote or exact observation time.
+        summary["closing_snapshot_verified"] = False
+        summary["quote_timestamp_independently_verified"] = False
         print("PUBLIC_UNIVERSE_CONTROL " + json.dumps(summary, ensure_ascii=False, sort_keys=True), flush=True)
-        return 0 if result.status in {"PASS", "WARN"} else 2
+        return 0 if summary["status"] in {"PASS", "WARN"} else 2
 
 
 if __name__ == "__main__":
