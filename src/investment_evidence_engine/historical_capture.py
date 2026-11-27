@@ -92,6 +92,20 @@ def validate_symbol_window(subject: PublicSecurity, start: date, end: date) -> N
         raise ValueError("REVIEWED_RELISTING_WINDOW_REQUIRES_EXPLICIT_IDENTITY")
 
 
+def validate_ordinary_stock_cash_window(subject: PublicSecurity, start: date, end: date) -> None:
+    """Negative gate for ordinary daily cash execution, including warm-up.
+
+    The reviewed relisting first session had no ordinary ST daily band and
+    two intraday halts (SSE education observation 45964067348). This does not
+    make that session invalid as a raw end-of-day price observation.
+    """
+    if subject.asset_type != "STOCK":
+        raise ValueError("ORDINARY_STOCK_CASH_WINDOW_ASSET")
+    validate_symbol_window(subject, start, end)
+    if subject.symbol == "601975" and start <= REVIEWED_RELISTING_SESSION <= end:
+        raise ValueError("REVIEWED_RELISTING_FIRST_SESSION_NOT_MODELED")
+
+
 def _from_rows(rows, subject: PublicSecurity, provider: str, start: date, end: date) -> HistoricalCloseSeries:
     validate_symbol_window(subject, start, end)
     if not isinstance(rows, list) or len(rows) > 756:

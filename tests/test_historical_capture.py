@@ -186,3 +186,17 @@ def test_reviewed_relisting_exact_boundary_and_unrelated_code():
     capture.validate_symbol_window(old, date(2014, 5, 5), date(2014, 6, 4))
     capture.validate_symbol_window(new, date(2019, 1, 8), date(2019, 2, 15))
     capture.validate_symbol_window(A, date(2014, 6, 4), date(2014, 6, 5))
+
+
+def test_ordinary_cash_window_rejects_special_session_not_raw_price_window():
+    new = PublicSecurity(symbol="601975", asset_type="STOCK")
+    first, end = date(2019, 1, 8), date(2019, 4, 30)
+    capture.validate_symbol_window(new, first, end)
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_FIRST_SESSION_NOT_MODELED"):
+        capture.validate_ordinary_stock_cash_window(new, first, end)
+    capture.validate_ordinary_stock_cash_window(new, date(2019, 1, 9), end)
+    capture.validate_ordinary_stock_cash_window(A, first, end)
+    with pytest.raises(ValueError, match="ORDINARY_STOCK_CASH_WINDOW_ASSET"):
+        capture.validate_ordinary_stock_cash_window(B, first, end)
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        capture.validate_ordinary_stock_cash_window(new, date(2019, 1, 7), end)

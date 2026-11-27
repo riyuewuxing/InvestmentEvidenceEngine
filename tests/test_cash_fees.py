@@ -82,3 +82,11 @@ def test_known_retired_code_rejected_even_for_conditional_fee_scenario():
     # A valid new-code point is not proof of actual brokerage fee or tradability.
     current = stale.model_copy(update={"subject": PublicSecurity(symbol="302132", asset_type="STOCK")})
     assert fee_scenario(current)["decision_authority"] is False
+
+
+def test_reviewed_removed_stock_is_rejected_in_current_fee_scenario():
+    stale = inputs().model_copy(update={"subject": PublicSecurity(symbol="600087", asset_type="STOCK")})
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        fee_scenario(stale)
+    active = stale.model_copy(update={"subject": PublicSecurity(symbol="601975", asset_type="STOCK")})
+    assert fee_scenario(active)["actual_broker_fee_verified"] is False

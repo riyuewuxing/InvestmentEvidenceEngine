@@ -187,3 +187,22 @@ def test_v2_canonical_encoding_is_unchanged(tmp_path):
     digest, _ = persist_receipt(tmp_path, original)
     assert digest == hashlib.sha256(old_bytes).hexdigest()
     assert (tmp_path/(digest+".json")).read_bytes() == old_bytes
+
+
+def test_pre_guard_canonical_receipt_cannot_replay_removed_listing(tmp_path):
+    # Emulate legacy bytes whose provider/asset coverage and digest are valid,
+    # but whose symbol/date scope is now known to be impossible.
+    import hashlib
+
+    from investment_evidence_engine.historical_receipt import _bytes
+
+    removed = PublicSecurity(symbol="600087", asset_type="STOCK")
+    old = receipt().model_copy(update={
+        "candidate": removed, "series": (series(removed, "baostock", 1), series(B, "sina", 2)),
+    })
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        persist_receipt(tmp_path, old)
+    raw = _bytes(old)
+    (tmp_path / (hashlib.sha256(raw).hexdigest() + ".json")).write_bytes(raw)
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        load_receipt(tmp_path, removed, B, END, now=NOW)

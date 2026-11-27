@@ -148,3 +148,11 @@ def test_known_retired_code_blocked_in_direct_anchor_and_assumptions():
         PairPriceAnchor.model_validate(ANCHOR.model_copy(update={"stock": stale}).model_dump())
     with pytest.raises(ValueError, match="REVIEWED_CODE_CHANGE_WINDOW"):
         JointAssumptions.model_validate(inputs().model_copy(update={"stock": stale}).model_dump())
+
+
+def test_reviewed_removed_stock_is_rejected_in_direct_joint_scenario():
+    stale = PublicSecurity(symbol="600087", asset_type="STOCK")
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        PairPriceAnchor.model_validate(ANCHOR.model_copy(update={"stock": stale}).model_dump())
+    with pytest.raises(ValueError, match="REVIEWED_RELISTING_WINDOW"):
+        JointAssumptions.model_validate(inputs().model_copy(update={"stock": stale}).model_dump())

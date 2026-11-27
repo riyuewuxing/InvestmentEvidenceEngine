@@ -265,10 +265,12 @@ def run_supplement() -> dict:
     with ThreadPoolExecutor(max_workers=2) as pool:
         notices = list(pool.map(lambda key: observe("notice", key), SUPPLEMENT_KEYS))
     complete = all(r["status"] == "OBSERVED" for r in notices)
+    case_observed = notices[0]["status"] == "OBSERVED"
     return {
         "status": "WARN" if complete else "BLOCK", "notices": notices,
-        "ordinary_st_rule_invalid_on_reviewed_first_session": complete,
-        "price_only_continuity_is_insufficient_for_shareholder_return": complete,
+        "ordinary_st_rule_invalid_on_reviewed_first_session": True if case_observed else None,
+        "price_only_continuity_is_insufficient_for_shareholder_return": True if case_observed else None,
+        "historical_rule_document_observed": notices[1]["status"] == "OBSERVED",
         "historical_first_availability_verified": False, "individual_entitlement_verified": False,
         "actual_fill_verified": False, "research_only": True,
         "execution_allowed": False, "decision_authority": False,
