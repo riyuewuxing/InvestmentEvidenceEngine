@@ -133,17 +133,30 @@ def recovery_lens(codes: set[str] | None, rank: dict | None, *, observed_day: st
     if not days:
         return empty
     latest = max(days)
-    eligible = {code: rows[code] for code in codes & rows.keys()
-                if rows[code]["day"] == latest and rows[code]["month"] is not None
+    by_day: dict[str, dict] = {}
+    complete = {code: rows[code] for code in codes & rows.keys()
+                if rows[code]["day"] in days and rows[code]["month"] is not None
                 and rows[code]["year"] is not None}
-    matches = sorted((code for code, r in eligible.items() if r["year"] < 0 < r["month"]),
-                     key=lambda code: (eligible[code]["year"], -eligible[code]["month"], code))
+    for day in sorted(days):
+        eligible = {code: r for code, r in complete.items() if r["day"] == day}
+        matches = sorted((code for code, r in eligible.items() if r["year"] < 0 < r["month"]),
+                         key=lambda code: (eligible[code]["year"], -eligible[code]["month"], code))
+        by_day[day] = {"dated_rows": days[day], "eligible": len(eligible), "matches": len(matches),
+                       "top20_count": min(20, len(matches)),
+                       "top20_order_sha256": hashlib.sha256(json.dumps(matches[:20]).encode()).hexdigest()}
+    dominant = max(by_day, key=lambda d: (by_day[d]["eligible"], d))
+    selected = by_day[dominant]
     return {"status": "OBSERVED_VENDOR_NAV_RETURN_DIAGNOSTIC", "denominator": len(codes),
-            "eligible": len(eligible), "matches": len(matches), "latest_vendor_nav_day": latest,
-            "nav_day_counts": dict(sorted(days.items())), "missing_or_other_day": len(codes) - len(eligible),
-            "top20_order_sha256": hashlib.sha256(json.dumps(matches[:20]).encode()).hexdigest(),
+            "eligible": selected["eligible"], "matches": selected["matches"],
+            "latest_vendor_nav_day": latest, "dominant_eligible_day": dominant,
+            "observed_day": observed_day, "observed_day_cohort": by_day.get(observed_day),
+            "date_cohorts": by_day,
+            "nav_day_counts": dict(sorted(days.items())),
+            "missing_or_other_day": len(codes) - selected["eligible"],
+            "top20_order_sha256": selected["top20_order_sha256"],
             "rule": "year_return_lt_0_and_month_return_gt_0",
             "order": "year_ascending_month_descending_code_ascending",
+            "selection": "MAX_COMPLETE_ROWS_THEN_LATEST_DATE_NO_MIXED_DATE_RANK",
             "formal_pit": False, "expected_return_verified": False}
 
 
@@ -170,6 +183,7 @@ def analyze(tables: dict, *, observed_day: str) -> dict:
     fund_codes = ({c for c, r in master.items() if c not in excluded and r.get("name")
                    and ("ETF" not in r["name"].upper() or "联接" in r["name"])}
                   if master and etf_codes is not None else None)
+    # Vendor category labels are diagnostic, not authenticated product metadata.
     fund_rank = records("fund_rank")
     etf_rank = records("etf_rank")
     return {"tables": {key: summary(tables.get(key)) for key in SPECS},
@@ -178,7 +192,12 @@ def analyze(tables: dict, *, observed_day: str) -> dict:
                 "category_counts": dict(Counter(master[c].get("category") or "UNKNOWN" for c in fund_codes))
                 if fund_codes is not None else None,
                 "rank_coverage": overlap(fund_codes, set(fund_rank) if fund_rank is not None else None),
-                "recovery_lens": recovery_lens(fund_codes, tables.get("fund_rank"), observed_day=observed_day)},
+                "recovery_lens": recovery_lens(fund_codes, tables.get("fund_rank"), observed_day=observed_day),
+                "category_recovery_lenses": {category: recovery_lens(
+                    {c for c in fund_codes if (master[c].get("category") or "UNKNOWN") == category},
+                    tables.get("fund_rank"), observed_day=observed_day)
+                    for category in sorted({master[c].get("category") or "UNKNOWN" for c in fund_codes})}
+                    if fund_codes is not None else None},
             "etf_vendor_catalog_scope": {"code_count": len(etf_codes) if etf_codes is not None else None,
                 "denominator_source": "SINA_ETF_CATEGORY" if sina_codes else "THS_ETF_CATEGORY" if ths_codes else None,
                 "independent_vendor_directory_overlap": overlap(sina_codes, ths_codes),

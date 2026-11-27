@@ -80,3 +80,19 @@ def test_sina_primary_scope_ths_extra_excluded_from_fund_and_missing_ths_visible
     assert report["fund_vendor_catalog_scope"]["code_count"] == 1
     report = analyze({"fund_catalog": master, "etf_quote": quote}, observed_day="2026-11-27")
     assert report["etf_vendor_catalog_scope"]["independent_vendor_directory_overlap"]["coverage"] is None
+
+
+def test_sparse_latest_day_cannot_suppress_prior_dominant_dated_cohort():
+    rows = {
+        "000001": {"day": "2026-11-26", "month": 1, "year": -10},
+        "000002": {"day": "2026-11-26", "month": 2, "year": -20},
+        "000003": {"day": "2026-11-27", "month": 1, "year": 10},
+        "000004": {"day": "2026-11-27", "month": None, "year": -10},
+    }
+    r = recovery_lens(set(rows), {"records": rows}, observed_day="2026-11-27")
+    assert r["dominant_eligible_day"] == "2026-11-26"
+    assert r["latest_vendor_nav_day"] == "2026-11-27"
+    assert r["eligible"] == 2 and r["matches"] == 2
+    assert r["observed_day_cohort"]["eligible"] == 1
+    assert r["observed_day_cohort"]["matches"] == 0
+    assert r["date_cohorts"]["2026-11-27"]["dated_rows"] == 2

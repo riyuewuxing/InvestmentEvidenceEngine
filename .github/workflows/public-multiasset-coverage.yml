@@ -29,8 +29,9 @@ jobs:
         timeout-minutes: 3
         run: timeout --signal=TERM --kill-after=5s 170s python -m investment_evidence_engine.public_multiasset_coverage
 
+  # Initial stock observation already completed; future rechecks are explicit only.
   stock-observation:
-    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.visibility == 'public' && github.run_attempt == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
