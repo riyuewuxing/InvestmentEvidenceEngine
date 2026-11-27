@@ -21,6 +21,8 @@ from investment_evidence_engine.runner import execute_request
 def run_sealed_control(repo: str, commit: str) -> dict:
     source = run_control()
     rows = source["source_rows"]
+    if [row["value"] for row in rows] != ["22000", "-4000", "-26000"]:
+        raise ValueError("SEALED_PIT_SOURCE_VALUES_MISMATCH")
     historical = "2025-12-16T08:30:00-05:00"
     first = rows[0]["durable_verified_at"]
     last = rows[-1]["durable_verified_at"]
@@ -73,6 +75,7 @@ def run_sealed_control(repo: str, commit: str) -> dict:
                 merged = json.loads((out / "merged-replay.json").read_bytes())
                 if (merged["eligible_count"] != 3
                         or merged["eligible_input_indices"] != [0, 1, 2]
+                        or [row["value"] for row in merged["eligible_records"]] != ["22000", "-4000", "-26000"]
                         or merged["pit_safe"] is not False
                         or merged["historical_vintage_verified"] is not False
                         or merged["decision_authority"] is not False):
@@ -94,6 +97,8 @@ def run_sealed_control(repo: str, commit: str) -> dict:
     return {
         "status": "WARN", "executor_repo": repo, "executor_commit": commit,
         "source_files_reopened": source["source_files_reopened"],
+        "source_values_jobs": [row["value"] for row in rows],
+        "source_original_sha256": [row["original_document_sha256"] for row in rows],
         "sealed_runner_transport_verified": True, "source_projections_inline": True,
         "historical_vintage_verified": False, "historical_first_availability_verified": False,
         "pit_safe": False, "decision_authority": False, "execution_allowed": False,

@@ -42,13 +42,16 @@ def run_control() -> dict:
                      "availability_basis": "FIRST_SYSTEM_CAPTURE_KNOWN_IN_THIS_ARCHIVE",
                      "historical_first_availability_verified": False,
                      "historical_vintage_verified": False})
+    expected_values = ["22000", "-4000", "-26000"]
+    if [row["value"] for row in rows] != expected_values:
+        raise ValueError("RETAINED_PIT_SOURCE_VALUE_MISMATCH")
     with TemporaryDirectory() as temp:
         ctx = WorkerContext(output_dir=Path(temp))
         deps = []
         for index, row in enumerate(rows):
             dep = f"retained-source-{index}"
             deps.append(dep)
-            payload = {"records": [row], "source_projection": "REOPENED_PINNED_PUBLIC_DOMAIN_ORIGINAL",
+            payload = {"records": [dict(row)], "source_projection": "REOPENED_PINNED_PUBLIC_DOMAIN_ORIGINAL",
                        "pit_safe": False, "decision_authority": False}
             raw = json.dumps(payload, sort_keys=True, allow_nan=False).encode()
             path = ctx.output_dir / (dep + ".json")
@@ -100,6 +103,8 @@ def run_control() -> dict:
         if (result.status != "BLOCK" or result.errors != ["PIT_REPLAY_DEPENDENCY_CONTEXT_MISMATCH"]
                 or result.artifacts):
             raise ValueError("RETAINED_PIT_TAMPER_NOT_REJECTED")
+    if [row["value"] for row in rows] != expected_values:
+        raise ValueError("RETAINED_PIT_SOURCE_MUTATED")
     return {"status": "WARN", "source": "BLS_ARCHIVE_VIA_FRASER", "source_files_reopened": len(rows),
             "source_rows": rows, "cases": cases, "tamper": result.errors,
             "network_requests": 0, "source_operations_are_local_projections": True,
