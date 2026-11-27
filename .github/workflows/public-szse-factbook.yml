@@ -1,10 +1,6 @@
 name: Public SZSE historical factbook control
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-szse-factbook.yml'
 permissions:
   contents: read
 jobs:
