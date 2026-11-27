@@ -22,8 +22,8 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Reconcile yearbook tail with official monthly counts and issuer lifecycle
+      - name: Check remaining 002740 lifecycle only
         env:
-          SZSE_RECONCILE_MODE: COUNTS_AND_TAIL
+          SZSE_RECONCILE_MODE: AIDIER_ONLY
         run: timeout --signal=TERM --kill-after=5s 355s python -m investment_evidence_engine.szse_factbook_reconcile
         timeout-minutes: 6

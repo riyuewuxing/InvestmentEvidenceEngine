@@ -41,8 +41,13 @@ TAIL_URLS = {
     "bailong_exit": "https://static.cninfo.com.cn/finalpage/2024-01-23/1218989547.PDF",
     "dongxu_exit": "https://static.cninfo.com.cn/finalpage/2024-10-11/1221359894.PDF",
 }
+AIDIER_URLS = {
+    "aidier_decision": "https://disc.static.szse.cn/disc/disk03/finalpage/2024-02-08/8eac0c98-49b3-40f6-b64e-fcd2bea0025a.PDF",
+    "aidier_exit": "https://pdf.dfcfw.com/pdf/H2_AN202403031625209596_1.pdf",
+}
 ORIGINAL_KEYS = tuple(URLS)
 URLS.update(TAIL_URLS)
+URLS.update(AIDIER_URLS)
 TOTALS = {"main": Decimal("20587080.87"), "chinext": Decimal("12454072.25")}
 START = {"main": 136, "chinext": 230}
 BOARD_HASH = {
@@ -354,6 +359,7 @@ def tail_partition(rows: list[tuple], n: int, confirmed_b: str | None) -> dict:
                 "b":sum(c.startswith("200") or c==confirmed_b for c in codes),
                 "unknown":sum(not c.startswith(("000","001","002","003","200")) and c!=confirmed_b for c in codes)}
     return {"first_rows":len(first),"tail_rows":len(tail),
+            "first_rank_sequence_match":[r[0] for r in first]==list(range(1,n+1)),
             "first_unique_left":len(first_left),"first_unique_right":len(first_right),
             "first_sets_match":first_left==first_right,"first_left_class_counts":kinds(first_left),
             "first_right_class_counts":kinds(first_right),
@@ -364,6 +370,47 @@ def tail_partition(rows: list[tuple], n: int, confirmed_b: str | None) -> dict:
             "first_market_value_delta_million":str(sum((Decimal(r[3]) for r in first),Decimal(0))-TOTALS["main"]),
             "first_code_set_sha256":digest_projection(sorted(first_left)),
             "historical_member_admission":False,"official_correction_claimed":False}
+
+
+def partition_reconciled(part: dict, n: int) -> bool:
+    return (part["first_rows"]==part["first_unique_left"]==part["first_unique_right"]==n
+            and part["first_sets_match"] and part["first_descending"] and part["first_rank_sequence_match"]
+            and abs(Decimal(part["first_market_value_delta_million"]))<=Decimal("0.005")*(n+1))
+
+
+def aidier_fields(first: str, key: str) -> dict:
+    text=normalize_text(first)
+    common=("福建省爱迪尔珠宝实业股份有限公司","002740","人民币普通股","2024年2月8日","126号")
+    required=(("2024-019","关于收到股票终止上市决定的公告") if key=="aidier_decision"
+              else ("2024-023","关于股票终止上市暨摘牌的公告","摘牌日期:2024年3月4日"))
+    if not all(mark in text for mark in (*common,*required)):
+        raise ValueError("AIDIER_ISSUER_FIELDS")
+    return {"status":"OBSERVED_ISSUER_FIELDS","code":"002740","decision_day":"2024-02-08",
+            "issuer_reported_delisting_day":"2024-03-04" if key=="aidier_exit" else None,
+            "delivery":"ISSUER_PDF_ON_EXCHANGE" if key=="aidier_decision" else "ISSUER_PDF_ON_MEDIA_MIRROR",
+            "first_availability_verified":False}
+
+
+def parse_aidier(folder: Path, receipt: Path) -> None:
+    from pypdf import PdfReader
+
+    report={"status":"BLOCK","observed_file_sha256":{},"references":{},"pit_safe":False,
+            "historical_universe_complete":False,"prior_tail_run":45939705961}
+    for key in AIDIER_URLS:
+        path=folder/(key+".pdf")
+        if not path.is_file():
+            continue
+        report["observed_file_sha256"][key]=hashlib.sha256(path.read_bytes()).hexdigest()
+        try:
+            reader=PdfReader(path,strict=True)
+            if reader.is_encrypted or not 1<=len(reader.pages)<=10:
+                raise ValueError("AIDIER_PAGE_SCOPE")
+            report["references"][key]=aidier_fields(reader.pages[0].extract_text() or "",key)
+        except (ValueError,TypeError,RuntimeError,IndexError) as exc:
+            report["references"][key]={"status":"BLOCK","reason":str(exc) if str(exc).startswith("AIDIER_") else type(exc).__name__}
+    if len(report["references"])==2 and all(v["status"]=="OBSERVED_ISSUER_FIELDS" for v in report["references"].values()):
+        report["status"]="WARN"
+    write_worker_result(receipt,report)
 
 
 def parse_tail(folder: Path, receipt: Path) -> None:
@@ -426,6 +473,7 @@ def parse_tail(folder: Path, receipt: Path) -> None:
             report["tail_only_issuer_reported_exit_codes"]=sorted((set(part["tail_only_left"])|set(part["tail_only_right"]))&exit_codes)
             report["unexplained_tail_only_codes"]=sorted((set(part["tail_only_left"])|set(part["tail_only_right"]))-exit_codes)
     if (report.get("prior_rank_projection_match") and report.get("first_partition_counts_match_month")
+            and partition_reconciled(report["partition"],TABLES["main"][2])
             and len(report["references"])==4
             and all(v.get("status")=="OBSERVED_ISSUER_FIELDS" for k,v in report["references"].items() if k!="month_counts")):
         report["status"]="WARN"
@@ -445,11 +493,13 @@ def main() -> int:
         keys = ("h2_issuer",) if mode=="H2_ISSUER_ONLY" else ORIGINAL_KEYS
         if mode=="COUNTS_AND_TAIL":
             keys=("yearbook", *TAIL_URLS)
+        elif mode=="AIDIER_ONLY":
+            keys=tuple(AIDIER_URLS)
         for key in keys:
             _,receipts[key]=observe(key,folder)
         report["observations"]=receipts
         parser=run_json_worker((sys.executable,"-m","investment_evidence_engine.szse_factbook_reconcile",
-                                "--parse-tail" if mode=="COUNTS_AND_TAIL" else "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
+                                "--parse-tail" if mode=="COUNTS_AND_TAIL" else "--parse-aidier" if mode=="AIDIER_ONLY" else "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
         report["parser_worker"]={"status":parser.status,"elapsed_seconds":parser.elapsed_seconds}
         if parser.status=="OK" and parser.payload is not None:
             parsed=parser.payload
@@ -474,6 +524,8 @@ if __name__=="__main__":
         parse_all(Path(sys.argv[2]),Path(sys.argv[3]))
     elif len(sys.argv)==4 and sys.argv[1]=="--parse-tail":
         parse_tail(Path(sys.argv[2]),Path(sys.argv[3]))
+    elif len(sys.argv)==4 and sys.argv[1]=="--parse-aidier":
+        parse_aidier(Path(sys.argv[2]),Path(sys.argv[3]))
     elif len(sys.argv)==1:
         raise SystemExit(main())
     else:
