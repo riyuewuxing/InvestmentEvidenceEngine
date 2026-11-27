@@ -305,3 +305,15 @@ def test_pit_replay_alias_or_verification_clock_cannot_hide_conflict(tmp_path, e
     result = run_operation(op, ctx)
     assert result.status == "BLOCK"
     assert result.metrics["eligible_count"] == 0
+
+
+def test_pit_replay_malformed_canonical_publication_cannot_be_hidden_by_alias(tmp_path):
+    ctx = WorkerContext(output_dir=tmp_path)
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "published_at_field": "alternate_publication",
+        "inline_records": [{"available_at": "2026-01-09T08:00:00+08:00",
+                            "retrieved_at": "2026-01-09T09:00:00+08:00",
+                            "published_at": "not-a-date"}]})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.metrics["invalid_chronology_count"] == 1

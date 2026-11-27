@@ -1,0 +1,116 @@
+{
+  "evidence_class": "DERIVED_PUBLIC_RUN_LOG_NOT_RAW_SOURCE_OR_VINTAGE",
+  "observations": {
+    "index": {
+      "elapsed_seconds": 2.821,
+      "kind": "index",
+      "observed_at": "2026-11-27T05:03:47.653717+00:00",
+      "parent_rehash": "MATCH",
+      "parsed": {
+        "conservative_minute_end_exclusive": "2024-08-28T17:56:00+08:00",
+        "exact_document_link": true,
+        "historical_first_availability_verified": false,
+        "precision": "MINUTE",
+        "publisher_release_minute_start": "2024-08-28T17:55:00+08:00",
+        "timezone_basis": "HKEX_HONG_KONG_LOCAL"
+      },
+      "source_bytes": 34239,
+      "source_sha256": "bb411387c213ac5b7b8e3da5db76c0cd3ab18b01c8c3c8be8981cb2786aa0aea",
+      "started_at": "2026-11-27T05:03:45.144846+00:00",
+      "status": "OBSERVED",
+      "url": "https://www1.hkexnews.hk/search/titlesearch.xhtml?category=0&from=20070625&lang=EN&market=SEHK&stockId=2696&t1code=10000&t2Gcode=3&t2code=13400&to=20260923",
+      "worker_status": "OK",
+      "run_id": 45943490059,
+      "job_id": 140322812574,
+      "executor_commit": "2ac4e836cb50ac277c3e9ad0940d577acedb5c4d"
+    },
+    "sz": {
+      "elapsed_seconds": 11.193,
+      "extraction_mode": "plain",
+      "kind": "sz",
+      "observed_at": "2026-11-27T05:03:59.535479+00:00",
+      "page_count": 4,
+      "page_text_hashes": {
+        "0": "89a3169c96f2b8fe188ae87dfca370a029f08a3ea65d41d5e64c941e1ad0c1ad",
+        "1": "0737b4da5473ebdd374fcd71a61868b23549c5ec509986fe28b18bdaebaa10ed",
+        "3": "0a186cda6fc508d5015da7b2105aa420da27cdb3a87f0bbdd42898bdd9095421"
+      },
+      "parent_rehash": "MATCH",
+      "parsed": {
+        "board_approval_day": "2024-08-28",
+        "publication_clock_verified": false,
+        "publisher_path_day": "2024-08-28",
+        "report_period_end": "2024-06-30",
+        "source_unit": "CNY",
+        "values_cny": {
+          "operating_cashflow": [
+            "14178310000",
+            "81971177000"
+          ],
+          "parent_profit": [
+            "13631257000",
+            "10954145000"
+          ],
+          "revenue": [
+            "301126713000",
+            "260124143000"
+          ]
+        }
+      },
+      "source_bytes": 279912,
+      "source_sha256": "efa9b512e85b259c85c481c6d6a49e450a2f9e739886fd5255da136841986216",
+      "started_at": "2026-11-27T05:03:48.641289+00:00",
+      "status": "OBSERVED",
+      "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2024-08-28/e1dfbd94-fe97-4eec-b251-2d7866493ac8.PDF",
+      "worker_status": "OK",
+      "run_id": 45943490059,
+      "job_id": 140322812574,
+      "executor_commit": "2ac4e836cb50ac277c3e9ad0940d577acedb5c4d"
+    },
+    "hk": {
+      "elapsed_seconds": 1.067,
+      "extraction_mode": "plain",
+      "kind": "hk",
+      "observed_at": "2026-11-27T05:06:07.666372+00:00",
+      "page_count": 94,
+      "page_text_hashes": {
+        "0": "25b099ea4409bcc0daf3950c09f74e3b401093dbd78a5eb2eb75645af518c65c",
+        "1": "6b7fc9dec87c3354f8039bfe69509c801c120770d88a4dd565d8cf51d2bfc0d6",
+        "43": "cc6d020d6b97121fe6342b01d6d93f360a6164f555e8185abadd955138d146bd",
+        "44": "4ab9ea00ab73163b7ed439c2daabd07cd4a3f66d357b77d5ffa1eabdf043600d",
+        "48": "92c52f2d242340efe5e6fa1b5f873cdfa8208eae22c94e42576ae08d57c52f8e"
+      },
+      "parent_rehash": "MATCH",
+      "parsed": {
+        "document_declared_day": "2024-08-28",
+        "report_period_end": "2024-06-30",
+        "source_unit": "CNY_THOUSANDS",
+        "values_cny": {
+          "operating_cashflow": [
+            "14178310000",
+            "81971177000"
+          ],
+          "parent_profit": [
+            "13631257000",
+            "10954145000"
+          ],
+          "revenue": [
+            "301126713000",
+            "260124143000"
+          ]
+        }
+      },
+      "source_bytes": 1111547,
+      "source_sha256": "26a35387d756dc436ac9dc536f92af3cf2359ab8df47fc20459f2d7058aeb0de",
+      "started_at": "2026-11-27T05:06:07.217381+00:00",
+      "status": "OBSERVED",
+      "url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2024/0828/2024082800846.pdf",
+      "worker_status": "OK",
+      "run_id": 45943718461,
+      "job_id": 140323531654,
+      "executor_commit": "6306b7152893a9844818a1cc84402b74475f29d2"
+    }
+  },
+  "historical_vintage_verified": false,
+  "decision_authority": false
+}

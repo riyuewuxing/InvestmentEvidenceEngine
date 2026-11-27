@@ -157,8 +157,11 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
                    if custom != key and key in record]
         extra = [parse_event_stamp(record.get(key))[0] for key in ("admitted_at", "durable_verified_at")
                  if key in record]
-        alias_conflict = any(parse_event_stamp(record.get(key))[0] != stamp
-                             for custom, key, stamp in clock_aliases if custom != key and key in record)
+        alias_conflict = any(
+            parse_event_stamp(record.get(key))[0] != stamp
+            or (record.get(key) is not None and parse_event_stamp(record.get(key))[0] is None)
+            for custom, key, stamp in clock_aliases if custom != key and key in record
+        )
         # Detect explicit future evidence even when the other fields are absent.
         stamps = (available, retrieved, published, *aliases, *extra)
         if day_scope:
