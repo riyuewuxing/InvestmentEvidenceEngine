@@ -1,10 +1,21 @@
 import json
+from hashlib import sha256
 
 import pytest
 
-from investment_evidence_engine.contracts import ExecutionOperation
+from investment_evidence_engine.contracts import ArtifactRef, ExecutionOperation
 from investment_evidence_engine.dispatch import run_operation
 from investment_evidence_engine.workers import WorkerContext
+
+
+def retain_dependency(ctx, dep):
+    raw = json.dumps(ctx.payloads[dep], allow_nan=False).encode()
+    path = ctx.output_dir / f"{dep}.json"
+    path.write_bytes(raw)
+    ref = ArtifactRef(path=path.name, sha256=sha256(raw).hexdigest(),
+                      size_bytes=len(raw), media_type="application/json")
+    ctx.completed_operations[dep]["artifact_refs"] = [ref.model_dump(mode="json")]
+    return ref
 
 
 def run(tmp_path, kind, records, **params):
@@ -214,6 +225,8 @@ def test_compute_never_splices_or_silently_drops_declared_sources(tmp_path, kind
         ctx.payloads[dep] = {"symbol": symbol, "bars": [
             {"date": f"2026-01-0{i}", "close": 10 * i, "return": .01, "weight": 1}]}
         ctx.completed_operations[dep] = {"kind": "MARKET_DATA", "status": "WARN"}
+    for dep in ("market-1", "market-2"):
+        retain_dependency(ctx, dep)
     deps = ["market-1"]
     subject = "600519"
     if mode == "two_series":
@@ -226,6 +239,7 @@ def test_compute_never_splices_or_silently_drops_declared_sources(tmp_path, kind
         subject = "000001"
     else:
         del ctx.payloads["market-1"]["symbol"]
+        retain_dependency(ctx, "market-1")
     op = ExecutionOperation(operation_id="compute", kind=kind, parameters={
         "depends_on_operation_ids": deps, "subject_ids": [subject],
         "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1},
@@ -240,6 +254,7 @@ def test_factor_preserves_market_envelope_identity(tmp_path):
     ctx.payloads["market"] = {"symbol": "600519", "bars": [
         {"date": "2026-01-01", "close": 10}, {"date": "2026-01-02", "close": 11}]}
     ctx.completed_operations["market"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    ref = retain_dependency(ctx, "market")
     op = ExecutionOperation(operation_id="factor", kind="FACTOR_COMPUTE", parameters={
         "depends_on_operation_ids": ["market"], "subject_ids": ["600519"],
         "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1}})
@@ -247,3 +262,51 @@ def test_factor_preserves_market_envelope_identity(tmp_path):
     assert result.status == "PASS"
     assert [r["symbol"] for r in ctx.payloads["factor"]["records"]] == ["600519", "600519"]
     assert ctx.payloads["factor"]["records"][-1]["factor_value"] == pytest.approx(.1)
+    assert ctx.payloads["factor"]["compute_input_scope"]["artifact_sha256"] == ref.sha256
+
+
+@pytest.mark.parametrize("kind", ["FACTOR_COMPUTE", "BACKTEST"])
+@pytest.mark.parametrize("mode,reason", [
+    ("two_tables", "COMPUTE_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING"),
+    ("empty_shadow", "COMPUTE_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING"),
+    ("metrics_only", "COMPUTE_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING"),
+    ("invalid_rows", "COMPUTE_DEPENDENCY_RECORDS_INVALID"),
+    ("missing_ref", "COMPUTE_DEPENDENCY_ARTIFACT_REQUIRED"),
+    ("changed_bytes", "COMPUTE_DEPENDENCY_ARTIFACT_UNVERIFIED"),
+    ("context_changed", "COMPUTE_DEPENDENCY_CONTEXT_MISMATCH"),
+    ("bool_number_alias", "COMPUTE_DEPENDENCY_CONTEXT_MISMATCH"),
+    ("wrong_market_table", "COMPUTE_MARKET_COLLECTION_MISMATCH"),
+])
+def test_compute_explicit_record_and_observed_byte_binding(tmp_path, kind, mode, reason):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of="2026-01-04")
+    rows = [{"date": "2026-01-01", "close": 10, "return": 0, "weight": 1},
+            {"date": "2026-01-02", "close": 11, "return": .1, "weight": 1}]
+    payload = {"symbol": "600519", "bars": rows}
+    if mode == "two_tables":
+        payload["rows"] = rows
+    elif mode == "empty_shadow":
+        payload["records"] = []
+    elif mode == "metrics_only":
+        payload = {"symbol": "600519", "metrics": {"records": rows}}
+    elif mode == "invalid_rows":
+        payload["bars"] = [None]
+    elif mode == "wrong_market_table":
+        payload["records"] = payload.pop("bars")
+    ctx.payloads["source"] = payload
+    ctx.completed_operations["source"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    ref = retain_dependency(ctx, "source")
+    if mode == "missing_ref":
+        del ctx.completed_operations["source"]["artifact_refs"]
+    elif mode == "changed_bytes":
+        (tmp_path / ref.path).write_text("{}", encoding="utf-8")
+    elif mode == "context_changed":
+        rows[0]["close"] = 12
+    elif mode == "bool_number_alias":
+        rows[0]["weight"] = True
+    op = ExecutionOperation(operation_id="compute", kind=kind, parameters={
+        "depends_on_operation_ids": ["source"], "subject_ids": ["600519"],
+        "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1},
+        "cost_bps": 10})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK" and result.errors == [reason]
+    assert not result.artifacts and "compute" not in ctx.payloads

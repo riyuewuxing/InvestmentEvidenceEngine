@@ -15,6 +15,8 @@ import pandas as pd
 
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
 from .evidence_time_guard import SHANGHAI, parse_event_stamp, source_visible, validate_event_cutoff
+from .snapshot_integrity import strict_json_loads
+from .transport_integrity import read_verified_artifact
 from .workers import WorkerContext
 
 
@@ -32,39 +34,6 @@ def _artifact(path: Path, media_type: str = "application/json") -> ArtifactRef:
         media_type=media_type,
         size_bytes=path.stat().st_size,
     )
-
-
-def _nested_records(payload: object) -> list[dict[str, object]]:
-    if isinstance(payload, list) and all(isinstance(item, dict) for item in payload):
-        return [dict(item) for item in payload]
-    if not isinstance(payload, dict):
-        return []
-    for key in ("records", "bars", "rows", "data", "eligible_records"):
-        value = payload.get(key)
-        if isinstance(value, list) and all(isinstance(item, dict) for item in value):
-            return [dict(item) for item in value]
-    metrics = payload.get("metrics")
-    if isinstance(metrics, dict):
-        nested = _nested_records(metrics)
-        if nested:
-            return nested
-    return []
-
-
-def _records(operation: ExecutionOperation, context: WorkerContext) -> list[dict[str, object]]:
-    inline = operation.parameters.get("inline_records")
-    if isinstance(inline, list) and all(isinstance(item, dict) for item in inline):
-        return [dict(item) for item in inline]
-    dependencies = operation.parameters.get("depends_on_operation_ids") or []
-    if isinstance(dependencies, list):
-        combined: list[dict[str, object]] = []
-        for dependency in dependencies:
-            payload = context.payloads.get(str(dependency))
-            if payload is not None:
-                combined.extend(_nested_records(payload))
-        if combined:
-            return combined
-    return []
 
 
 def _pit_record_inputs(operation: ExecutionOperation, context: WorkerContext) -> tuple[list[dict], dict]:
@@ -248,18 +217,20 @@ def _compute_block(operation: ExecutionOperation, reason: str) -> OperationResul
                            exit_code=2, errors=[reason])
 
 
-def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> list[dict]:
+def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> tuple[list[dict], dict]:
+    """Use one explicit record collection from one rehashed dependency, or inline rows."""
     params = operation.parameters
     if "depends_on_operation_ids" not in params:
-        return _records(operation, context)
+        inline = params.get("inline_records")
+        if not isinstance(inline, list) or not all(isinstance(row, dict) for row in inline):
+            return [], {"input_mode": "NONE_OR_INVALID"}
+        return [dict(row) for row in inline], {"input_mode": "INLINE", "record_count": len(inline)}
     if "inline_records" in params:
         raise ValueError("COMPUTE_DEPENDENCY_INLINE_CONFLICT")
     deps = params["depends_on_operation_ids"]
-    # These generic workers accept one series or one coherent cross-section,
-    # not a concatenation/join of heterogeneous evidence tables. In particular,
-    # market bars can omit row-level symbol because identity is on the envelope.
     if (not isinstance(deps, list) or len(deps) != 1
-            or not isinstance(deps[0], str) or not deps[0]):
+            or not isinstance(deps[0], str) or not deps[0]
+            or deps[0] != deps[0].strip() or deps[0] == operation.operation_id):
         raise ValueError("COMPUTE_EXACTLY_ONE_DEPENDENCY_REQUIRED")
     dep = deps[0]
     provenance = context.completed_operations.get(dep)
@@ -267,23 +238,52 @@ def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> l
     if (not isinstance(provenance, dict) or provenance.get("status") not in {"PASS", "WARN"}
             or not isinstance(payload, dict)):
         raise ValueError("COMPUTE_DEPENDENCY_NOT_USABLE")
-    # Do not silently concatenate or pick an arbitrary one of several record
-    # collections. Other workers may produce metadata lists, not data tables.
-    records = _nested_records(payload)
-    if not records:
-        raise ValueError("COMPUTE_DEPENDENCY_RECORDS_MISSING")
+    # Never pick the first of several tables, treat summary metrics as rows,
+    # or fall back from a malformed declared table to another one.
+    keys = [key for key in ("records", "bars", "rows", "data", "eligible_records") if key in payload]
+    if len(keys) != 1:
+        raise ValueError("COMPUTE_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING")
+    key = keys[0]
+    records = payload[key]
+    if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
+        raise ValueError("COMPUTE_DEPENDENCY_RECORDS_INVALID")
+    refs = provenance.get("artifact_refs")
+    if not isinstance(refs, list) or len(refs) != 1:
+        raise ValueError("COMPUTE_DEPENDENCY_ARTIFACT_REQUIRED")
+    try:
+        ref = ArtifactRef.model_validate(refs[0])
+        if ref.path != dep + ".json" or ref.size_bytes is None:
+            raise ValueError("COMPUTE_DEPENDENCY_ARTIFACT_SCOPE")
+        raw = read_verified_artifact(context.output_dir, ref.path, ref.sha256, ref.size_bytes)
+        observed = strict_json_loads(raw)
+        # Canonical JSON preserves type distinctions such as boolean vs number.
+        if (json.dumps(observed, sort_keys=True, allow_nan=False, ensure_ascii=False)
+                != json.dumps(payload, sort_keys=True, allow_nan=False, ensure_ascii=False)):
+            raise ValueError("COMPUTE_DEPENDENCY_CONTEXT_MISMATCH")
+    except (ValueError, OSError, TypeError, OverflowError) as exc:
+        reason = str(exc)
+        raise ValueError(reason if reason.startswith("COMPUTE_") else
+                         "COMPUTE_DEPENDENCY_ARTIFACT_UNVERIFIED") from exc
+    records = [dict(row) for row in records]
     if provenance.get("kind") == "MARKET_DATA":
+        if key != "bars":
+            raise ValueError("COMPUTE_MARKET_COLLECTION_MISMATCH")
         symbol = payload.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             raise ValueError("COMPUTE_MARKET_IDENTITY_MISSING")
         if params.get("subject_ids", [symbol]) != [symbol]:
             raise ValueError("COMPUTE_MARKET_IDENTITY_MISMATCH")
         for row in records:
-            for key in ("subject_id", "asset", "asset_id", "symbol", "code"):
-                if key in row and row[key] != symbol:
+            for identity in ("subject_id", "asset", "asset_id", "symbol", "code"):
+                if identity in row and row[identity] != symbol:
                     raise ValueError("COMPUTE_MARKET_IDENTITY_MISMATCH")
         records = [dict(row, symbol=symbol) for row in records]
-    return records
+    scope = {"input_mode": "DEPENDENCY", "operation_id": dep,
+             "operation_kind": provenance.get("kind"), "operation_status": provenance["status"],
+             "artifact_path": ref.path, "artifact_sha256": ref.sha256,
+             "artifact_size_bytes": ref.size_bytes, "artifact_rehash": "MATCH",
+             "record_collection": key, "record_count": len(records)}
+    return records, scope
 
 
 def _record_time_labels(records: list[dict], parameters: dict, *, required: bool,
@@ -349,7 +349,7 @@ def _chronological_rows(records: list[dict], parameters: dict, *, required: bool
 
 def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
     try:
-        records = _compute_records(operation, context)
+        records, input_scope = _compute_records(operation, context)
     except ValueError as exc:
         return _compute_block(operation, str(exc))
     if not records:
@@ -425,6 +425,7 @@ def run_factor_compute(operation: ExecutionOperation, context: WorkerContext) ->
     if not all(math.isfinite(v) for v in statistics.values()):
         return _compute_block(operation, "FACTOR_STATISTICS_NONFINITE")
     payload = {
+        "compute_input_scope": input_scope,
         "factor_id": str(spec.get("factor_id") or operation.operation_id),
         "transform": transform, "source_field": field, "output_field": output_field,
         "records": output, "statistics": statistics,
@@ -456,7 +457,7 @@ def run_backtest(operation: ExecutionOperation, context: WorkerContext) -> Opera
     """Single-series arithmetic diagnostic; not a historical executable strategy."""
     parameters = operation.parameters
     try:
-        records = _compute_records(operation, context)
+        records, input_scope = _compute_records(operation, context)
         if not records:
             return _compute_block(operation, "NO_BACKTEST_INPUT_RECORDS")
         chronology = _chronological_rows(records, parameters,
@@ -514,6 +515,7 @@ def run_backtest(operation: ExecutionOperation, context: WorkerContext) -> Opera
         return _compute_block(operation, "BACKTEST_METRICS_NONFINITE")
     payload = {
         "metrics": metrics,
+        "compute_input_scope": input_scope,
         "assumptions": {
             "signal_lag_periods": 1, "periods_per_year": periods_per_year,
             "cost_applied_to_turnover": True, "cost_basis": "LINEAR_TARGET_WEIGHT_CHANGE_ASSUMPTION",

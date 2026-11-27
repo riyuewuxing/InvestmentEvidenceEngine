@@ -59,9 +59,9 @@ def run_operation(operation: ExecutionOperation, context: WorkerContext) -> Oper
         "kind": operation.kind,
         "status": result.status,
         "as_of": raw_as_of if isinstance(raw_as_of, str) else None,
+        "artifact_refs": [ref.model_dump(mode="json") for ref in result.artifacts],
     }
     if operation.kind == "MARKET_DATA":
-        provenance["artifact_refs"] = [ref.model_dump(mode="json") for ref in result.artifacts]
         provenance["market_parameters"] = dict(operation.parameters)
     if operation.kind == "MARKET_UNIVERSE":
         raw_market = operation.parameters.get("market")
