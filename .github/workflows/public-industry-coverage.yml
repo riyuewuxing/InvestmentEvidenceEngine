@@ -1,9 +1,6 @@
 name: Public industry dated price observation
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-industry-coverage.yml"
 permissions:
   contents: read
 concurrency:

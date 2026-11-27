@@ -1,9 +1,6 @@
 name: Public multiasset vendor coverage
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/public-multiasset-coverage.yml"
 permissions:
   contents: read
 concurrency:
