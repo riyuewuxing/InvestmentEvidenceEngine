@@ -2,7 +2,11 @@ from decimal import Decimal
 
 import pytest
 
-from investment_evidence_engine.byd_action_control import distribution_examples, parse_pages, price_reference
+from investment_evidence_engine.byd_action_control import (
+    distribution_examples,
+    parse_pages,
+    price_reference,
+)
 
 
 def test_tax_base_includes_bonus_but_not_capital_transfer():
