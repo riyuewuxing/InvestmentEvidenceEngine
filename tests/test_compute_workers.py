@@ -244,3 +244,64 @@ def test_pit_replay_accepts_narrower_exact_operation_under_request_day(tmp_path)
     result = run_operation(op, ctx)
     assert result.status == "WARN"
     assert not result.metrics["pit_safe"]
+
+@pytest.mark.parametrize("mode", ["missing", "blocked", "duplicate", "ambiguous", "empty", "invalid"])
+def test_pit_replay_never_silently_drops_or_chooses_dependencies(tmp_path, mode):
+    ctx = WorkerContext(output_dir=tmp_path)
+    row = {"available_at": "2026-01-09T08:00:00+08:00", "retrieved_at": "2026-01-09T09:00:00+08:00"}
+    ctx.payloads["a"] = {"records": [row]}
+    ctx.completed_operations["a"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    ctx.payloads["b"] = {"records": [row]}
+    ctx.completed_operations["b"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    deps = ["a", "b"]
+    if mode == "missing":
+        del ctx.payloads["b"]
+    elif mode == "blocked":
+        ctx.completed_operations["b"]["status"] = "BLOCK"
+    elif mode == "duplicate":
+        deps = ["a", "a"]
+    elif mode == "ambiguous":
+        ctx.payloads["b"]["rows"] = [row]
+    elif mode == "empty":
+        ctx.payloads["b"]["records"] = []
+    else:
+        ctx.payloads["b"]["records"] = [None]
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "depends_on_operation_ids": deps})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.errors[0].startswith("PIT_REPLAY_DEPENDENCY_")
+    assert not result.artifacts
+
+
+def test_pit_replay_multiple_complete_sources_is_explicit_chronology_only(tmp_path):
+    ctx = WorkerContext(output_dir=tmp_path)
+    for dep in ("a", "b"):
+        ctx.payloads[dep] = {"records": [{"available_at": "2026-01-09T08:00:00+08:00",
+                                          "retrieved_at": "2026-01-09T09:00:00+08:00"}]}
+        ctx.completed_operations[dep] = {"status": "WARN"}
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "depends_on_operation_ids": ["a", "b"]})
+    result = run_operation(op, ctx)
+    assert result.status == "WARN"
+    assert ctx.payloads["pit"]["input_scope"]["dependency_rows"] == {"a": 1, "b": 1}
+    assert not result.metrics["pit_safe"]
+
+
+@pytest.mark.parametrize("extra", [
+    {"available_at": "2026-01-11T08:00:00+08:00"},
+    {"available_at": "2026-01-09T07:00:00+08:00"},
+    {"admitted_at": "2026-01-11T08:00:00+08:00"},
+    {"durable_verified_at": "2026-01-11T08:00:00+08:00"},
+    {"durable_verified_at": "2026-01-09T07:00:00+08:00"},
+    {"durable_verified_at": None},
+])
+def test_pit_replay_alias_or_verification_clock_cannot_hide_conflict(tmp_path, extra):
+    ctx = WorkerContext(output_dir=tmp_path)
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "available_at_field": "custom_clock",
+        "inline_records": [{"custom_clock": "2026-01-09T08:00:00+08:00",
+                            "retrieved_at": "2026-01-09T09:00:00+08:00", **extra}]})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK"
+    assert result.metrics["eligible_count"] == 0

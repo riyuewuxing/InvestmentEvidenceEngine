@@ -67,9 +67,46 @@ def _records(operation: ExecutionOperation, context: WorkerContext) -> list[dict
     return []
 
 
+def _pit_record_inputs(operation: ExecutionOperation, context: WorkerContext) -> tuple[list[dict], dict]:
+    """Validate the complete declared source set; never silently skip a dependency."""
+    params = operation.parameters
+    if "inline_records" in params and "depends_on_operation_ids" in params:
+        raise ValueError("PIT_REPLAY_DEPENDENCY_INLINE_CONFLICT")
+    if "inline_records" in params:
+        inline = params["inline_records"]
+        if not isinstance(inline, list) or not all(isinstance(row, dict) for row in inline):
+            raise ValueError("PIT_REPLAY_INLINE_RECORDS_INVALID")
+        return [dict(row) for row in inline], {"input_mode": "INLINE", "dependency_rows": {}}
+    if "depends_on_operation_ids" not in params:
+        return [], {"input_mode": "NONE", "dependency_rows": {}}
+    deps = params["depends_on_operation_ids"]
+    if (not isinstance(deps, list) or not deps or len(deps) > 64
+            or not all(isinstance(dep, str) and dep and dep.strip() == dep for dep in deps)
+            or len(set(deps)) != len(deps) or operation.operation_id in deps):
+        raise ValueError("PIT_REPLAY_DEPENDENCY_SCOPE_INVALID")
+    rows, counts = [], {}
+    for dep in deps:
+        provenance = context.completed_operations.get(dep)
+        payload = context.payloads.get(dep)
+        if (not isinstance(provenance, dict) or provenance.get("status") not in {"PASS", "WARN"}
+                or not isinstance(payload, dict)):
+            raise ValueError("PIT_REPLAY_DEPENDENCY_NOT_USABLE")
+        # A single explicit row collection, no hidden preference among tables,
+        # no summary metrics substituted for records.
+        present = [(key, payload[key]) for key in ("records", "bars", "rows", "data", "eligible_records")
+                   if key in payload]
+        if len(present) != 1:
+            raise ValueError("PIT_REPLAY_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING")
+        _, records = present[0]
+        if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
+            raise ValueError("PIT_REPLAY_DEPENDENCY_RECORDS_INVALID")
+        counts[dep] = len(records)
+        rows.extend(dict(row) for row in records)
+    return rows, {"input_mode": "DEPENDENCIES", "dependency_rows": counts}
+
+
 def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
     """Check stated observation chronology, never attest historical source vintage."""
-    records = _records(operation, context)
     cutoff_raw = operation.parameters.get("as_of")
     cutoff, day_scope = validate_event_cutoff(cutoff_raw)
     if cutoff is None:
@@ -90,10 +127,11 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         if outside:
             return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
                                    errors=["PIT_REPLAY_REQUEST_SCOPE_EXCEEDED"])
-    if ("inline_records" in operation.parameters
-            and "depends_on_operation_ids" in operation.parameters):
+    try:
+        records, input_scope = _pit_record_inputs(operation, context)
+    except ValueError as exc:
         return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
-                               errors=["PIT_REPLAY_DEPENDENCY_INLINE_CONFLICT"])
+                               errors=[str(exc)])
     available_field = str(operation.parameters.get("available_at_field") or "available_at")
     published_field = str(operation.parameters.get("published_at_field") or "published_at")
     retrieved_field = str(operation.parameters.get("retrieved_at_field") or "retrieved_at")
@@ -110,8 +148,19 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         retrieved, _ = parse_event_stamp(record.get(retrieved_field))
         published_raw = record.get(published_field)
         published, _ = parse_event_stamp(published_raw)
+        # Canonical clocks must not be hidden by an explicit alias. Additional
+        # verification/admission clocks, when present, must also respect cutoff.
+        clock_aliases = ((available_field, "available_at", available),
+                         (retrieved_field, "retrieved_at", retrieved),
+                         (published_field, "published_at", published))
+        aliases = [parse_event_stamp(record.get(key))[0] for custom, key, _ in clock_aliases
+                   if custom != key and key in record]
+        extra = [parse_event_stamp(record.get(key))[0] for key in ("admitted_at", "durable_verified_at")
+                 if key in record]
+        alias_conflict = any(parse_event_stamp(record.get(key))[0] != stamp
+                             for custom, key, stamp in clock_aliases if custom != key and key in record)
         # Detect explicit future evidence even when the other fields are absent.
-        stamps = (available, retrieved, published)
+        stamps = (available, retrieved, published, *aliases, *extra)
         if day_scope:
             later = any(stamp is not None and
                 (stamp.astimezone(SHANGHAI) if stamp.utcoffset() is not None else stamp).date()
@@ -125,9 +174,12 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         if available is None or retrieved is None:
             missing_availability.append(index)
             continue
-        if (day_scope or (published_raw is not None and published is None)
+        if (day_scope or alias_conflict or (published_raw is not None and published is None)
                 or not source_visible(available_at=available, retrieved_at=retrieved,
-                                      published_at=published, cutoff=cutoff)):
+                                      published_at=published, cutoff=cutoff)
+                or any(not source_visible(available_at=available, retrieved_at=retrieved,
+                                          published_at=published, cutoff=cutoff, admitted_at=stamp)
+                       or stamp is None for stamp in extra)):
             invalid_chronology.append(index)
             continue
         eligible.append(record)
@@ -154,6 +206,7 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
     payload = {
         "as_of": cutoff_raw,
         "input_count": len(records),
+        "input_scope": input_scope,
         "eligible_count": len(eligible),
         "future_rejected_count": len(future),
         "missing_availability_count": len(missing_availability),
