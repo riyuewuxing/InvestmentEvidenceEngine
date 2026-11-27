@@ -47,6 +47,7 @@ def parse_rows(text: str) -> tuple[list[tuple[str, str]], int]:
     for line in text.splitlines():
         if not CODE.match(line):
             continue
+        line = re.sub(r"(?<=\.)\s+(?=[0-9])", "", line)
         match = ROW.match(line)
         if match is None:
             malformed += 1
@@ -126,21 +127,45 @@ def parse(target: Path, result: Path) -> None:
     malformed = 0
     page_receipts = []
     diagnostic_shapes = []
+    candidate_codes = []
+    page_title_marker = False
     # Printed pp24-128 lie inside this bounded physical-page search window.
     for i in range(18, min(145, len(reader.pages))):
         text = reader.pages[i].extract_text(extraction_mode="layout") or ""
         normalized = re.sub(r"\s+", "", text).lower()
         if "股票代码" not in normalized or "市价总值" not in normalized or "本年最低" not in normalized:
             continue
+        page_title_marker |= "上海证券交易所统计年鉴" in normalized
+        candidate_codes.extend(m[1] for line in text.splitlines() if (m := CODE.match(line)))
         parsed, bad = parse_rows(text)
         if len(diagnostic_shapes) < 6:
             for line in text.splitlines():
                 if CODE.match(line) and len(diagnostic_shapes) < 6:
-                    diagnostic_shapes.append(re.sub(r"[^0-9.,\\s—–-]", "X", line)[:300])
+                    diagnostic_shapes.append(re.sub(r"[^0-9.,\s—–-]", "X", line)[:300])
         if parsed or bad:
             page_receipts.append([i, len(parsed), bad, digest(text.encode())])
             rows.extend(parsed)
             malformed += bad
+    report["edition_diagnostics"]["page_title"] = page_title_marker
+    report["edition_marker"] = report["edition_diagnostics"]["year"] and (report["edition_diagnostics"]["title"] or page_title_marker)
+    report["candidate_code_count"] = len(candidate_codes)
+    report["candidate_unique_codes"] = len(set(candidate_codes))
+    report["candidate_board_counts"] = dict(Counter(board(c) for c in candidate_codes))
+    report["unparsed_codes"] = sorted(set(candidate_codes) - {code for code, _ in rows})[:80]
+    company_codes = []
+    company_pages = []
+    for i in range(680, min(740, len(reader.pages))):
+        text = reader.pages[i].extract_text(extraction_mode="layout") or ""
+        normalized = re.sub(r"\s+", "", text).lower()
+        if "公司代码" not in normalized or "总股本" not in normalized or "注册地" not in normalized:
+            continue
+        codes = [m[1] for line in text.splitlines() if (m := CODE.match(line))]
+        if codes:
+            company_pages.append([i, len(codes), digest(text.encode())])
+            company_codes.extend(codes)
+    company_a = {c for c in company_codes if board(c) in {"main_a", "star"}}
+    trading_a = {c for c, v in rows if board(c) in {"main_a", "star"} and v not in {"—", "–", "-"} and Decimal(v) > 0}
+    report["company_section"] = {"pages": company_pages, "rows": len(company_codes), "unique": len(set(company_codes)), "board_counts": dict(Counter(board(c) for c in company_codes)), "a_code_set_sha256": digest(json.dumps(sorted(company_a), separators=(",", ":")).encode()), "trading_only_a": sorted(trading_a - company_a)[:80], "company_only_a": sorted(company_a - trading_a)[:80], "same_positive_a_set": company_a == trading_a and bool(company_a), "trading_only_count": len(trading_a - company_a), "company_only_count": len(company_a - trading_a)}
     report["selected_pages"] = page_receipts
     report["diagnostic_shapes"] = diagnostic_shapes
     report["roster"] = summarize(rows, malformed)

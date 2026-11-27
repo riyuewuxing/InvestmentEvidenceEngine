@@ -19,3 +19,9 @@ def test_annual_trading_rows_not_automatically_year_end_members():
     assert not result["pit_safe"]
     assert board("689009") == "star"
     assert board("699999") == "unknown"
+
+
+def test_pdf_decimal_whitespace_does_not_shift_market_value():
+    rows, rejected = parse_rows("  600000    Example    302033.  91    302033. 91    29352. 18    29352. 18    6.620    6. 630    11. 020    6.360")
+    assert rows == [("600000", "302033.91")]
+    assert rejected == 0
