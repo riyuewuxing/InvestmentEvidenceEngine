@@ -1,8 +1,5 @@
 name: Public ETF dealing close control
 on:
-  push:
-    paths:
-      - ".github/workflows/public-etf-dealing-close.yml"
   workflow_dispatch:
 permissions:
   contents: read
