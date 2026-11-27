@@ -69,6 +69,19 @@ def parse_event_stamp(value: str | None) -> tuple[datetime | None, bool]:
         return None, False
 
 
+def market_daily_label(value: object) -> str:
+    """Decode only the daily-bar serializer's date label, never an instant."""
+    if not isinstance(value, str):
+        raise ValueError("COMPUTE_MARKET_DAILY_LABEL_INVALID")
+    try:
+        day = date.fromisoformat(value[:10]).isoformat()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("COMPUTE_MARKET_DAILY_LABEL_INVALID") from exc
+    if value not in {day, day + "T00:00:00.000"}:
+        raise ValueError("COMPUTE_MARKET_DAILY_LABEL_INVALID")
+    return day
+
+
 def _market_day(value: datetime) -> date:
     return (value.astimezone(SHANGHAI) if aware(value) else value).date()
 

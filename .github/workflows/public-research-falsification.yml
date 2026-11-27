@@ -1,6 +1,9 @@
 name: Public fixed research falsification
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/public_research_falsification.py'
 permissions:
   contents: read
 concurrency:

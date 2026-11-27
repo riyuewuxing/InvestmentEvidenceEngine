@@ -14,7 +14,13 @@ import numpy as np
 import pandas as pd
 
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
-from .evidence_time_guard import SHANGHAI, parse_event_stamp, source_visible, validate_event_cutoff
+from .evidence_time_guard import (
+    SHANGHAI,
+    market_daily_label,
+    parse_event_stamp,
+    source_visible,
+    validate_event_cutoff,
+)
 from .snapshot_integrity import strict_json_loads
 from .transport_integrity import read_verified_artifact
 from .workers import WorkerContext
@@ -265,6 +271,7 @@ def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> t
         raise ValueError(reason if reason.startswith("COMPUTE_") else
                          "COMPUTE_DEPENDENCY_ARTIFACT_UNVERIFIED") from exc
     records = [dict(row) for row in records]
+    date_projection = "UNCHANGED"
     if provenance.get("kind") == "MARKET_DATA":
         if key != "bars":
             raise ValueError("COMPUTE_MARKET_COLLECTION_MISMATCH")
@@ -277,12 +284,16 @@ def _compute_records(operation: ExecutionOperation, context: WorkerContext) -> t
             for identity in ("subject_id", "asset", "asset_id", "symbol", "code"):
                 if identity in row and row[identity] != symbol:
                     raise ValueError("COMPUTE_MARKET_IDENTITY_MISMATCH")
-        records = [dict(row, symbol=symbol) for row in records]
+        # The bound production daily-bar JSON uses a midnight date placeholder.
+        # It is not an acquisition/publication timestamp. Do not relax inline or other sources.
+        records = [dict(row, symbol=symbol, date=market_daily_label(row.get("date"))) for row in records]
+        date_projection = "MARKET_DAILY_LABEL_ONLY"
     scope = {"input_mode": "DEPENDENCY", "operation_id": dep,
              "operation_kind": provenance.get("kind"), "operation_status": provenance["status"],
              "artifact_path": ref.path, "artifact_sha256": ref.sha256,
              "artifact_size_bytes": ref.size_bytes, "artifact_rehash": "MATCH",
-             "record_collection": key, "record_count": len(records)}
+             "record_collection": key, "record_count": len(records),
+             "date_projection": date_projection}
     return records, scope
 
 

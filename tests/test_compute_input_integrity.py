@@ -310,3 +310,48 @@ def test_compute_explicit_record_and_observed_byte_binding(tmp_path, kind, mode,
     result = run_operation(op, ctx)
     assert result.status == "BLOCK" and result.errors == [reason]
     assert not result.artifacts and "compute" not in ctx.payloads
+
+
+
+@pytest.mark.parametrize("kind", ["FACTOR_COMPUTE", "BACKTEST"])
+@pytest.mark.parametrize("cutoff, label, extra, expected", [
+    ("2026-01-04", "2026-01-02T00:00:00.000", {}, "PASS"),
+    ("2026-01-02T10:00:00+08:00", "2026-01-02T00:00:00.000", {}, "BLOCK"),
+    ("2026-01-04", "2026-01-02T12:00:00", {}, "BLOCK"),
+    ("2026-01-04", "2026-01-02T00:00:00.000+08:00", {}, "BLOCK"),
+    ("2026-01-04", "2026-01-02T00:00:00.000", {"timestamp": "2026-01-05T10:00:00+08:00"}, "BLOCK"),
+    ("2026-01-01", "2026-01-02T00:00:00.000", {}, "BLOCK"),
+    ("2026-01-04", "2026-02-30T00:00:00.000", {}, "BLOCK"),
+])
+def test_bound_market_midnight_label_is_only_a_date(tmp_path, kind, cutoff, label, extra, expected):
+    ctx = WorkerContext(output_dir=tmp_path, request_as_of=cutoff)
+    rows = [{"date": "2026-01-01T00:00:00.000", "close": 10, "return": 0, "weight": 1},
+            {"date": label, "close": 11, "return": .1, "weight": 1}]
+    if extra:
+        rows[0]["timestamp"] = "2026-01-01T10:00:00+08:00"
+        rows[1].update(extra)
+    ctx.payloads["market"] = {"symbol": "600519", "bars": rows}
+    ctx.completed_operations["market"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    ref = retain_dependency(ctx, "market")
+    op = ExecutionOperation(operation_id="compute", kind=kind, parameters={
+        "depends_on_operation_ids": ["market"], "subject_ids": ["600519"],
+        "factor_spec": {"field": "close", "transform": "ROLLING_RETURN", "window": 1},
+        "cost_bps": 10})
+    result = run_operation(op, ctx)
+    assert result.status == expected
+    if expected == "PASS":
+        payload = ctx.payloads["compute"]
+        assert payload["compute_input_scope"]["date_projection"] == "MARKET_DAILY_LABEL_ONLY"
+        assert payload["compute_input_scope"]["artifact_sha256"] == ref.sha256
+        assert not payload["pit_safe"]
+        if kind == "FACTOR_COMPUTE":
+            assert [r["date"] for r in payload["records"]] == ["2026-01-01", "2026-01-02"]
+    else:
+        assert not result.artifacts
+
+
+def test_inline_midnight_label_is_not_market_provenance(tmp_path):
+    result, _ = run(tmp_path, "FACTOR_COMPUTE",
+                    [{"date": "2026-01-02T00:00:00.000", "close": 10}],
+                    factor_spec={"field": "close", "transform": "IDENTITY"})
+    assert result.errors == ["COMPUTE_TIME_LABEL_INVALID"]

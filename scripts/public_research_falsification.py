@@ -14,6 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest
+from investment_evidence_engine.evidence_time_guard import market_daily_label
 from investment_evidence_engine.research_falsification import (
     CONTROL_AS_OF,
     CONTROL_END,
@@ -37,6 +38,7 @@ def verify_factor(raw_market: bytes, raw_factor: bytes, market_sha: str, symbol:
     if (scope.get("artifact_sha256") != market_sha or scope.get("artifact_rehash") != "MATCH"
             or scope.get("operation_id") != "market" or scope.get("record_collection") != "bars"
             or scope.get("artifact_size_bytes") != len(raw_market)
+            or scope.get("date_projection") != "MARKET_DAILY_LABEL_ONLY"
             or factor.get("pit_safe") is not False or factor.get("decision_authority") is not False):
         raise ValueError("FALSIFICATION_FACTOR_LINEAGE")
     bars, records = market["bars"], factor["records"]
@@ -44,7 +46,7 @@ def verify_factor(raw_market: bytes, raw_factor: bytes, market_sha: str, symbol:
         raise ValueError("FALSIFICATION_FACTOR_RECORD_COUNT")
     max_error = 0.0
     for i, (bar, row) in enumerate(zip(bars, records, strict=True)):
-        if row.get("date") != bar["date"] or row.get("symbol") != symbol:
+        if row.get("date") != market_daily_label(bar["date"]) or row.get("symbol") != symbol:
             raise ValueError("FALSIFICATION_FACTOR_RECORD_IDENTITY")
         value = row.get("rolling_return_20")
         if i < 20:
