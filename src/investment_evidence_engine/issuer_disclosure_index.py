@@ -69,6 +69,8 @@ def parse_index(raw: bytes, org: str, window: tuple, observed_at: datetime, *,
                 subject: str = SUBJECT, docs: dict | None = None) -> dict:
     docs = DOCS if docs is None else docs
     start, end, targets = window
+    if not targets or len(set(targets)) != len(targets) or any(k not in docs for k in targets):
+        raise ValueError("INDEX_TARGET_SCOPE")
     body = decode_object(raw)
     rows = body.get("announcements")
     total = body.get("totalAnnouncement")
