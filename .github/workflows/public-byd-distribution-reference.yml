@@ -1,9 +1,6 @@
 name: Public BYD distribution reference
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-byd-distribution-reference.yml'
 permissions:
   contents: read
 jobs:
