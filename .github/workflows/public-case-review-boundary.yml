@@ -1,11 +1,6 @@
 name: Public current-case review boundary replay
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-case-review-boundary.yml'
-      - 'src/investment_evidence_engine/review_boundary.py'
-      - 'scripts/public_case_review_boundary.py'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

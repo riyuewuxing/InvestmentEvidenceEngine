@@ -16,7 +16,7 @@ dependencies = [
   "numpy",
   "pandas",
   "pydantic>=2",
-  "pypdf",
+  "pypdf==7.2.0",
   "PyYAML",
   "tushare",
 ]
