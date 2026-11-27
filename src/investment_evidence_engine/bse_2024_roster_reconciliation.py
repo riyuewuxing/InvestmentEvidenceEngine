@@ -20,6 +20,7 @@ URLS = {
     "mapping": "https://dataclouds.cninfo.com.cn/sjother/regulatory/2024/20241213/765a685e5d5545248d554c24fefc6684.pdf",
     "ipo": "https://pdf.dfcfw.com/pdf/H3_AP202501121641896845_1.pdf?1736711858000.pdf=",
 }
+NOTICE_URL = "https://dataclouds.cninfo.com.cn/sjother/regulatory/2024/20241213/d7cfc96e816541629e69b0e257d98dbe.pdf"
 CUTOFF = date(2024, 12, 31)
 MAX_BYTES = 8 * 1024 * 1024
 IPO_PRIOR_SHA256 = "5fc5a3c435b81d03bd953b8b87b56d47adefdb1fcd9be59dc234c05fa1f0c10e"
@@ -86,7 +87,7 @@ def reconcile(mapping: list[tuple[int, str, str, str]], ipo: list[tuple[int, str
         "candidate_code_set_sha256": digest(json.dumps(sorted(candidate), separators=(",", ":")).encode()),
         "old_new_suffix_counterexamples": sum(r[2][-3:] != r[3][-3:] for r in mapping),
         "selected_layer_date_rows": sum(r[1] < "2021-11-15" for r in mapping),
-        "mapping_attachment_linked_to_notice_dated_2024_12_13": True,
+        "mapping_archive_path_date": "2024-12-13",
         "mapping_historical_bytes_availability_verified": False, "ipo_report_later_publication": True,
         "complete_historical_universe_verified": False,
         "historical_availability_verified": False, "pit_safe": False}
@@ -96,11 +97,12 @@ def download(kind: str, target: Path, result: Path) -> None:
     import httpx
 
     started = datetime.now(UTC).isoformat()
-    report = {"status": "BLOCK", "url": URLS[kind], "started_at": started}
+    url = NOTICE_URL if kind == "notice" else URLS[kind]
+    report = {"status": "BLOCK", "url": url, "started_at": started}
     try:
         with httpx.Client(timeout=httpx.Timeout(10), follow_redirects=False) as client:
-            with client.stream("GET", URLS[kind], headers={"Accept": "application/pdf", "Accept-Encoding": "identity"}) as response:
-                if str(response.url) != URLS[kind]:
+            with client.stream("GET", url, headers={"Accept": "application/pdf", "Accept-Encoding": "identity"}) as response:
+                if str(response.url) != url:
                     raise ValueError("source route changed")
                 raw = read_bounded_pdf(response, time.monotonic() + 35, max_bytes=MAX_BYTES)
         with target.open("xb") as out:
@@ -184,6 +186,59 @@ def ipo_only() -> int:
     return 0 if report["status"] == "WARN" else 2
 
 
+def parse_notice_text(text: str) -> dict:
+    compact = re.sub(r"\s+", "", text)
+    checks = {
+        "title": "关于做好北京证券交易所存量上市公司证券代码切换准备工作的通知" in compact,
+        "publisher_declared_date": "2024年12月13日" in compact or "2024-12-13" in compact,
+        "notice_number": bool(re.search(r"北证公告[〔\[［]2024[〕\]］]231号", compact)),
+        "new_listing_code_effective": "2024年4月22日起为新增上市公司普通股票启用920代码号段" in compact,
+        "attachment_title": "存量上市公司股票新旧代码对照表" in compact,
+        "collision_exception": "股票代码重复的" in compact and "第四位代码做递进处理" in compact,
+        "separate_switch_timing": "具体事宜本所将另行通知" in compact,
+    }
+    return {"status": "WARN" if all(checks.values()) else "BLOCK", "checks": checks,
+            "publisher_declared_date": "2024-12-13" if checks["publisher_declared_date"] else None,
+            "exact_attachment_version_at_publication_verified": False,
+            "historical_availability_verified": False, "pit_safe": False}
+
+
+def notice_child(target: Path, result: Path) -> None:
+    from pypdf import PdfReader
+
+    raw = target.read_bytes()
+    reader = PdfReader(target, strict=True)
+    report = {"input_sha256": digest(raw), "pages": len(reader.pages), "status": "BLOCK"}
+    if not reader.is_encrypted and 1 <= len(reader.pages) <= 8:
+        report.update(parse_notice_text("\n".join(page.extract_text() or "" for page in reader.pages)))
+    write_worker_result(result, report)
+
+
+def notice_only() -> int:
+    if os.environ.get("GITHUB_REPOSITORY") != REPO:
+        raise SystemExit("public repository required")
+    report = {"status": "BLOCK", "executor_commit": os.environ["GITHUB_SHA"], "pit_safe": False,
+              "decision_authority": False, "raw_sources_retained": False}
+    with TemporaryDirectory() as folder:
+        target = Path(folder) / "notice.pdf"
+        task = run_json_worker((sys.executable, "-m", MODULE, "--download", "notice", str(target)),
+                               timeout_seconds=45, max_bytes=65536)
+        data = task.payload or {"status": "BLOCK"}
+        report.update(source=data, download_worker=task.status, download_elapsed_seconds=task.elapsed_seconds)
+        if target.is_file() and digest(target.read_bytes()) == data.get("source_sha256"):
+            report["parent_rehash"] = "MATCH"
+            parsed = run_json_worker((sys.executable, "-m", MODULE, "--parse-notice", str(target)),
+                                     timeout_seconds=30, max_bytes=65536)
+            report.update(parser_worker=parsed.status, parser_elapsed_seconds=parsed.elapsed_seconds)
+            if parsed.payload:
+                report["parser"] = parsed.payload
+                if parsed.payload.get("input_sha256") == data.get("source_sha256"):
+                    report["parser_rehash"] = "MATCH"
+                    report["status"] = parsed.payload["status"]
+    print("PUBLIC_BSE_NOTICE " + json.dumps(report, sort_keys=True, allow_nan=False), flush=True)
+    return 0 if report["status"] == "WARN" else 2
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
@@ -215,12 +270,16 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 5 and sys.argv[1] == "--download" and sys.argv[2] in URLS:
+    if len(sys.argv) == 5 and sys.argv[1] == "--download" and sys.argv[2] in (*URLS, "notice"):
         download(sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
     elif len(sys.argv) == 4 and sys.argv[1] == "--parse":
         parse(Path(sys.argv[2]), Path(sys.argv[3]))
     elif len(sys.argv) == 4 and sys.argv[1] == "--parse-ipo":
         parse_ipo_only(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--parse-notice":
+        notice_child(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--notice-only"]:
+        raise SystemExit(notice_only())
     elif sys.argv[1:] == ["--ipo-only"]:
         raise SystemExit(ipo_only())
     elif len(sys.argv) == 1:
