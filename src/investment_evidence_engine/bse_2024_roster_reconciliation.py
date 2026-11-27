@@ -23,6 +23,7 @@ URLS = {
 }
 CUTOFF = date(2024, 12, 31)
 MAX_BYTES = 8 * 1024 * 1024
+IPO_PRIOR_SHA256 = "5fc5a3c435b81d03bd953b8b87b56d47adefdb1fcd9be59dc234c05fa1f0c10e"
 CQ_OLD = {"830896", "831370", "833873", "834033", "871857", "873833"}
 PILOT = {"833819", "830799", "831445", "430489", "839167", "834682"}
 MAPPING_ROW = re.compile(r"^\s*(\d{1,3})\s+.+?\s+(\d{4}-\d{2}-\d{2})\s+([48]\d{5})\s+(920\d{3})\s*$")
@@ -132,6 +133,57 @@ def parse(folder: Path, result: Path) -> None:
     write_worker_result(result, report)
 
 
+def parse_ipo_only(target: Path, result: Path) -> None:
+    from pypdf import PdfReader
+
+    raw = target.read_bytes()
+    reader = PdfReader(target, strict=True)
+    report = {"status": "BLOCK", "input_sha256": digest(raw), "pages": len(reader.pages)}
+    if reader.is_encrypted or len(reader.pages) != 14 or report["input_sha256"] != IPO_PRIOR_SHA256:
+        write_worker_result(result, report)
+        return
+    cover = re.sub(r"\s+", "", reader.pages[0].extract_text() or "")
+    date_marker = any(x in cover for x in ("2025年01月12日", "2025年1月12日", "20250112"))
+    text = "\n".join(reader.pages[i].extract_text(extraction_mode="layout") or "" for i in (10, 11))
+    rows = parse_ipo(text)
+    outcome = reconcile([], rows)
+    report.update(report_date_marker=date_marker, ipo_shape_matches=outcome["ipo_shape_matches"],
+                  ipo_rows=outcome["ipo_rows"], ipo_2024_count=outcome["ipo_2024_count"],
+                  old_ipo_count=outcome["old_ipo_count"], native_920_2024_count=outcome["native_920_2024_count"],
+                  after_cutoff_excluded=outcome["after_cutoff_excluded"],
+                  parsed_code_date_hash=digest(json.dumps(rows, separators=(",", ":")).encode()),
+                  native_2024_code_date=[(code, listed) for _, code, listed in rows if code.startswith("920") and listed <= CUTOFF.isoformat()],
+                  full_mapping_verified=False, pit_safe=False)
+    if date_marker and outcome["ipo_shape_matches"] and outcome["old_ipo_count"] == 9 and outcome["native_920_2024_count"] == 14:
+        report["status"] = "WARN"
+    write_worker_result(result, report)
+
+
+def ipo_only() -> int:
+    if os.environ.get("GITHUB_REPOSITORY") != REPO:
+        raise SystemExit("public repository required")
+    report = {"status": "BLOCK", "executor_commit": os.environ["GITHUB_SHA"], "raw_sources_retained": False,
+              "pit_safe": False, "decision_authority": False, "complete_historical_universe_verified": False}
+    with TemporaryDirectory() as folder:
+        target = Path(folder) / "ipo.pdf"
+        worker = run_json_worker((sys.executable, "-m", MODULE, "--download", "ipo", str(target)),
+                                 timeout_seconds=45, max_bytes=65536)
+        source = worker.payload or {"status": "BLOCK"}
+        report.update(source=source, download_worker=worker.status, download_elapsed_seconds=worker.elapsed_seconds)
+        if target.is_file() and digest(target.read_bytes()) == source.get("source_sha256") == IPO_PRIOR_SHA256:
+            report["parent_rehash"] = "MATCH"
+            task = run_json_worker((sys.executable, "-m", MODULE, "--parse-ipo", str(target)),
+                                   timeout_seconds=45, max_bytes=65536)
+            report.update(parser_worker=task.status, parser_elapsed_seconds=task.elapsed_seconds)
+            if task.payload:
+                report["parser"] = task.payload
+                if task.payload.get("input_sha256") == IPO_PRIOR_SHA256:
+                    report["parser_rehash"] = "MATCH"
+                    report["status"] = task.payload["status"]
+    print("PUBLIC_BSE_IPO_ONLY " + json.dumps(report, sort_keys=True, allow_nan=False), flush=True)
+    return 0 if report["status"] == "WARN" else 2
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
@@ -167,6 +219,10 @@ if __name__ == "__main__":
         download(sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
     elif len(sys.argv) == 4 and sys.argv[1] == "--parse":
         parse(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--parse-ipo":
+        parse_ipo_only(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--ipo-only"]:
+        raise SystemExit(ipo_only())
     elif len(sys.argv) == 1:
         raise SystemExit(main())
     else:
