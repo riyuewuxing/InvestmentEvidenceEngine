@@ -42,3 +42,7 @@ def test_two_channel_match_is_not_historical_observation():
     assert [v["declared_release_minute_elapsed"] for v in result["cutoffs"]] == [False, False, False, True, True]
     assert not any(v["actually_observed_by_cutoff"] for v in result["cutoffs"])
     assert reconcile(parse_index(index_html()), data, data | {"values_cny": {}}, observed_at=datetime(2026, 11, 27, tzinfo=UTC))["status"] == "BLOCK"
+
+
+def test_yuan_precision_not_truncated():
+    assert row_pair("营业收入(元) 1,234.56 2,345.67", "营业收入(元)", scale=1) == ("1234.56", "2345.67")
