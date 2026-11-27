@@ -220,14 +220,15 @@ def issuer_parse(path: Path, key: str) -> dict:
         marks = ("2024年9月30日", "2024年上半年上市公司行业分类结果", "批发业", "F51", "医药制造业", "C27")
         date, docday, industry = "2024-09-30", "2024-10-30", "C27"
     else:
-        identity, code, idxs = "广东长青(集团)股份有限公司", "002616", tuple(range(8,12))
+        identity, code, idxs = "广东长青(集团)股份有限公司", "002616", (9,)
         text = "".join(normalize_text(reader.pages[i].extract_text() or "") for i in idxs)
         marks = ("2025年4月18日", "2024年下半年上市公司行业分类结果", "N77", "生态保护和环境治理业")
         date, docday, industry = "2025-04-18", "2025-08-30", "N77"
-    if identity not in first or code not in first or not all(m in text for m in marks):
+    identity_page = first if key=="h1_issuer" else normalize_text(reader.pages[6].extract_text() or "")
+    if identity not in first or identity not in identity_page or code not in identity_page or not all(m in text for m in marks):
         raise ValueError("CAPCO_ISSUER_CITATION_FIELDS")
     return {"status":"OBSERVED_ISSUER_REPORTED_RELEASE_DAY","symbol":code,"issuer_reported_release_day":date,
-            "issuer_document_day":docday,"industry_code":industry,"checked_pdf_pages":[i+1 for i in idxs],
+            "issuer_document_day":docday,"industry_code":industry,"checked_pdf_pages":[i+1 for i in idxs],"identity_pdf_pages":[1] if key=="h1_issuer" else [1,7],
             "same_original_classification_bytes_at_release_verified":False,"first_availability_verified":False}
 
 
@@ -317,7 +318,7 @@ def main() -> int:
     with TemporaryDirectory() as temp:
         folder=Path(temp)
         receipts={}
-        for key in URLS:
+        for key in (("h2_issuer",) if os.environ.get("SZSE_RECONCILE_MODE")=="H2_ISSUER_ONLY" else URLS):
             _,receipts[key]=observe(key,folder)
         report["observations"]=receipts
         parser=run_json_worker((sys.executable,"-m","investment_evidence_engine.szse_factbook_reconcile",
@@ -330,6 +331,11 @@ def main() -> int:
             if parsed["observed_file_sha256"]==expected:
                 report["parser_input_hashes_match"]=True
                 report["status"]=parsed["status"]
+                if os.environ.get("SZSE_RECONCILE_MODE")=="H2_ISSUER_ONLY":
+                    report["scope"]="H2_ISSUER_FIELD_CORRECTION_ONLY"
+                    report["prior_reconciliation_run"]=45939309237
+                    ref=parsed["issuer_references"].get("h2_issuer",{})
+                    report["status"]="WARN" if (ref.get("status")=="OBSERVED_ISSUER_REPORTED_RELEASE_DAY" and expected.get("h2_issuer")=="18ffd2d4649bc66ccfed61072954db08b22458ed349b6dcb5d47d5c491f53a60") else "BLOCK"
     print("PUBLIC_SZSE_FACTBOOK_RECONCILE "+json.dumps(report,sort_keys=True,allow_nan=False),flush=True)
     return 0 if report["status"]=="WARN" else 2
 
