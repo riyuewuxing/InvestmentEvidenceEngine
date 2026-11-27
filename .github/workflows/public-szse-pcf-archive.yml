@@ -1,9 +1,6 @@
 name: Public SZSE PCF archive comparison
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/public-szse-pcf-archive.yml
 permissions:
   contents: read
 jobs:

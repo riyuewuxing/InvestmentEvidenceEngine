@@ -8,6 +8,7 @@ from investment_evidence_engine.evidence_time_guard import (
     market_event_reference,
     observed_measurement_visible,
     reference_age_seconds,
+    scheduled_interval_visible,
     source_visible,
     validate_event_cutoff,
 )
@@ -158,3 +159,25 @@ def test_classification_period_and_issuer_reported_release_do_not_backdate_obser
         assert event_cutoff_status(issuer_reported_release,observed_at,cutoff.isoformat())=="AFTER_CUTOFF"
     assert not source_visible(available_at=None,retrieved_at=retrieved,published_at=None,cutoff=retrieved)
     assert event_cutoff_status(issuer_reported_release,observed_at,retrieved.isoformat())=="UNVERIFIED_TIME"
+
+
+def test_scheduled_notice_requires_ingestion_but_can_be_known_in_advance():
+    start = CUT + timedelta(days=1)
+    end = start + timedelta(days=1)
+    args = dict(effective_from=start, effective_to=end, effective_at=start,
+                available_at=EARLIER, ingested_at=BEFORE, cutoff=CUT)
+    assert scheduled_interval_visible(**args)
+    for changes in (
+        {"ingested_at": None},
+        {"ingested_at": CUT + timedelta(seconds=1)},
+        {"ingested_at": EARLIER - timedelta(seconds=1)},
+        {"effective_at": start - timedelta(seconds=1)},
+        {"effective_at": end},
+        {"effective_to": start},
+        {"effective_from": start.replace(tzinfo=None)},
+        {"effective_to": end.replace(tzinfo=None)},
+        {"effective_at": start.replace(tzinfo=None)},
+        {"cutoff": CUT.replace(tzinfo=None)},
+    ):
+        assert not scheduled_interval_visible(**(args | changes))
+    assert scheduled_interval_visible(**(args | {"effective_to": None}))

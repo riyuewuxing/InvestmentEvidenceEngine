@@ -43,6 +43,24 @@ def observed_measurement_visible(*, effective_at: datetime, available_at: dateti
             and effective_at <= available_at)
 
 
+def scheduled_interval_visible(*, effective_from: datetime, effective_to: datetime | None,
+                               effective_at: datetime, available_at: datetime | None,
+                               ingested_at: datetime | None, cutoff: datetime) -> bool:
+    """Scheduled notices may be known before their effective dates.
+
+    Missing or later ingestion is not historical knowledge. End is exclusive.
+    Chronology alone is not proof of authentic source evidence.
+    """
+    if not all(aware(x) for x in (effective_from, effective_at)):
+        return False
+    if effective_to is not None and (not aware(effective_to) or effective_to <= effective_from):
+        return False
+    return (source_visible(available_at=available_at, retrieved_at=ingested_at,
+                           published_at=None, cutoff=cutoff)
+            and effective_from <= effective_at
+            and (effective_to is None or effective_at < effective_to))
+
+
 def reference_age_seconds(*, market_at: datetime, reference_at: datetime) -> float | None:
     """A reference effective after its market quote cannot be used as contemporaneous."""
     if not aware(market_at) or not aware(reference_at) or reference_at > market_at:
