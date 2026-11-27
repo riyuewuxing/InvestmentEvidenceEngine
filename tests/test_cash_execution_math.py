@@ -153,3 +153,12 @@ def test_reference_order_and_first_suspension():
     assert reference_chain((row,), preceding_close=D("10"))["status"] != "BLOCK"
     with pytest.raises(ValueError):
         reference_chain((row, row))
+
+
+def test_caller_supplied_prior_does_not_establish_source_provenance():
+    row = ReferenceDay(date(2026,7,6), D("10"), D("10"), False, D("100"))
+    report = reference_chain((row,), preceding_close=D("10"))
+    assert report["status"] != "BLOCK"
+    assert report["preceding_close_supplied"] and not report["first_reference_unanchored"]
+    assert report["first_reference_predecessor_unverified"]
+    assert not report["calendar_coverage_verified"]

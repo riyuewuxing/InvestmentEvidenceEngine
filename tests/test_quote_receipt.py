@@ -1,7 +1,7 @@
 import base64
 import hashlib
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -133,3 +133,12 @@ def test_unavailable_depth_withholds_fees_and_notional(tmp_path):
         assert "total_explicit_fee_cny" not in result and "conditional_cash_required_or_received_cny" not in result
     with pytest.raises(ValueError,match="WHOLE_100_UNITS"):
         cost_walk_latest_quote(tmp_path,STOCK,now=NOW,side="BUY",units=101,**TERMS)
+
+
+def test_cost_walk_is_independent_of_caller_decimal_precision(tmp_path):
+    persist_quote_receipt(tmp_path,matched_receipt())
+    with localcontext() as ctx:
+        ctx.prec=3
+        result=cost_walk_latest_quote(tmp_path,STOCK,now=NOW,side="BUY",units=200,**TERMS)
+    assert result["conditional_cash_required_or_received_cny"]=="20009.20"
+    assert result["total_explicit_fee_cny"]=="6.20"

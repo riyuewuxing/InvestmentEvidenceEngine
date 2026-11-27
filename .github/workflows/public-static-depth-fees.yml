@@ -1,9 +1,7 @@
 name: Public static depth and fee diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-static-depth-fees.yml'
+
 permissions:
   contents: read
 jobs:

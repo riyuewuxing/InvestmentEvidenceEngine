@@ -194,7 +194,10 @@ def reference_chain(rows: tuple[ReferenceDay, ...], *,
         previous = close
     return {"status": "BLOCK" if blockers else "CONDITIONAL_CONTINUOUS_REFERENCE_ONLY",
             "blockers": blockers, "sessions": len(rows),
-            "first_reference_predecessor_unverified": first_unanchored,
+            "first_reference_predecessor_unverified": True,
+            "first_reference_unanchored": first_unanchored,
+            "preceding_close_supplied": preceding_close is not None,
+            "calendar_coverage_verified": False,
             "complete_corporate_action_history_verified": False,
             "historical_vintage_verified": False, "actual_fills_verified": False,
             "decision_authority": False}

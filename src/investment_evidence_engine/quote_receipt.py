@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from pathlib import Path
 from typing import Literal
 
@@ -225,16 +225,20 @@ def cost_walk_latest_quote(folder: Path, subject: PublicSecurity, *, now: dateti
     terms = dict(commission_rate=commission_rate, minimum_commission=minimum_commission,
                  transfer_rate=transfer_rate, sell_stamp_rate=sell_stamp_rate)
     order_fees(Decimal("0.01"), side=side, **terms)
-    result = walk_latest_quote(folder, subject, now=now, side=side, units=units)
+    with localcontext() as ctx:
+        ctx.prec = 48
+        result = walk_latest_quote(folder, subject, now=now, side=side, units=units)
     base = {"fee_basis": "EXPLICIT_ASSUMED_PER_ORDER_NOT_VERIFIED_BROKER_OR_DATE_RATES",
             "actual_broker_fee_verified": False, "actual_fill_verified": False,
             "sellable_inventory_verified": False, "fund_type_verified": False,
-            "decision_authority": False, "execution_allowed": False}
+            "decision_authority": False, "execution_allowed": False, "research_only": True}
     if result["status"] != "CONDITIONAL_STATIC_BOOK_WALK_ONLY":
         return result | base
     notional = Decimal(result["conditional_notional_decimal_cny"])
     fees = order_fees(notional, side=side, **terms)
-    cash = notional + fees.total if side == "BUY" else notional - fees.total
+    with localcontext() as ctx:
+        ctx.prec = 48
+        cash = (notional + fees.total if side == "BUY" else notional - fees.total).quantize(Decimal("0.01"))
     if cash < 0:
         return result | base | {"status": "BLOCKED", "error_code": "DEPTH_COST_FEES_EXCEED_PROCEEDS"}
     return result | base | {
