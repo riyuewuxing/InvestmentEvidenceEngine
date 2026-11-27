@@ -52,6 +52,8 @@ def test_conflicting_same_notice_not_resolved_by_update_flag():
     assert select_same_notice([a, dict(a)], metric_fields=("revenue",)) == a
     assert select_same_notice([a, {**a, "revenue": True}], metric_fields=("revenue",)) is None
     assert select_same_notice([a, {**a, "report_basis": "OTHER"}], metric_fields=("revenue",)) is None
+    assert select_same_notice([{**a, "ts_code": "600000.SH"}, {**a, "ts_code": "600001.SH"}],
+                              metric_fields=("revenue",)) is None
 
 
 @pytest.mark.parametrize("rec,day,precision,basis", [

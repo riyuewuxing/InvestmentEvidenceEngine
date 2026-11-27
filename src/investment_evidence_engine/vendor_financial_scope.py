@@ -85,7 +85,7 @@ def select_same_notice(rows: list[dict], *, metric_fields: tuple[str, ...]) -> d
                 values.append(Decimal(str(value)))
             else:
                 raise ValueError("VENDOR_METRIC_INVALID")
-        return (row.get("dataset"), row.get("report_period"), row.get("available_date"),
+        return (row.get("dataset"), row.get("ts_code"), row.get("report_period"), row.get("available_date"),
                 row.get("report_basis"), tuple(values))
     try:
         first = projection(rows[0])

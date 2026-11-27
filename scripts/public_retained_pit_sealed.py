@@ -14,7 +14,11 @@ from tempfile import TemporaryDirectory
 
 from public_retained_pit_dependency import run_control
 
-from investment_evidence_engine.contracts import ExecutionOperation, ExecutionRequest, ExecutionResult
+from investment_evidence_engine.contracts import (
+    ExecutionOperation,
+    ExecutionRequest,
+    ExecutionResult,
+)
 from investment_evidence_engine.runner import execute_request
 
 

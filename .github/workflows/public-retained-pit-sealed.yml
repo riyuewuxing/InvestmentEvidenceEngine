@@ -1,10 +1,6 @@
 name: Public retained PIT sealed proof
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-retained-pit-sealed.yml'
 permissions:
   contents: read
 concurrency:
