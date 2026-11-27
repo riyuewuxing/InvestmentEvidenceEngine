@@ -45,6 +45,7 @@ def test_actual_archive_and_every_original_receipt_are_metadata_only():
     b'{"pit_safe":false}', b'{"admissible_for_decision":false}',
     b'{"pit_eligible":false}', b'{"source_class":"DYNAMIC_CARD_DECODED_INPUTS"}',
     b'[{"executor_commit":"test","raw_body_retained":false}]',
+    b'{"executor_commit":"test","durable_original_bytes_verified":false}',
     b'\xef\xbb\xbf {"pit_safe":false}',
 ])
 def test_negative_metadata_markers_cannot_be_overridden_by_matching_digest(raw):

@@ -57,7 +57,8 @@ def _metadata_only(document: dict) -> bool:
     if isinstance(document.get("executor_commit"), str) and (
             document.get("raw_body_retained") is False
             or document.get("raw_provider_bytes_retained") is False
-            or document.get("raw_vendor_bodies_retained") is False):
+            or document.get("raw_vendor_bodies_retained") is False
+            or document.get("durable_original_bytes_verified") is False):
         return True
     return False
 
