@@ -165,6 +165,7 @@ def test_primary_snapshot_normalizes_and_feeds_opportunity_scan(tmp_path: Path) 
         "as_of": AS_OF,
         "market": "CN_A",
         "asset_type": "STOCK",
+        "artifact_refs": [ref.model_dump(mode="json") for ref in universe.artifacts],
     }
     assert context.payloads["scan"]["candidates"][0]["code"] == "600519"
     assert "forecast" not in context.payloads["universe"]
