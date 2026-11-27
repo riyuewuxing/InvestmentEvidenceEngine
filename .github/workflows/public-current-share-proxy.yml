@@ -1,9 +1,6 @@
 name: Public dated share-count and valuation proxy
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-current-share-proxy.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
