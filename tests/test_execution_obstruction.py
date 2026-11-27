@@ -143,3 +143,23 @@ def test_suspension_missing_volume_is_not_imputed():
     with pytest.raises(ValueError, match="TRADE_FLAG_CONFLICT"):
         inspect_explicit_eligibility(rows, identity="sz.002748", sessions=dates, regimes=regimes,
                                      other_ohlc=other, event_references={})
+
+def test_st_rule_effective_date_and_first_trading_reference_scope():
+    days = (date(2026, 7, 3), date(2026, 7, 6), date(2026, 7, 7))
+    rows = [[d.isoformat(), "sz.000078", "10", "10", "10", "10",
+             "10", "100", "3", "1", "1"] for d in days]
+    regimes = dict(zip(days, ["ST_5", "ST_10", "ST_10"]))
+    other = {d: (Decimal("10"),) * 4 for d in days}
+    kwargs = dict(identity="sz.000078", sessions=days, other_ohlc=other, event_references={})
+    result = inspect_explicit_eligibility(rows, regimes=regimes, **kwargs)
+    assert [a["limit_rate"] for a in result["audit"]] == ["0.05", "0.10", "0.10"]
+    for bad in ({**regimes, days[0]: "ST_10"}, {**regimes, days[1]: "ST_5"}):
+        with pytest.raises(ValueError, match="ELIGIBILITY_RULE_DATE_SCOPE"):
+            inspect_explicit_eligibility(rows, regimes=bad, **kwargs)
+    with pytest.raises(ValueError, match="ELIGIBILITY_ST_OR_TRADE_FLAG_CONFLICT"):
+        inspect_explicit_eligibility(rows, regimes={**regimes, days[1]: "ORDINARY_10"}, **kwargs)
+    rows[0][7:11] = ["", "3", "0", "1"]
+    with pytest.raises(ValueError, match="ELIGIBILITY_REFERENCE_SCOPE"):
+        inspect_explicit_eligibility(rows, identity="sz.000078", sessions=days,
+            regimes={**regimes, days[0]: "SUSPENDED"}, other_ohlc={d: other[d] for d in days[1:]},
+            event_references={days[1]: Decimal("10")})
