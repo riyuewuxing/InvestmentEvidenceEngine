@@ -16,12 +16,14 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .book_depth import compare_displayed_depth, depth_walk_scenario
+from .cash_execution_math import order_fees
 from .historical_capture import SH, PublicSecurity
 from .quote_reference import (
     MAX_BYTES,
@@ -173,7 +175,7 @@ def read_latest_quote_receipt(folder: Path,subject: PublicSecurity,*,now: dateti
         summarize_receipt(receipt,now=receipt.captured_at)
         rows.append((receipt.captured_at,path.stem,receipt))
     if not rows:
-        return {"status":"UNAVAILABLE","error_code":"NO_LOCAL_QUOTE_RECEIPT"}
+        return None
     _,digest,receipt=max(rows,key=lambda row:(row[0],row[1]))
     return receipt,digest
 
@@ -199,6 +201,51 @@ def walk_latest_quote(folder: Path,subject: PublicSecurity,*,now: datetime,side:
     t,s=payloads["tencent"],payloads["sina"]
     return depth_walk_scenario(subject,t.raw(),t.observed_at,s.raw(),s.observed_at,
         now=now,side=side,units=units) | {"receipt_sha256":digest,"receipt_rehashed":True}
+
+
+def cost_walk_latest_quote(folder: Path, subject: PublicSecurity, *, now: datetime,
+                           side: str, units: int, commission_rate: Decimal,
+                           minimum_commission: Decimal, transfer_rate: Decimal,
+                           sell_stamp_rate: Decimal) -> dict:
+    """One-side static depth plus explicit fee sensitivity, not an order.
+
+    Scope intentionally limited to whole 100-unit multiples of ordinary
+    Shanghai/Shenzhen main-board stocks or secondary equity ETF scenarios.
+    Caller must establish actual asset classification and broker fee terms;
+    no T+1 availability, account inventory, rate-date or order-queue claim.
+    """
+    subject.prefixed
+    if type(units) is not int or not 0 < units <= 100000000 or units % 100:
+        raise ValueError("DEPTH_COST_WHOLE_100_UNITS_REQUIRED")
+    if subject.asset_type == "STOCK" and not subject.symbol.startswith(
+            ("600", "601", "603", "605", "000", "001", "002", "003")):
+        raise ValueError("DEPTH_COST_ORDINARY_MAIN_BOARD_SCOPE")
+    if subject.asset_type == "ETF" and (transfer_rate != Decimal(0) or sell_stamp_rate != Decimal(0)):
+        raise ValueError("DEPTH_COST_ETF_STOCK_TAX_CONFLICT")
+    terms = dict(commission_rate=commission_rate, minimum_commission=minimum_commission,
+                 transfer_rate=transfer_rate, sell_stamp_rate=sell_stamp_rate)
+    order_fees(Decimal("0.01"), side=side, **terms)
+    result = walk_latest_quote(folder, subject, now=now, side=side, units=units)
+    base = {"fee_basis": "EXPLICIT_ASSUMED_PER_ORDER_NOT_VERIFIED_BROKER_OR_DATE_RATES",
+            "actual_broker_fee_verified": False, "actual_fill_verified": False,
+            "sellable_inventory_verified": False, "fund_type_verified": False,
+            "decision_authority": False, "execution_allowed": False}
+    if result["status"] != "CONDITIONAL_STATIC_BOOK_WALK_ONLY":
+        return result | base
+    notional = Decimal(result["conditional_notional_decimal_cny"])
+    fees = order_fees(notional, side=side, **terms)
+    cash = notional + fees.total if side == "BUY" else notional - fees.total
+    if cash < 0:
+        return result | base | {"status": "BLOCKED", "error_code": "DEPTH_COST_FEES_EXCEED_PROCEEDS"}
+    return result | base | {
+        "status": "CONDITIONAL_STATIC_BOOK_AND_FEE_ONLY",
+        "fee_assumptions": {key: str(value) for key, value in terms.items()},
+        "commission_cny": str(fees.commission), "transfer_fee_cny": str(fees.transfer),
+        "stamp_tax_cny": str(fees.stamp), "total_explicit_fee_cny": str(fees.total),
+        "conditional_cash_required_or_received_cny": str(cash),
+        "impact_cost_estimated": False, "future_exit_cost_estimated": False,
+        "formal_liquidity_cost_estimated": False,
+    }
 
 
 def _child(provider: str,symbol: str,asset_type: str) -> None:

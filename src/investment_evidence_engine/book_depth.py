@@ -103,4 +103,5 @@ def depth_walk_scenario(subject: PublicSecurity,tencent_raw: bytes,tencent_obser
     avg=cash/units
     adverse=(avg/top-1) if side=="BUY" else (1-avg/top)
     return common | {"status":"CONDITIONAL_STATIC_BOOK_WALK_ONLY","conditional_vwap_cny":float(avg),
-                     "conditional_notional_cny":float(cash),"adverse_bps_from_best_quote":float(adverse*10000)}
+                     "conditional_notional_cny":float(cash),"conditional_notional_decimal_cny":str(cash),
+                     "adverse_bps_from_best_quote":float(adverse*10000)}
