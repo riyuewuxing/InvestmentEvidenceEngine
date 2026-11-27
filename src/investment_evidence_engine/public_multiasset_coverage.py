@@ -23,10 +23,10 @@ SPECS = {
     "fund_catalog": ("fund_name_em", "基金代码", {"name": "基金简称", "category": "基金类型"}),
     "fund_rank": ("fund_open_fund_rank_em", "基金代码", {"day": "日期", "nav": "单位净值",
                     "month": "近1月", "year": "近1年"}),
-    "etf_catalog": ("fund_etf_fund_daily_em", "基金代码", {"name": "基金简称", "category": "类型",
-                    "price": "市价"}),
+    "etf_catalog": ("fund_etf_spot_ths", "基金代码", {"name": "基金名称", "category": "基金类型",
+                    "nav": "最新-单位净值", "day": "最新-交易日"}),
     "etf_rank": ("fund_exchange_rank_em", "基金代码", {"day": "日期", "month": "近1月", "year": "近1年"}),
-    "etf_quote": ("fund_etf_category_sina", "代码", {"price": "最新价", "amount": "成交额"}),
+    "etf_quote": ("fund_etf_category_sina", "代码", {"name": "名称", "price": "最新价", "amount": "成交额"}),
 }
 NUMERIC = {"nav", "month", "year", "price", "amount"}
 MAX_ROWS = 100000
@@ -53,6 +53,8 @@ def number(value: object) -> float | None:
 def session(value: object) -> str | None:
     try:
         text = str(value)
+        if isinstance(value, datetime):
+            return value.date().isoformat() if value.utcoffset() is None and value.time() == datetime.min.time() else None
         return date.fromisoformat(text).isoformat() if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text) else None
     except ValueError:
         return None
@@ -155,11 +157,19 @@ def analyze(tables: dict, *, observed_day: str) -> dict:
     quote = records("etf_quote")
     # A vendor ETF directory is not a listing authority; ambiguous feeder names
     # must not leak into the listed ETF diagnostic.
-    etf_codes = ({c for c, r in etfs.items() if r.get("name") and "联接" not in r["name"]}
-                 if etfs is not None else None)
-    fund_codes = ({c for c, r in master.items() if c not in etf_codes and r.get("name")
+    def etf_scope(rows):
+        if not rows:
+            return None
+        return {c for c, r in rows.items() if r.get("name") and "联接" not in r["name"]}
+
+    ths_codes, sina_codes = etf_scope(etfs), etf_scope(quote)
+    # Use the observed ETF quote directory as primary, not an official registry.
+    # THS is a distinct vendor scope; do not silently turn its absence into zero.
+    etf_codes = sina_codes if sina_codes else ths_codes if ths_codes else None
+    excluded = (ths_codes or set()) | (sina_codes or set())
+    fund_codes = ({c for c, r in master.items() if c not in excluded and r.get("name")
                    and ("ETF" not in r["name"].upper() or "联接" in r["name"])}
-                  if master is not None and etf_codes is not None else None)
+                  if master and etf_codes is not None else None)
     fund_rank = records("fund_rank")
     etf_rank = records("etf_rank")
     return {"tables": {key: summary(tables.get(key)) for key in SPECS},
@@ -170,6 +180,11 @@ def analyze(tables: dict, *, observed_day: str) -> dict:
                 "rank_coverage": overlap(fund_codes, set(fund_rank) if fund_rank is not None else None),
                 "recovery_lens": recovery_lens(fund_codes, tables.get("fund_rank"), observed_day=observed_day)},
             "etf_vendor_catalog_scope": {"code_count": len(etf_codes) if etf_codes is not None else None,
+                "denominator_source": "SINA_ETF_CATEGORY" if sina_codes else "THS_ETF_CATEGORY" if ths_codes else None,
+                "independent_vendor_directory_overlap": overlap(sina_codes, ths_codes),
+                "nav_coverage": overlap(etf_codes, {c for c, row in etfs.items()
+                    if row.get("nav") is not None and row.get("day") is not None and row["day"] <= observed_day}
+                    if etfs is not None else None),
                 "official_universe_verified": False,
                 "subtype_verified_count": 0 if etf_codes is not None else None,
                 "subtype_unknown_count": len(etf_codes) if etf_codes is not None else None,
@@ -209,7 +224,8 @@ def observe(key: str) -> tuple[str, dict | None, dict]:
     before = datetime.now(UTC)
     result = run_json_worker((sys.executable, "-m", "investment_evidence_engine.public_multiasset_coverage", "--child", key),
                              timeout_seconds=65, max_bytes=MAX_BYTES)
-    meta = {"worker_status": result.status, "elapsed_seconds": result.elapsed_seconds}
+    meta = {"worker_status": result.status, "elapsed_seconds": result.elapsed_seconds,
+            "endpoint": SPECS[key][0]}
     if result.status != "OK" or result.payload is None:
         return key, None, meta
     payload = result.payload

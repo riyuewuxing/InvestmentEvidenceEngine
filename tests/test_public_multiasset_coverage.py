@@ -50,9 +50,9 @@ def test_feeder_not_etf_and_no_subtype_or_coverage_fabrication():
         {"基金代码": "000001", "基金简称": "ETF联接", "基金类型": "指数型"},
         {"基金代码": "510001", "基金简称": "ETF", "基金类型": "指数型"},
         {"基金代码": "000002", "基金简称": "普通基金"}])
-    etfs = table("etf_catalog", ["基金代码", "基金简称", "类型", "市价"], [
-        {"基金代码": "510001", "基金简称": "ETF", "类型": "指数型", "市价": "1.2"},
-        {"基金代码": "000001", "基金简称": "ETF联接"}])
+    etfs = table("etf_catalog", ["基金代码", "基金名称", "基金类型", "最新-单位净值", "最新-交易日"], [
+        {"基金代码": "510001", "基金名称": "ETF", "基金类型": "指数型", "最新-单位净值": "1.2"},
+        {"基金代码": "000001", "基金名称": "ETF联接"}])
     report = analyze({"fund_catalog": master, "etf_catalog": etfs}, observed_day="2026-11-27")
     assert report["fund_vendor_catalog_scope"]["code_count"] == 2
     assert report["etf_vendor_catalog_scope"]["code_count"] == 1
@@ -61,3 +61,22 @@ def test_feeder_not_etf_and_no_subtype_or_coverage_fabrication():
     assert report["etf_vendor_catalog_scope"]["secondary_quote_coverage"]["coverage"] is None
     assert report["industry_reversal"] == "UNKNOWN"
     assert not report["decision_authority"]
+
+
+def test_sina_primary_scope_ths_extra_excluded_from_fund_and_missing_ths_visible():
+    master = table("fund_catalog", ["基金代码", "基金简称", "基金类型"], [
+        {"基金代码": "510001", "基金简称": "listed one"},
+        {"基金代码": "510002", "基金简称": "listed two"},
+        {"基金代码": "000003", "基金简称": "ordinary fund"}])
+    quote = table("etf_quote", ["代码", "名称", "最新价", "成交额"], [
+        {"代码": "sh510001", "名称": "listed one", "最新价": 1.2}])
+    ths = table("etf_catalog", ["基金代码", "基金名称", "基金类型", "最新-单位净值", "最新-交易日"], [
+        {"基金代码": "510002", "基金名称": "listed two", "最新-单位净值": 1.1, "最新-交易日": "2026-11-27"}])
+    report = analyze({"fund_catalog": master, "etf_quote": quote, "etf_catalog": ths}, observed_day="2026-11-27")
+    e = report["etf_vendor_catalog_scope"]
+    assert e["denominator_source"] == "SINA_ETF_CATEGORY"
+    assert e["independent_vendor_directory_overlap"]["coverage"] == 0
+    assert e["independent_vendor_directory_overlap"]["extra"] == 1
+    assert report["fund_vendor_catalog_scope"]["code_count"] == 1
+    report = analyze({"fund_catalog": master, "etf_quote": quote}, observed_day="2026-11-27")
+    assert report["etf_vendor_catalog_scope"]["independent_vendor_directory_overlap"]["coverage"] is None
