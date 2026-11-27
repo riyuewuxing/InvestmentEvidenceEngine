@@ -1,9 +1,6 @@
 name: Public ST rule change diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-st-rule-change.yml'
 
 permissions:
   contents: read
@@ -25,4 +22,4 @@ jobs:
       - run: timeout --signal=TERM --kill-after=5s 115s python scripts/public_st_rule_change.py
         timeout-minutes: 3
 
-# Targeted same-source correction for suspended row missingness and exact notice rehash.
+# Retained as a bounded, explicit diagnostic; no push-triggered source requests.
