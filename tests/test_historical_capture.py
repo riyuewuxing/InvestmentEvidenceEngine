@@ -127,3 +127,33 @@ def test_historical_eastmoney_uses_current_endpoint_without_live_retry(monkeypat
     assert capture._provider_rows("eastmoney", A, START, END) == [[END.isoformat(), 100.0]]
     assert calls == [{"symbol": A.symbol, "period": "daily", "start_date": START.strftime("%Y%m%d"),
                       "end_date": END.strftime("%Y%m%d"), "adjust": ""}]
+
+
+@pytest.mark.parametrize("code,first,last", [
+    ("300114", date(2025, 1, 2), date(2025, 2, 17)),
+    ("302132", date(2025, 2, 14), date(2025, 3, 20)),
+    ("300114", date(2026, 10, 15), date(2026, 11, 25)),
+    ("302132", date(2025, 1, 2), date(2025, 2, 14)),
+])
+def test_reviewed_code_change_windows_block_before_fetch_and_on_replay(monkeypatch, code, first, last):
+    subject = PublicSecurity(symbol=code, asset_type="STOCK")
+    def unexpected(*args, **kwargs):
+        pytest.fail("must not query known invalid symbol/date interval")
+    monkeypatch.setattr(capture.subprocess, "run", unexpected)
+    reason = "REVIEWED_CODE_CHANGE_WINDOW_REQUIRES_EXPLICIT_IDENTITY"
+    with pytest.raises(ValueError, match=reason):
+        capture.acquire_series("sina", subject, first, last)
+    with pytest.raises(ValueError, match=reason):
+        _from_rows([], subject, "sina", first, last)
+    with pytest.raises(ValueError, match=reason):
+        observe_pair(subject, B, first, last, providers=("sina",))
+    with pytest.raises(ValueError, match=reason):
+        summarize_observed_pair(subject, B, (), first, last)
+
+
+def test_reviewed_code_change_exact_boundary_and_unrelated_code():
+    old = PublicSecurity(symbol="300114", asset_type="STOCK")
+    new = PublicSecurity(symbol="302132", asset_type="STOCK")
+    capture.validate_symbol_window(old, date(2025, 1, 2), date(2025, 2, 14))
+    capture.validate_symbol_window(new, date(2025, 2, 17), date(2025, 3, 20))
+    capture.validate_symbol_window(A, date(2025, 1, 2), date(2025, 3, 20))

@@ -62,7 +62,29 @@ def validate_window(start: date, end: date, now: datetime) -> None:
         raise ValueError("terminal date cannot be a weekend")
 
 
+# Reviewed exchange-filed issuer notice 2025-028, observed by public control
+# 45961469667. Narrow case only, not a complete security-master alias catalog.
+REVIEWED_CODE_CHANGE_SESSION = date(2025, 2, 17)
+
+
+def validate_symbol_window(subject: PublicSecurity, start: date, end: date) -> None:
+    """Block known historically invalid code windows in standard acquisition.
+
+    The old and new symbols can legitimately refer to one listing over time,
+    but vendor backfill under a new symbol is not historical symbol validity.
+    Cross-code series require a separate explicit listing-instance policy.
+    """
+    if type(start) is not date or type(end) is not date or start > end:
+        raise ValueError("SYMBOL_WINDOW_INVALID")
+    if subject.asset_type == "STOCK" and (
+        (subject.symbol == "300114" and end >= REVIEWED_CODE_CHANGE_SESSION)
+        or (subject.symbol == "302132" and start < REVIEWED_CODE_CHANGE_SESSION)
+    ):
+        raise ValueError("REVIEWED_CODE_CHANGE_WINDOW_REQUIRES_EXPLICIT_IDENTITY")
+
+
 def _from_rows(rows, subject: PublicSecurity, provider: str, start: date, end: date) -> HistoricalCloseSeries:
+    validate_symbol_window(subject, start, end)
     if not isinstance(rows, list) or len(rows) > 756:
         raise ValueError("CLOSE_ROW_COUNT_INVALID")
     if len(rows) < 21:
@@ -172,6 +194,7 @@ def _child(source: str, symbol: str, kind: str, first: str, last: str) -> None:
         subject = PublicSecurity(symbol=symbol, asset_type=kind)
         start, end = date.fromisoformat(first), date.fromisoformat(last)
         validate_window(start, end, datetime.now(SH))
+        validate_symbol_window(subject, start, end)
         stage = "PROVIDER_FETCH"
         # Keep provider text/errors out of the machine receipt.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -194,6 +217,7 @@ def acquire_series(source: str, subject: PublicSecurity, start: date, end: date)
         raise ValueError("unknown provider")
     subject.prefixed
     validate_window(start, end, datetime.now(SH))
+    validate_symbol_window(subject, start, end)
     try:
         proc = subprocess.run([sys.executable, "-m", __name__, "--child", source, subject.symbol,
             subject.asset_type, start.isoformat(), end.isoformat()],
@@ -244,6 +268,8 @@ def summarize_observed_pair(candidate: PublicSecurity, alternative: PublicSecuri
     """
     candidate.prefixed
     alternative.prefixed
+    validate_symbol_window(candidate, start, end)
+    validate_symbol_window(alternative, start, end)
     if candidate.symbol == alternative.symbol:
         raise ValueError("SELF_COMPARISON")
     groups = {candidate.symbol: [], alternative.symbol: []}
@@ -292,6 +318,8 @@ def observe_pair(candidate: PublicSecurity, alternative: PublicSecurity, start: 
         raise ValueError("invalid pair or provider list")
     candidate.prefixed
     alternative.prefixed
+    validate_symbol_window(candidate, start, end)
+    validate_symbol_window(alternative, start, end)
     found = []
     failures = []
     for source in providers:
