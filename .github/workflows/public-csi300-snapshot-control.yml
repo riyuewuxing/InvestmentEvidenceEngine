@@ -1,0 +1,31 @@
+name: Public CSI300 snapshot and rebalance evidence
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-csi300-snapshot-control.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-csi300-snapshot-control
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine and reviewed XLS reader
+        timeout-minutes: 4
+        run: python -m pip install -e ".[dev]" "xlrd==2.0.2"
+      - name: Observe fixed public original files
+        timeout-minutes: 3
+        run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.public_csi300_snapshot_control
