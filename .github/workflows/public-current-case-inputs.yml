@@ -1,9 +1,6 @@
 name: Public current case price and issuer risk metadata
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-current-case-inputs.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
