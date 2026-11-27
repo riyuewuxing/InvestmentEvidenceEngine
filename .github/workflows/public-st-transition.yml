@@ -1,9 +1,7 @@
 name: Public ST transition diagnostic
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/public-st-transition.yml'
+
 permissions:
   contents: read
 jobs:

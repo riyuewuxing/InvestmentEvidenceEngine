@@ -1,17 +1,7 @@
 name: Fixed public cross-market event clock and price observation
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/public_event_clock_control.py'
-      - '.github/workflows/public-event-clock-control.yml'
-      - 'src/investment_evidence_engine/evidence_time_guard.py'
-      - 'src/investment_evidence_engine/historical_reference.py'
-      - 'src/investment_evidence_engine/historical_capture.py'
-      - 'src/investment_evidence_engine/akshare_daily_adapter.py'
-      - 'src/investment_evidence_engine/historical_receipt.py'
-      - 'src/investment_evidence_engine/official_pdf_transport.py'
-      - 'src/investment_evidence_engine/sources.py'
+  workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:

@@ -19,6 +19,7 @@ RULES = (
 )
 REVIEWED_START = date(2025, 1, 2)
 REVIEWED_END = date(2026, 11, 25)
+ST_LIMIT_CHANGE = date(2026, 7, 6)
 
 
 def tick_price(value: str) -> Decimal:
@@ -64,13 +65,16 @@ def inspect_explicit_eligibility(rows: list, *, identity: str, sessions: tuple[d
     expected = tuple(r.day for r in scheduled_days(sessions[0], sessions[-1]) if r.is_trading_day)
     if (sessions != expected or not isinstance(rows, list) or len(rows) != len(sessions)
             or not isinstance(regimes, dict) or set(regimes) != set(sessions)
-            or any(type(k) is not date or v not in {"ST_5", "ORDINARY_10", "SUSPENDED"} for k, v in regimes.items())
+            or any(type(k) is not date or v not in {"ST_5", "ST_10", "ORDINARY_10", "SUSPENDED"} for k, v in regimes.items())
             or not isinstance(other_ohlc, dict) or not isinstance(event_references, dict)):
         raise ValueError("ELIGIBILITY_COVERAGE")
     trading = {d for d in sessions if regimes[d] != "SUSPENDED"}
+    if not trading or any((regimes[d] == "ST_5" and d >= ST_LIMIT_CHANGE)
+                          or (regimes[d] == "ST_10" and d < ST_LIMIT_CHANGE) for d in trading):
+        raise ValueError("ELIGIBILITY_RULE_DATE_SCOPE")
     if set(other_ohlc) != trading:
         raise ValueError("ELIGIBILITY_OTHER_SOURCE_COVERAGE")
-    if (not set(event_references) <= trading - {sessions[0]}
+    if (not set(event_references) <= trading - {min(trading)}
             or any(type(d) is not date or type(v) is not Decimal for d, v in event_references.items())):
         raise ValueError("ELIGIBILITY_REFERENCE_SCOPE")
     for value in event_references.values():
@@ -102,7 +106,7 @@ def inspect_explicit_eligibility(rows: list, *, identity: str, sessions: tuple[d
                           "volume_observation": "MISSING_NOT_IMPUTED" if volume is None else "OBSERVED_ZERO",
                           "trade_price_inferred": False})
             continue
-        if row[9] != "1" or volume is None or volume <= 0 or row[10] != ("1" if regime == "ST_5" else "0"):
+        if row[9] != "1" or volume is None or volume <= 0 or row[10] != ("1" if regime in {"ST_5", "ST_10"} else "0"):
             raise ValueError("ELIGIBILITY_ST_OR_TRADE_FLAG_CONFLICT")
         opening, high, low, close, ref = map(tick_price, row[2:7])
         other = other_ohlc[day]

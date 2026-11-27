@@ -10,7 +10,10 @@ from investment_evidence_engine.historical_receipt import (
     persist_receipt,
 )
 from investment_evidence_engine.historical_reference import DailyClose, HistoricalCloseSeries
-from investment_evidence_engine.holding_risk import ShareCashDistribution, ShareCashDistributionInputs
+from investment_evidence_engine.holding_risk import (
+    ShareCashDistribution,
+    ShareCashDistributionInputs,
+)
 from investment_evidence_engine.market_calendar import CalendarObservation, scheduled_days
 
 A = PublicSecurity(symbol="600519", asset_type="STOCK")

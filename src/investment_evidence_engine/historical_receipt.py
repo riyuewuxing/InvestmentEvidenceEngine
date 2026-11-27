@@ -19,7 +19,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .historical_capture import PROVIDERS, PublicSecurity, summarize_observed_pair, validate_window
 from .historical_reference import HistoricalCloseSeries
-from .holding_risk import CashDistributionInputs, ShareCashDistributionInputs, holding_period_reference
+from .holding_risk import (
+    CashDistributionInputs,
+    ShareCashDistributionInputs,
+    holding_period_reference,
+)
 from .market_calendar import CalendarObservation
 
 MAX_BYTES = 2 * 1024 * 1024
