@@ -1,6 +1,10 @@
 from investment_evidence_engine.historical_capture import PublicSecurity, _from_rows
 from investment_evidence_engine.market_calendar import scheduled_days
-from investment_evidence_engine.public_current_research_price import FIRST, LAST, summarize_supplement
+from investment_evidence_engine.public_current_research_price import (
+    FIRST,
+    LAST,
+    summarize_supplement,
+)
 
 
 def test_supplement_different_projection_cannot_claim_match():

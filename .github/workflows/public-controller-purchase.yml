@@ -1,9 +1,6 @@
 name: Public controller purchase and funding commitment
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-controller-purchase.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

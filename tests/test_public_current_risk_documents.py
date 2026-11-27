@@ -1,4 +1,8 @@
-from investment_evidence_engine.public_current_risk_documents import parse_notice, purchase_summary, summarize
+from investment_evidence_engine.public_current_risk_documents import (
+    parse_notice,
+    purchase_summary,
+    summarize,
+)
 
 
 def test_pledge_not_promoted_without_all_anchors():
