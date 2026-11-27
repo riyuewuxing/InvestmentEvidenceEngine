@@ -1,10 +1,22 @@
+import json
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
-from investment_evidence_engine.contracts import ExecutionOperation
+from investment_evidence_engine.contracts import ArtifactRef, ExecutionOperation
 from investment_evidence_engine.dispatch import run_operation
 from investment_evidence_engine.workers import WorkerContext
+
+
+def _retain(ctx, dep):
+    raw = json.dumps(ctx.payloads[dep], allow_nan=False).encode()
+    path = ctx.output_dir / (dep + ".json")
+    path.write_bytes(raw)
+    ref = ArtifactRef(path=path.name, sha256=sha256(raw).hexdigest(),
+                      size_bytes=len(raw), media_type="application/json")
+    ctx.completed_operations[dep]["artifact_refs"] = [ref.model_dump(mode="json")]
+    return ref
 
 
 def _context(tmp_path: Path) -> WorkerContext:
@@ -253,6 +265,8 @@ def test_pit_replay_never_silently_drops_or_chooses_dependencies(tmp_path, mode)
     ctx.completed_operations["a"] = {"kind": "MARKET_DATA", "status": "WARN"}
     ctx.payloads["b"] = {"records": [row]}
     ctx.completed_operations["b"] = {"kind": "MARKET_DATA", "status": "WARN"}
+    for dep in ("a", "b"):
+        _retain(ctx, dep)
     deps = ["a", "b"]
     if mode == "missing":
         del ctx.payloads["b"]
@@ -279,12 +293,17 @@ def test_pit_replay_multiple_complete_sources_is_explicit_chronology_only(tmp_pa
     for dep in ("a", "b"):
         ctx.payloads[dep] = {"records": [{"available_at": "2026-01-09T08:00:00+08:00",
                                           "retrieved_at": "2026-01-09T09:00:00+08:00"}]}
-        ctx.completed_operations[dep] = {"status": "WARN"}
+        ctx.completed_operations[dep] = {"status": "WARN", "kind": "OFFICIAL_SOURCE"}
+        _retain(ctx, dep)
     op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
         "as_of": "2026-01-10T10:00:00+08:00", "depends_on_operation_ids": ["a", "b"]})
     result = run_operation(op, ctx)
     assert result.status == "WARN"
-    assert ctx.payloads["pit"]["input_scope"]["dependency_rows"] == {"a": 1, "b": 1}
+    scope = ctx.payloads["pit"]["input_scope"]
+    assert scope["dependency_rows"] == {"a": 1, "b": 1}
+    assert scope["dependency_artifacts"]["a"]["start_index"] == 0
+    assert scope["dependency_artifacts"]["b"]["start_index"] == 1
+    assert ctx.payloads["pit"]["eligible_input_indices"] == [0, 1]
     assert not result.metrics["pit_safe"]
 
 
@@ -317,3 +336,68 @@ def test_pit_replay_malformed_canonical_publication_cannot_be_hidden_by_alias(tm
     result = run_operation(op, ctx)
     assert result.status == "BLOCK"
     assert result.metrics["invalid_chronology_count"] == 1
+
+
+@pytest.mark.parametrize("mode,reason", [
+    ("missing_ref", "PIT_REPLAY_DEPENDENCY_ARTIFACT_REQUIRED"),
+    ("bytes", "PIT_REPLAY_DEPENDENCY_ARTIFACT_UNVERIFIED"),
+    ("context", "PIT_REPLAY_DEPENDENCY_CONTEXT_MISMATCH"),
+    ("bool_alias", "PIT_REPLAY_DEPENDENCY_CONTEXT_MISMATCH"),
+    ("wrong_path", "PIT_REPLAY_DEPENDENCY_ARTIFACT_SCOPE"),
+])
+def test_pit_dependency_requires_observed_exact_bytes(tmp_path, mode, reason):
+    ctx = _context(tmp_path)
+    for dep in ("a", "b"):
+        ctx.payloads[dep] = {"records": [{"available_at": "2026-01-09T08:00:00+08:00",
+                                          "retrieved_at": "2026-01-09T09:00:00+08:00",
+                                          "value": 1}]}
+        ctx.completed_operations[dep] = {"status": "WARN", "kind": "OFFICIAL_SOURCE"}
+        _retain(ctx, dep)
+    if mode == "missing_ref":
+        del ctx.completed_operations["b"]["artifact_refs"]
+    elif mode == "bytes":
+        (tmp_path / "b.json").write_text("{}")
+    elif mode == "context":
+        ctx.payloads["b"]["records"][0]["value"] = 2
+    elif mode == "bool_alias":
+        ctx.payloads["b"]["records"][0]["value"] = True
+    else:
+        ctx.completed_operations["b"]["artifact_refs"][0]["path"] = "a.json"
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "depends_on_operation_ids": ["a", "b"]})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK" and result.errors == [reason]
+    assert not result.artifacts and "pit" not in ctx.payloads
+
+
+@pytest.mark.parametrize("extra", [
+    {"observed_at": "2026-01-11T08:00:00+08:00"},
+    {"ingested_at": "2026-01-11T08:00:00+08:00"},
+    {"effective_at": "2026-01-11T08:00:00+08:00"},
+    {"effective_at": "2026-01-09T08:30:00+08:00"},
+    {"observed_at": "2026-01-09T07:00:00+08:00"},
+    {"observed_at": "2026-01-09"},
+    {"ingested_at": None},
+    {"observed_at": "2026-01-09T10:00:00+08:00", "ingested_at": "2026-01-09T09:30:00+08:00"},
+    {"ingested_at": "2026-01-09T10:00:00+08:00", "admitted_at": "2026-01-09T09:30:00+08:00"},
+])
+def test_pit_replay_cannot_hide_capture_or_effective_clock(tmp_path, extra):
+    ctx = _context(tmp_path)
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "inline_records": [{
+            "available_at": "2026-01-09T08:00:00+08:00",
+            "retrieved_at": "2026-01-09T09:00:00+08:00", **extra}]})
+    result = run_operation(op, ctx)
+    assert result.status == "BLOCK" and result.metrics["eligible_count"] == 0
+
+
+@pytest.mark.parametrize("fields", [
+    {"available_at_field": True}, {"available_at_field": ""},
+    {"available_at_field": "published_at", "published_at_field": "custom"},
+    {"retrieved_at_field": "admitted_at"}, {"published_at_field": "observed_at"},
+])
+def test_pit_clock_aliases_cannot_relabel_distinct_semantics(tmp_path, fields):
+    ctx = _context(tmp_path)
+    op = ExecutionOperation(operation_id="pit", kind="PIT_REPLAY", parameters={
+        "as_of": "2026-01-10T10:00:00+08:00", "inline_records": [{}], **fields})
+    assert run_operation(op, ctx).status in {"BLOCK", "ERROR"}

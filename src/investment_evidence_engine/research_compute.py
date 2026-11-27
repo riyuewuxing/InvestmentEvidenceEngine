@@ -59,7 +59,7 @@ def _pit_record_inputs(operation: ExecutionOperation, context: WorkerContext) ->
             or not all(isinstance(dep, str) and dep and dep.strip() == dep for dep in deps)
             or len(set(deps)) != len(deps) or operation.operation_id in deps):
         raise ValueError("PIT_REPLAY_DEPENDENCY_SCOPE_INVALID")
-    rows, counts = [], {}
+    rows, counts, receipts = [], {}, {}
     for dep in deps:
         provenance = context.completed_operations.get(dep)
         payload = context.payloads.get(dep)
@@ -72,12 +72,34 @@ def _pit_record_inputs(operation: ExecutionOperation, context: WorkerContext) ->
                    if key in payload]
         if len(present) != 1:
             raise ValueError("PIT_REPLAY_DEPENDENCY_COLLECTION_AMBIGUOUS_OR_MISSING")
-        _, records = present[0]
+        key, records = present[0]
         if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
             raise ValueError("PIT_REPLAY_DEPENDENCY_RECORDS_INVALID")
+        refs = provenance.get("artifact_refs")
+        if not isinstance(refs, list) or len(refs) != 1:
+            raise ValueError("PIT_REPLAY_DEPENDENCY_ARTIFACT_REQUIRED")
+        try:
+            ref = ArtifactRef.model_validate(refs[0])
+            if ref.path != dep + ".json" or ref.size_bytes is None:
+                raise ValueError("PIT_REPLAY_DEPENDENCY_ARTIFACT_SCOPE")
+            raw = read_verified_artifact(context.output_dir, ref.path, ref.sha256, ref.size_bytes)
+            observed = strict_json_loads(raw)
+            if (json.dumps(observed, sort_keys=True, allow_nan=False, ensure_ascii=False)
+                    != json.dumps(payload, sort_keys=True, allow_nan=False, ensure_ascii=False)):
+                raise ValueError("PIT_REPLAY_DEPENDENCY_CONTEXT_MISMATCH")
+        except (ValueError, OSError, TypeError, OverflowError) as exc:
+            reason = str(exc)
+            raise ValueError(reason if reason.startswith("PIT_REPLAY_") else
+                             "PIT_REPLAY_DEPENDENCY_ARTIFACT_UNVERIFIED") from exc
         counts[dep] = len(records)
+        receipts[dep] = {"operation_kind": provenance.get("kind"), "operation_status": provenance["status"],
+                         "artifact_path": ref.path, "artifact_sha256": ref.sha256,
+                         "artifact_size_bytes": ref.size_bytes, "artifact_rehash": "MATCH",
+                         "record_collection": key, "record_count": len(records),
+                         "start_index": len(rows)}
         rows.extend(dict(row) for row in records)
-    return rows, {"input_mode": "DEPENDENCIES", "dependency_rows": counts}
+    return rows, {"input_mode": "DEPENDENCIES", "dependency_rows": counts,
+                  "dependency_artifacts": receipts}
 
 
 def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
@@ -107,11 +129,16 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
     except ValueError as exc:
         return OperationResult(operation_id=operation.operation_id, status="BLOCK", exit_code=2,
                                errors=[str(exc)])
-    available_field = str(operation.parameters.get("available_at_field") or "available_at")
-    published_field = str(operation.parameters.get("published_at_field") or "published_at")
-    retrieved_field = str(operation.parameters.get("retrieved_at_field") or "retrieved_at")
+    available_field = operation.parameters.get("available_at_field", "available_at")
+    published_field = operation.parameters.get("published_at_field", "published_at")
+    retrieved_field = operation.parameters.get("retrieved_at_field", "retrieved_at")
     strict = operation.parameters.get("strict", True)
-    if type(strict) is not bool or len({available_field, published_field, retrieved_field}) != 3:
+    fields = (available_field, published_field, retrieved_field)
+    reserved = {"admitted_at", "durable_verified_at", "effective_at", "observed_at", "ingested_at"}
+    canonical = ("available_at", "published_at", "retrieved_at")
+    if (type(strict) is not bool or any(not isinstance(f, str) or not f or f.strip() != f for f in fields)
+            or len(set(fields)) != 3 or any(f in reserved for f in fields)
+            or any(f in canonical and f != expected for f, expected in zip(fields, canonical, strict=True))):
         raise ValueError("PIT_REPLAY_INVALID_FIELD_OR_STRICT_SCOPE")
 
     eligible = []
@@ -132,13 +159,18 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
                    if custom != key and key in record]
         extra = [parse_event_stamp(record.get(key))[0] for key in ("admitted_at", "durable_verified_at")
                  if key in record]
+        # A producer may carry separate capture/ingest and effective clocks.
+        # They are not interchangeable with publication or availability.
+        observed = {key: parse_event_stamp(record.get(key))[0]
+                    for key in ("observed_at", "ingested_at") if key in record}
+        effective = parse_event_stamp(record.get("effective_at"))[0] if "effective_at" in record else None
         alias_conflict = any(
             parse_event_stamp(record.get(key))[0] != stamp
             or (record.get(key) is not None and parse_event_stamp(record.get(key))[0] is None)
             for custom, key, stamp in clock_aliases if custom != key and key in record
         )
         # Detect explicit future evidence even when the other fields are absent.
-        stamps = (available, retrieved, published, *aliases, *extra)
+        stamps = (available, retrieved, published, *aliases, *extra, *observed.values(), effective)
         if day_scope:
             later = any(stamp is not None and
                 (stamp.astimezone(SHANGHAI) if stamp.utcoffset() is not None else stamp).date()
@@ -157,7 +189,14 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
                                       published_at=published, cutoff=cutoff)
                 or any(not source_visible(available_at=available, retrieved_at=retrieved,
                                           published_at=published, cutoff=cutoff, admitted_at=stamp)
-                       or stamp is None for stamp in extra)):
+                       or stamp is None for stamp in extra)
+                or any(stamp is None or stamp.utcoffset() is None or not retrieved <= stamp <= cutoff
+                       for stamp in observed.values())
+                or ("effective_at" in record and (effective is None or effective.utcoffset() is None
+                    or effective > available))
+                or ("observed_at" in observed and "ingested_at" in observed
+                    and observed["observed_at"] > observed["ingested_at"])
+                or (observed and any(stamp < max(observed.values()) for stamp in extra))):
             invalid_chronology.append(index)
             continue
         eligible.append(record)
@@ -190,6 +229,8 @@ def run_pit_replay(operation: ExecutionOperation, context: WorkerContext) -> Ope
         "missing_availability_count": len(missing_availability),
         "invalid_chronology_count": len(invalid_chronology),
         "eligible_records": eligible,
+        "eligible_input_indices": [index for index in range(len(records))
+                                   if index not in set(future + missing_availability + invalid_chronology)],
         "strict": strict,
         "chronology_complete": not blockers,
         "pit_safe": False,
