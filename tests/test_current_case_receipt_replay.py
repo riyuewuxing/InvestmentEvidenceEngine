@@ -21,7 +21,12 @@ def read_receipts():
         obj = strict_json_loads(content.encode())
         observed = datetime.fromisoformat(obj.get("observed_cutoff", obj.get("retrieved_at")))
         assert observed.utcoffset() is not None and observed <= logged
-        assert obj["decision_authority"] is False
+        if key == "prior_q3":
+            assert obj["financial"]["decision_authority"] is False
+            assert obj["pressure"]["decision_authority"] is False
+            assert obj["pit_safe"] is False
+        else:
+            assert obj["decision_authority"] is False
         out[key] = obj
     return data, out
 
@@ -87,8 +92,12 @@ def test_actual_public_case_alternative_and_procurement_partial_source_limits():
 
 def test_actual_public_case_replay_is_not_formal_admission():
     _, r = read_receipts()
-    for value in r.values():
-        assert value["decision_authority"] is False
+    for key, value in r.items():
+        if key == "prior_q3":
+            assert value["financial"]["decision_authority"] is False
+            assert value["pressure"]["decision_authority"] is False
+        else:
+            assert value["decision_authority"] is False
         assert value.get("historical_pit", False) is False
         assert value.get("execution_allowed", False) is False
     # The tested data are log metadata. A caller cannot create a raw source receipt by renaming a hash.
