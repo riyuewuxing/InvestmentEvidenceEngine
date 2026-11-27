@@ -12,7 +12,10 @@ from datetime import UTC, date, datetime
 from importlib.metadata import version
 
 from investment_evidence_engine.contracts import canonical_sha256
-from investment_evidence_engine.intraday_close_reference import normalized_closes, retrospective_t_close_sensitivity
+from investment_evidence_engine.intraday_close_reference import (
+    normalized_closes,
+    retrospective_t_close_sensitivity,
+)
 
 DAY = date(2026, 11, 27)
 REPO = "riyuewuxing/InvestmentEvidenceEngine"
@@ -58,7 +61,12 @@ def fetch_baostock():
 def fetch_sina():
     import akshare as ak
 
-    frame = ak.stock_zh_a_minute(symbol="sz000001", period="5", adjust="")
+    # AKShare renamed this endpoint to stock_zh_a_hist_min_sina in the
+    # 1.20.x naming migration; preserve exact source, not an alternate vendor.
+    fn = getattr(ak, "stock_zh_a_hist_min_sina", None)
+    if fn is None:
+        raise ValueError("SINA_RENAMED_ENDPOINT_UNAVAILABLE")
+    frame = fn(symbol="sz000001", period="5", adjust="")
     if frame is None or frame.empty or not {"day","open","high","low","close","volume"}.issubset(frame.columns):
         raise ValueError("SINA_MINUTE_SCHEMA_UNAVAILABLE")
     # The endpoint may return a long tail; only explicit requested session

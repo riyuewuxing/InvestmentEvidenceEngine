@@ -50,6 +50,8 @@ def test_source_conflict_and_missing_primary_bar_block():
 def test_daily_reference_conflict_and_same_day_before_close_block():
     out = retrospective_t_close_sensitivity(norm(rows()), None, daily() | {"close": "10.01"}, session=DAY, evaluated_at=NOW)
     assert out["reason"] == "MINUTE_DAILY_OHLC_CONFLICT"
+    assert out["daily_ohlc_field_matches"] == {"close": False, "open": True, "high": True, "low": True}
+    assert "conditional_results" not in out
     with pytest.raises(ValueError):
         retrospective_t_close_sensitivity(norm(rows()), None, daily(), session=DAY,
                                            evaluated_at=datetime(2026, 11, 27, 6, tzinfo=UTC))

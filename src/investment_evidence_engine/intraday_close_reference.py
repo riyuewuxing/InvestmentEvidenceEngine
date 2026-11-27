@@ -7,7 +7,13 @@ from zoneinfo import ZoneInfo
 
 from .cash_execution_math import canonical_cent
 from .contracts import canonical_sha256
-from .intraday_t_scenarios import FeeAssumptions, TAccountReference, TLeg, TScenario, compare_intraday_t
+from .intraday_t_scenarios import (
+    FeeAssumptions,
+    TAccountReference,
+    TLeg,
+    TScenario,
+    compare_intraday_t,
+)
 
 SH = ZoneInfo("Asia/Shanghai")
 
@@ -75,23 +81,6 @@ def retrospective_t_close_sensitivity(primary: dict, secondary: dict | None, dai
             or primary.get("normalized_sha256") != canonical_sha256(primary["bars"])):
         return result | {"reason": "PRIMARY_COMPLETE_SESSION_REQUIRED"}
     b = primary["bars"]
-    if (daily.get("code") != "sz.000001" or daily.get("date") != session.isoformat()
-            or daily.get("adjustflag") != "3" or daily.get("tradestatus") != "1"
-            or daily.get("isST") != "0" or daily.get("calendar_open") is not True):
-        return result | {"reason": "DAILY_STATE_OR_CALENDAR_UNAVAILABLE"}
-    try:
-        pre = canonical_cent(Decimal(daily["preclose"]))
-        daily_close = canonical_cent(Decimal(daily["close"]))
-        high = canonical_cent(Decimal(daily["high"]))
-        low = canonical_cent(Decimal(daily["low"]))
-        op = canonical_cent(Decimal(daily["open"]))
-        if (daily_close != Decimal(b["15:00"]["close"])
-                or op != Decimal(b["09:35"]["open"])
-                or high != max(Decimal(x["high"]) for x in b.values())
-                or low != min(Decimal(x["low"]) for x in b.values())):
-            return result | {"reason": "MINUTE_DAILY_OHLC_CONFLICT"}
-    except (KeyError, ArithmeticError, ValueError, TypeError):
-        return result | {"reason": "DAILY_OHLC_INVALID"}
     match = "UNAVAILABLE"
     if secondary is not None:
         if (secondary.get("source") != "sina" or secondary.get("session") != session.isoformat()
@@ -102,8 +91,34 @@ def retrospective_t_close_sensitivity(primary: dict, secondary: dict | None, dai
         else:
             match = "MATCH" if all(Decimal(b[t]["close"]) == Decimal(secondary["bars"][t]["close"])
                                    for t in b) else "CONFLICT"
+    result |= {"close_crosscheck": match, "observed_primary_count": primary["count"],
+               "observed_secondary_count": secondary["count"] if secondary else 0,
+               "primary_normalized_sha256": primary["normalized_sha256"],
+               "secondary_normalized_sha256": secondary["normalized_sha256"] if secondary else None}
     if match == "CONFLICT":
-        return result | {"reason": "MINUTE_SOURCE_CLOSE_CONFLICT", "close_crosscheck": match}
+        return result | {"reason": "MINUTE_SOURCE_CLOSE_CONFLICT",
+                         "conflicting_close_count": sum(Decimal(b[t]["close"]) != Decimal(secondary["bars"][t]["close"]) for t in b)}
+    if (daily.get("code") != "sz.000001" or daily.get("date") != session.isoformat()
+            or daily.get("adjustflag") != "3" or daily.get("tradestatus") != "1"
+            or daily.get("isST") != "0" or daily.get("calendar_open") is not True):
+        return result | {"reason": "DAILY_STATE_OR_CALENDAR_UNAVAILABLE"}
+    try:
+        pre = canonical_cent(Decimal(daily["preclose"]))
+        daily_close = canonical_cent(Decimal(daily["close"]))
+        high = canonical_cent(Decimal(daily["high"]))
+        low = canonical_cent(Decimal(daily["low"]))
+        op = canonical_cent(Decimal(daily["open"]))
+        checks = {
+            "close": daily_close == Decimal(b["15:00"]["close"]),
+            "open": op == Decimal(b["09:35"]["open"]),
+            "high": high == max(Decimal(x["high"]) for x in b.values()),
+            "low": low == min(Decimal(x["low"]) for x in b.values()),
+        }
+        result["daily_ohlc_field_matches"] = checks
+        if not all(checks.values()):
+            return result | {"reason": "MINUTE_DAILY_OHLC_CONFLICT"}
+    except (KeyError, ArithmeticError, ValueError, TypeError):
+        return result | {"reason": "DAILY_OHLC_INVALID"}
     # Use a synthetic envelope independent of any real account. Both side
     # prices equal a bar's last price; this assumes zero spread and is NOT a fill.
     first, second = (b[t]["close"] for t in ("10:00", "14:30"))
