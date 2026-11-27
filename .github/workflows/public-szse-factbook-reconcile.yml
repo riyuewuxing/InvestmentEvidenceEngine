@@ -1,10 +1,6 @@
 name: Public SZSE historical roster reconciliation
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/public-szse-factbook-reconcile.yml'
 permissions:
   contents: read
 jobs:
