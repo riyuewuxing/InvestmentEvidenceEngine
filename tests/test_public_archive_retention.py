@@ -47,3 +47,14 @@ def test_real_retained_archive_declared_and_observed_views():
     assert [r.get("value") for r in report["declared_release_views"]] == [None, "22000", "-4000", "-26000"]
     assert [r.get("value") for r in report["durable_observed_views"]] == [None, "22000", "-26000"]
     assert not report["pit_safe"]
+
+
+def test_real_retained_originals_through_production_pit_dependency_guard():
+    from public_retained_pit_dependency import run_control
+
+    report = run_control()
+    assert report["source_files_reopened"] == 3
+    assert [c["status"] for c in report["cases"]] == ["BLOCK", "BLOCK", "WARN", "BLOCK", "BLOCK", "WARN"]
+    assert [c["eligible_count"] for c in report["cases"]] == [0, 0, 1, 1, 1, 3]
+    assert report["tamper"] == ["PIT_REPLAY_DEPENDENCY_CONTEXT_MISMATCH"]
+    assert not report["pit_safe"] and not report["full_remote_executor_chain_verified"]

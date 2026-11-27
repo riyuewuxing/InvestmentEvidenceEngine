@@ -1,0 +1,31 @@
+name: Public retained PIT dependency proof
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-retained-pit-dependency.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-retained-pit-dependency
+  cancel-in-progress: false
+jobs:
+  replay:
+    if: ${{ github.event.repository.visibility == 'public' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install public engine
+        timeout-minutes: 4
+        run: python -m pip install -e .
+      - name: Offline production PIT dependency validation
+        timeout-minutes: 2
+        run: timeout --signal=TERM --kill-after=5s 65s python scripts/public_retained_pit_dependency.py
