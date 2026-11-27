@@ -145,6 +145,8 @@ def parse_identity_receipt(log_line: str, *, expected_commit: str, now: datetime
         if kind == "INDEX_ETF":
             if classes != [code] or basis != "FUND_ASSET_NAV" or f.get("listed_exchange_reported") not in {"SSE", "SZSE"}:
                 raise ValueError("IDENTITY_ETF_SCOPE")
+            if urlsplit(url).hostname == "www.sse.com.cn" and f["listed_exchange_reported"] != "SSE":
+                raise ValueError("IDENTITY_EXCHANGE_CONFLICT")
             if _date(f["listing_day_reported"]) > doc or f.get("target_not_realized_tracking_error") is not True:
                 raise ValueError("IDENTITY_ETF_SCOPE")
             target = _rate(f["tracking_error_target_pct"])
@@ -162,6 +164,7 @@ def parse_identity_receipt(log_line: str, *, expected_commit: str, now: datetime
             out[share] = {
                 "share_code": share, "product_main_code": code, "product_kind_reported": kind,
                 "document_day": doc, "retrieved_at": capture.isoformat(),
+                "listed_exchange_reported": f["listed_exchange_reported"] if kind == "INDEX_ETF" else None,
                 "source_url": url, "reported_original_sha256": digest, "page_count": r["page_count"],
                 "manager_name_reported": _text(f["manager_name_reported"], 80),
                 "manager_start_reported": manager_start, "benchmark_reported": _text(f["benchmark"], 200),

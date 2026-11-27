@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from investment_evidence_engine.fund_identity_receipt import MARKER, SELECTION, parse_identity_receipt
+from investment_evidence_engine.fund_identity_receipt import (
+    MARKER,
+    SELECTION,
+    parse_identity_receipt,
+)
 
 SHA = "a" * 40
 NOW = datetime(2026, 11, 27, 12, tzinfo=UTC)
@@ -90,6 +94,8 @@ def test_replay_exact_observed_public_metadata():
     assert set(rows) == {"510300", "161907", "015558", "013125"}
     assert rows["510300"]["product_kind_reported"] == "INDEX_ETF"
     assert rows["510300"]["tracking_error_target_pct_reported"] == "2"
+    assert rows["510300"]["listed_exchange_reported"] == "SSE"
+    assert rows["161907"]["listed_exchange_reported"] is None
     assert rows["161907"]["product_kind_reported"] == "ETF_FEEDER_FUND"
     assert rows["161907"]["conversion_day_reported"] == "2024-07-10"
     assert rows["015558"]["estimated_operation_rate_pct_reported"] == "0.71"
