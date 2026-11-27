@@ -27,6 +27,8 @@ def pcf_channel_diagnostic(*, effective_date: datetime | None, effective_at: dat
         return result | {"status": "PCF_OTHER_SESSION_REFERENCE_ONLY"}
     if effective_date > effective_at:
         return result
+    if ingested_at > effective_at:
+        return result | {"status": "PCF_CAPTURE_AFTER_QUERY_TIME_REFERENCE_ONLY"}
     creation = creation_allowed if type(creation_allowed) is bool else None
     redemption = redemption_allowed if type(redemption_allowed) is bool else None
     return result | {

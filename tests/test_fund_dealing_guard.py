@@ -78,3 +78,11 @@ def test_reject_invalid_amount(amount):
     with pytest.raises(ValueError):
         combined_subscription_cap_status(requested_cny=amount, verified_prior_cny=None,
                                          aggregate_complete=False, cap_cny=Decimal("1000000"), inclusive=None)
+
+
+def test_pcf_later_same_day_capture_is_not_visible_at_earlier_query_time():
+    result = pcf(effective_at=DAY + timedelta(minutes=30),
+                 ingested_at=DAY + timedelta(hours=1))
+    assert result["status"] == "PCF_CAPTURE_AFTER_QUERY_TIME_REFERENCE_ONLY"
+    assert result["creation_allowed_reported"] is None
+    assert result["redemption_allowed_reported"] is None
