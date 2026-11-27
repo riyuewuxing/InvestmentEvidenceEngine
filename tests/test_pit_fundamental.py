@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from investment_evidence_engine.contracts import ExecutionOperation
 from investment_evidence_engine.fundamental_worker import (
@@ -31,9 +32,44 @@ def test_historical_pit_fundamental_blocks_without_verified_pit_source(tmp_path,
 
 def test_vendor_ann_date_proxy_not_promoted_to_actual_availability():
     rows = _pit_records(pd.DataFrame([
-        {"f_ann_date":"20260101","available_at":"fabricated"},
-        {"f_ann_date":"20260103","available_at":"fabricated"},
+        {"end_date":"20251231","f_ann_date":"20260101","available_at":"fabricated"},
+        {"end_date":"20251231","f_ann_date":"20260103","available_at":"fabricated"},
     ]),endpoint="income",as_of=date(2026,1,3))
     assert len(rows) == 1
     assert "available_at" not in rows[0]
     assert "vendor_date_filter_proxy" in rows[0]
+
+
+def test_vendor_notice_disagreement_is_not_backdated():
+    rows = _pit_records(pd.DataFrame([{"end_date": "20251231", "ann_date": "20260101",
+                                      "f_ann_date": "20260103", "report_type": "1",
+                                      "ts_code": "600519.SH", "retrieved_at": "fabricated"}]),
+                        endpoint="income", as_of=date(2026, 1, 3), expected_code="600519.SH")
+    assert rows == []
+
+
+@pytest.mark.parametrize("change", [
+    {"ts_code": "000001.SZ"}, {"report_type": "2"}, {"report_type": "4"},
+    {"f_ann_date": "not-a-date"}, {"ann_date": "20251230"},
+])
+def test_vendor_scope_conflicts_fail_closed(change):
+    base = {"end_date": "20251231", "ann_date": "20260101", "f_ann_date": "20260101",
+            "report_type": "1", "ts_code": "600519.SH"}
+    with pytest.raises((ValueError, RuntimeError)):
+        _pit_records(pd.DataFrame([{**base, **change}]), endpoint="income",
+                     as_of=date(2026, 1, 4), expected_code="600519.SH")
+
+
+@pytest.mark.parametrize("subjects,cutoff,request_cutoff,required,expected", [
+    (["600519", "600036"], "2020-08-24", None, True, "FUNDAMENTAL_INVALID_SUBJECT_OR_CUTOFF"),
+    (["510300"], "2020-08-24", None, True, "FUNDAMENTAL_INVALID_SUBJECT_OR_CUTOFF"),
+    (["600519"], "2020-08-24", "2020-08-23", True, "FUNDAMENTAL_REQUEST_SCOPE_EXCEEDED_OR_INSTANT_UNSUPPORTED"),
+    (["600519"], "2020-08-24", "2020-08-24T15:00:00+08:00", True, "FUNDAMENTAL_REQUEST_SCOPE_EXCEEDED_OR_INSTANT_UNSUPPORTED"),
+    (["600519"], "2020-08-24", None, False, "FUNDAMENTAL_LIVE_SNAPSHOT_CANNOT_ANSWER_HISTORICAL_CUTOFF"),
+])
+def test_fundamental_scope_before_external_calls(tmp_path, subjects, cutoff, request_cutoff, required, expected):
+    op = ExecutionOperation(operation_id="f", kind="FUNDAMENTAL_HISTORY",
+                            parameters={"subject_ids": subjects, "as_of": cutoff, "pit_required": required})
+    result = run_fundamental_with_pit_guard(op, WorkerContext(output_dir=tmp_path, request_as_of=request_cutoff))
+    assert result.status == "BLOCK" and result.errors == [expected]
+    assert not result.artifacts

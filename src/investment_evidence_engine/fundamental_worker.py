@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,7 +10,9 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from .contracts import ArtifactRef, ExecutionOperation, OperationResult
+from .evidence_time_guard import validate_event_cutoff
 from .providers import ProviderError
+from .vendor_financial_scope import consolidated_basis, financial_date_scope
 from .workers import WorkerContext, run_fundamental_history
 
 
@@ -36,10 +39,12 @@ def _artifact(path: Path) -> ArtifactRef:
 
 
 def _subject(operation: ExecutionOperation) -> str:
-    values = operation.parameters.get("subject_ids") or []
-    if not isinstance(values, list) or not values:
-        raise ValueError("FUNDAMENTAL_HISTORY requires subject_ids")
-    return str(values[0]).zfill(6)
+    values = operation.parameters.get("subject_ids")
+    if (not isinstance(values, list) or len(values) != 1
+            or not isinstance(values[0], str) or re.fullmatch(r"[0-9]{6}", values[0]) is None):
+        raise ValueError("FUNDAMENTAL_ONE_EXACT_STOCK_SYMBOL_REQUIRED")
+    _ts_code(values[0])
+    return values[0]
 
 
 def _as_of(operation: ExecutionOperation) -> date:
@@ -53,38 +58,46 @@ def _as_of(operation: ExecutionOperation) -> date:
 
 
 def _ts_code(symbol: str) -> str:
-    clean = symbol.lower().replace("sh.", "").replace("sz.", "").replace("bj.", "")
-    if len(clean) != 6 or not clean.isdigit():
-        raise ValueError(f"unsupported A-share symbol: {symbol}")
-    if clean.startswith(("5", "6", "9")):
-        return f"{clean}.SH"
-    if clean.startswith(("0", "1", "2", "3")):
-        return f"{clean}.SZ"
-    if clean.startswith(("4", "8")):
-        return f"{clean}.BJ"
-    raise ValueError(f"cannot infer exchange for {symbol}")
+    if not isinstance(symbol, str) or re.fullmatch(r"[0-9]{6}", symbol) is None:
+        raise ValueError("FUNDAMENTAL_SYMBOL_INVALID")
+    if symbol.startswith(("60", "68")):
+        return f"{symbol}.SH"
+    if symbol.startswith(("00", "30")):
+        return f"{symbol}.SZ"
+    if symbol.startswith(("4", "8", "92")):
+        return f"{symbol}.BJ"
+    raise ValueError("FUNDAMENTAL_UNSUPPORTED_STOCK_IDENTITY")
 
 
-def _pit_records(frame: pd.DataFrame, *, endpoint: str, as_of: date) -> list[dict[str, object]]:
+def _pit_records(frame: pd.DataFrame, *, endpoint: str, as_of: date,
+                 expected_code: str | None = None) -> list[dict[str, object]]:
+    """Conservative vendor label filter only; not original-version selection."""
     if frame is None or frame.empty:
         return []
-    out = frame.copy()
-    available_source = None
-    for candidate in ("f_ann_date", "ann_date"):
-        if candidate in out.columns:
-            available_source = candidate
-            break
-    if available_source is None:
-        raise ProviderError(f"{endpoint} has no announcement availability field")
-    parsed = pd.to_datetime(out[available_source].astype(str), format="%Y%m%d", errors="coerce")
-    # Date-only publication timestamps are conservatively treated as available next calendar day.
-    out["vendor_date_filter_proxy"] = parsed + pd.Timedelta(days=1)
-    cutoff = pd.Timestamp(as_of)
-    out = out[out["vendor_date_filter_proxy"].notna() & (out["vendor_date_filter_proxy"] <= cutoff)].copy()
-    # Never emit an inferred day as an actual source availability timestamp.
-    out = out.drop(columns=["available_at"], errors="ignore")
-    out["endpoint"] = endpoint
-    return json.loads(out.to_json(orient="records", date_format="iso", force_ascii=False))
+    if not frame.columns.is_unique or "end_date" not in frame:
+        raise ProviderError("FUNDAMENTAL_VENDOR_SCHEMA")
+    if expected_code is not None and ("ts_code" not in frame
+            or any(not isinstance(v, str) or v != expected_code for v in frame["ts_code"])):
+        raise ProviderError("FUNDAMENTAL_VENDOR_SUBJECT_MISMATCH")
+    # Serialize once, preserving nulls, and validate the explicit vendor date
+    # and report type. No historical availability timestamps are manufactured.
+    rows = json.loads(frame.to_json(orient="records", date_format="iso", force_ascii=False))
+    eligible = []
+    for row in rows:
+        scope = financial_date_scope(row.get("end_date"), row.get("ann_date"), row.get("f_ann_date"))
+        basis = ("INDICATOR_BASIS_UNVERIFIED" if endpoint == "fina_indicator"
+                 else consolidated_basis(row.get("report_type"), allow_unspecified=expected_code is None))
+        available_proxy = date.fromisoformat(scope["declared_date_ceiling"]) + timedelta(days=1)
+        if available_proxy > as_of:
+            continue
+        for clock in ("available_at", "published_at", "retrieved_at", "observed_at",
+                      "ingested_at", "admitted_at", "durable_verified_at", "effective_at"):
+            row.pop(clock, None)
+        row.update(endpoint=endpoint, vendor_date_filter_proxy=available_proxy.isoformat(),
+                   vendor_date_scope=scope, report_basis=basis,
+                   historical_vintage_verified=False, pit_safe=False)
+        eligible.append(row)
+    return eligible
 
 
 def _run_tushare_pit(operation: ExecutionOperation, context: WorkerContext) -> OperationResult:
@@ -117,17 +130,19 @@ def _run_tushare_pit(operation: ExecutionOperation, context: WorkerContext) -> O
     for endpoint in ("income", "balancesheet", "cashflow", "fina_indicator"):
         try:
             method = getattr(pro, endpoint)
+            basis_filter = {"report_type": "1"} if endpoint != "fina_indicator" else {}
             frame = method(
                 ts_code=ts_code,
                 start_date=start.strftime("%Y%m%d"),
                 end_date=cutoff.strftime("%Y%m%d"),
+                **basis_filter,
             )
-            endpoint_records = _pit_records(frame, endpoint=endpoint, as_of=cutoff)
+            endpoint_records = _pit_records(frame, endpoint=endpoint, as_of=cutoff, expected_code=ts_code)
             records[endpoint] = endpoint_records
             attempts.append({"endpoint": endpoint, "status": "PASS", "rows": len(endpoint_records)})
         except Exception as exc:
             attempts.append(
-                {"endpoint": endpoint, "status": "WARN", "error": f"{type(exc).__name__}:{exc}"}
+                {"endpoint": endpoint, "status": "WARN", "error": type(exc).__name__}
             )
             warnings.append(f"{endpoint.upper()}_UNAVAILABLE")
             records[endpoint] = []
@@ -148,7 +163,8 @@ def _run_tushare_pit(operation: ExecutionOperation, context: WorkerContext) -> O
         "symbol": symbol,
         "as_of": cutoff.isoformat(),
         "provider": "tushare",
-        "availability_policy": "vendor_f_ann_date_else_ann_date_plus_one_day_filter_only",
+        "availability_policy": "later_of_valid_vendor_notice_days_plus_one_calendar_day_filter_only",
+        "report_basis": "LATEST_CONSOLIDATED_VENDOR_ROW_NOT_ORIGINAL_VINTAGE",
         "observed_at": datetime.now(UTC).isoformat(),
         "pit_safe": False,
         "historical_vintage_verified": False,
@@ -175,7 +191,19 @@ def run_fundamental_with_pit_guard(
     operation: ExecutionOperation,
     context: WorkerContext,
 ) -> OperationResult:
-    cutoff = _as_of(operation)
+    def blocked(reason: str) -> OperationResult:
+        return OperationResult(operation_id=operation.operation_id, status="BLOCK",
+                               exit_code=2, errors=[reason])
+
+    try:
+        _subject(operation)
+        cutoff = _as_of(operation)
+        if context.request_as_of is not None:
+            ceiling, day_scope = validate_event_cutoff(context.request_as_of)
+            if ceiling is None or not day_scope or cutoff > ceiling.date():
+                return blocked("FUNDAMENTAL_REQUEST_SCOPE_EXCEEDED_OR_INSTANT_UNSUPPORTED")
+    except (ValueError, TypeError, OverflowError):
+        return blocked("FUNDAMENTAL_INVALID_SUBJECT_OR_CUTOFF")
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     if cutoff > today:
         return OperationResult(
@@ -187,7 +215,9 @@ def run_fundamental_with_pit_guard(
     pit_required = operation.parameters.get("pit_required", True)
     if type(pit_required) is not bool:
         raise ValueError("FUNDAMENTAL_PIT_REQUIRED_MUST_BE_BOOLEAN")
-    if pit_required and cutoff < today:
+    if cutoff < today:
+        if not pit_required:
+            return blocked("FUNDAMENTAL_LIVE_SNAPSHOT_CANNOT_ANSWER_HISTORICAL_CUTOFF")
         return _run_tushare_pit(operation, context)
     # For a current snapshot, use public live sources; the base worker explicitly marks its
     # statement availability limitation as WARN rather than pretending historical PIT safety.
