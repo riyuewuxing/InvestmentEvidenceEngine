@@ -4,8 +4,8 @@ import pytest
 
 from investment_evidence_engine.session_observation import (
     advance_ratio,
-    dated_daily_flow_reference,
     auction_reference_status,
+    dated_daily_flow_reference,
     pool_count,
     quote_reference_status,
     session_window_status,
