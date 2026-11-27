@@ -77,3 +77,17 @@ def test_closing_premium_uses_same_session_not_live_price():
     assert not r["arbitrage_or_fill_inferred"]
     with pytest.raises(ValueError, match="PRICE_SCOPE"):
         closing_premium(f, symbol=f["symbol"], session="2026-10-27", raw_close="1.010")
+
+
+def test_quarter_end_must_be_calendar_quarter_end():
+    with pytest.raises(ValueError, match="QUARTER_SCOPE"):
+        evaluate_report(fixture() | {"period_end": "2026-09-29"})
+
+
+def test_nav_bounds_round_outward():
+    from decimal import Decimal
+    f = fixture()
+    result = closing_premium(f, symbol=f["symbol"], session=f["period_end"], raw_close="1.010")
+    lower, upper = map(Decimal, result["nav_rounding_interval_pct"])
+    assert lower <= (Decimal("1.010") / Decimal("1.00005") - 1) * 100
+    assert upper >= (Decimal("1.010") / Decimal("0.99995") - 1) * 100

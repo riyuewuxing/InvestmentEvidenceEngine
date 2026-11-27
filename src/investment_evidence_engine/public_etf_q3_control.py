@@ -52,7 +52,7 @@ PERF_FIELDS = ("nav_return_pct", "nav_std_pct", "benchmark_return_pct",
 
 
 def compact(text: str) -> str:
-    return normalize_text(text).replace("−", "-").replace("–", "-").replace("—", "-")
+    return normalize_text(text).translate(str.maketrans({c: "-" for c in "−–—‐‑‒﹣－"}))
 
 
 def one(pattern: str, text: str, code: str) -> str:
@@ -131,15 +131,15 @@ def parse_pages(symbol: str, pages: dict[int, str]) -> dict:
     if "§7" not in shares:
         raise ValueError("ETF_Q3_SHARE_SECTION")
     shares = shares.split("§7", 1)[0]
-    split = one(r"报告期间基金拆分变动份额(?:\(份额减少以[“\"']?-[”\"']?填列\))?(-|" + NUM + r"|-" + NUM + r")(?=报告期)",
+    split = one(r"报告期(?:期)?间基金拆分变动份额(?:\(份额减少以[“\"']?-[”\"']?填列\))?(-|" + NUM + r"|-" + NUM + r")(?=报告期)",
                 shares, "ETF_Q3_SPLIT_ROW")
     fields = {
         "symbol": symbol, "period_start": "2026-07-01", "period_end": "2026-09-30",
         "declared_report_day": "2026-10-27", "benchmark_label": benchmark,
         "end_assets_cny": assets, "end_nav_cny": nav, "overview_end_units": overview_units,
         "begin_units": amount(r"报告期(?:期)?初基金份额总额", shares, "ETF_Q3_BEGIN_UNITS"),
-        "created_units": amount(r"报告期间基金总申购份额", shares, "ETF_Q3_CREATED_UNITS"),
-        "redeemed_units": amount(r"报告期间基金总赎回份额", shares, "ETF_Q3_REDEEMED_UNITS"),
+        "created_units": amount(r"报告期(?:期)?间基金总申购份额", shares, "ETF_Q3_CREATED_UNITS"),
+        "redeemed_units": amount(r"报告期(?:期)?间基金总赎回份额", shares, "ETF_Q3_REDEEMED_UNITS"),
         "split_units_label": "DASH" if split == "-" else split.replace(",", ""),
         "end_units": amount(end_label, shares, "ETF_Q3_END_UNITS"),
         "realized_profit_cny": realized, "profit_cny": profit, "performance": performance,
@@ -212,7 +212,16 @@ def observe(symbol: str, folder: Path) -> dict:
         pages = {i: reader.pages[i-1].extract_text() or "" for i in sorted(required)}
         out |= {"page_count": len(reader.pages), "selected_page_text_sha256": {
             str(i): hashlib.sha256(compact(text).encode()).hexdigest() for i, text in pages.items()}}
-        fields = parse_pages(symbol, pages)
+        # A limited diagnostic cell is logged only on parse failure, not the
+        # report text or table. It makes a typography mismatch inspectable.
+        try:
+            fields = parse_pages(symbol, pages)
+        except ValueError as exc:
+            if str(exc) == "ETF_Q3_SPLIT_ROW":
+                share_page = compact(pages[doc["shares"]])
+                cell = re.search(r"基金拆分变动份额(.{0,60}?)(?=报告期(?:期)?末基金份额总额)", share_page)
+                out["split_cell_probe"] = cell.group(1) if cell else None
+            raise
         out |= {"fields": fields, "diagnostic": evaluate_report(fields), "status": "OBSERVED"}
     except Exception as exc:  # noqa: BLE001 - explicit failure, not fallback values.
         msg = str(exc)

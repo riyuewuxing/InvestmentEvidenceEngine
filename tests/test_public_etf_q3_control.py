@@ -45,3 +45,11 @@ def test_identity_period_row_and_arithmetic_conflicts(old, new):
     pages = {k: v.replace(old, new) for k, v in pages_fixture("510320").items()}
     with pytest.raises(ValueError):
         parse_pages("510320", pages)
+
+
+@pytest.mark.parametrize("dash", ["-", "‐", "‑", "−", "－"])
+def test_share_table_repeated_period_typography(dash):
+    pages = pages_fixture("510320")
+    p = DOCS["510320"]["shares"]
+    pages[p] = pages[p].replace("报告期间", "报告期期间").replace("－", dash)
+    assert parse_pages("510320", pages)["split_units_label"] == "DASH"

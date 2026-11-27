@@ -26,6 +26,6 @@ jobs:
       - name: Install public engine
         timeout-minutes: 4
         run: python -m pip install -e ".[dev]"
-      - name: Observe previously fingerprinted official reports after parser correction
+      - name: Reobserve exact pinned bytes with corrected share-cell typography
         timeout-minutes: 3
         run: timeout --signal=TERM --kill-after=5s 100s python -m investment_evidence_engine.public_etf_q3_control
