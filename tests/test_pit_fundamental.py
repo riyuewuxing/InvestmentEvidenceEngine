@@ -73,3 +73,46 @@ def test_fundamental_scope_before_external_calls(tmp_path, subjects, cutoff, req
     result = run_fundamental_with_pit_guard(op, WorkerContext(output_dir=tmp_path, request_as_of=request_cutoff))
     assert result.status == "BLOCK" and result.errors == [expected]
     assert not result.artifacts
+
+
+def test_optional_vendor_timeout_is_explicit_and_no_secret_argv(monkeypatch):
+    from investment_evidence_engine import fundamental_worker
+    from investment_evidence_engine.bounded_worker import WorkerResult
+
+    monkeypatch.setenv("TUSHARE_TOKEN", "synthetic-token-never-in-argv")
+    seen = []
+
+    def timeout(command, *, timeout_seconds, max_bytes):
+        seen.append(command)
+        assert timeout_seconds == 25.0
+        assert max_bytes == 4 * 1024 * 1024
+        return WorkerResult("WATCHDOG_TIMEOUT", elapsed_seconds=25.0)
+
+    monkeypatch.setattr(fundamental_worker, "run_json_worker", timeout)
+    rows, attempt = fundamental_worker._observe_tushare_endpoint(
+        "income", "600519", date(2025, 1, 1), date(2026, 1, 3))
+    assert rows == []
+    assert attempt["worker_status"] == "WATCHDOG_TIMEOUT"
+    assert attempt["status"] == "WARN"
+    assert all("synthetic-token" not in arg for command in seen for arg in command)
+
+
+def test_optional_vendor_parent_revalidates_worker_scope(monkeypatch):
+    from investment_evidence_engine import fundamental_worker
+    from investment_evidence_engine.bounded_worker import WorkerResult
+
+    receipt = {"endpoint": "income", "symbol": "600519", "start": "2025-01-01", "end": "2026-01-03",
+               "started_at": "2026-01-04T00:00:00+00:00", "retrieved_at": "2026-01-04T00:00:01+00:00",
+               "records": [{"ts_code": "000001.SZ", "report_type": "1", "end_date": "20251231",
+                            "ann_date": "20260101", "f_ann_date": "20260101", "revenue": 12}]}
+    monkeypatch.setattr(fundamental_worker, "run_json_worker",
+                        lambda *args, **kwargs: WorkerResult("OK", payload=receipt))
+    rows, attempt = fundamental_worker._observe_tushare_endpoint(
+        "income", "600519", date(2025, 1, 1), date(2026, 1, 3))
+    assert rows == [] and attempt["status"] == "WARN"
+    receipt["records"][0]["ts_code"] = "600519.SH"
+    rows, attempt = fundamental_worker._observe_tushare_endpoint(
+        "income", "600519", date(2025, 1, 1), date(2026, 1, 3))
+    assert len(rows) == 1 and attempt["status"] == "PASS"
+    assert rows[0]["pit_safe"] is False
+    assert "available_at" not in rows[0]
