@@ -1,8 +1,5 @@
 name: Public relisting issuer notice
 on:
-  push:
-    paths:
-      - ".github/workflows/public-relisting-issuer.yml"
   workflow_dispatch:
 permissions:
   contents: read

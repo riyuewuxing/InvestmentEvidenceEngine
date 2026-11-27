@@ -62,3 +62,18 @@ def test_supplement_distinguishes_share_surrender_and_first_day_limit():
     }
     assert len(fields["reported_halts"]) == 2
     assert fields["individual_entitlement_verified"] is False
+
+
+def test_partial_supplement_keeps_case_observation_without_admitting_rule_chain(monkeypatch):
+    from investment_evidence_engine import public_relisting_control as module
+
+    def observe(kind, key):
+        return {"status": "OBSERVED" if key == "relisting_education" else "BLOCK"}
+
+    monkeypatch.setattr(module, "observe", observe)
+    result = module.run_supplement()
+    assert result["status"] == "BLOCK"
+    assert result["ordinary_st_rule_invalid_on_reviewed_first_session"] is True
+    assert result["price_only_continuity_is_insufficient_for_shareholder_return"] is True
+    assert result["historical_rule_document_observed"] is False
+    assert result["decision_authority"] is False

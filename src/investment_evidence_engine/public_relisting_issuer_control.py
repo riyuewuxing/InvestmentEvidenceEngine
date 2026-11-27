@@ -51,7 +51,9 @@ def parse_notice(pages: tuple[str, ...]) -> dict:
     free, restricted, total = (int(x.replace(",", "")) for x in found.groups())
     if (free, restricted, total) != (1898551957, 3124848067, 5023400024) or free + restricted != total:
         raise ValueError("RELIST_ISSUER_SHARE_RECONCILIATION")
-    pct = lambda qty: str((Decimal(qty) * 100 / Decimal(total)).quantize(Decimal(".01"), rounding=ROUND_HALF_UP))
+    def pct(qty: int) -> str:
+        return str((Decimal(qty) * 100 / Decimal(total)).quantize(Decimal(".01"), rounding=ROUND_HALF_UP))
+
     if (pct(free), pct(restricted)) != ("37.79", "62.21"):
         raise ValueError("RELIST_ISSUER_SHARE_PERCENT")
     # Date of signature is not the date in the archive URL or first public availability.
