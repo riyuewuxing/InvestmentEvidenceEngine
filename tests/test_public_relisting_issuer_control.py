@@ -2,7 +2,6 @@ import pytest
 
 from investment_evidence_engine.public_relisting_issuer_control import parse_notice
 
-
 PAGES = (
     "证券代码：601975 公告编号：临2018-089 关于公司股票重新上市的公告 2019年1月8日 "
     "重新上市首日，公司股票价格不设涨跌幅限制 最后交易日（2017年2月27日）的收盘价，即4.31元/股 "

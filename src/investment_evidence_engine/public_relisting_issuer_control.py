@@ -14,7 +14,7 @@ import os
 import re
 import sys
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
