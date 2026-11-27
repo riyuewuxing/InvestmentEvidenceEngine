@@ -20,7 +20,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat
 
 from .cash_entitlement import CashEntitlementTerms
-from .historical_capture import SH, PublicSecurity, validate_window
+from .historical_capture import SH, PublicSecurity, validate_symbol_window, validate_window
 from .historical_reference import HistoricalCloseSeries
 from .holding_risk import CashDistributionInputs
 from .market_calendar import CalendarObservation, check_calendar
@@ -71,6 +71,7 @@ def bind_cash_reference_terms(events: CashDistributionInputs, subject: PublicSec
             or any(type(day) is not date for day in sessions)
             or tuple(sorted(set(sessions))) != sessions):
         raise ValueError("ACTION_REFERENCE_SESSION_OR_SUBJECT_SCOPE_INVALID")
+    validate_symbol_window(subject, sessions[0], sessions[-1])
     included={}
     excluded=[]
     seen=set()
@@ -117,6 +118,7 @@ def audit_cash_actions(obs: ActionObservation, other_close: HistoricalCloseSerie
             or other_close.subject_id!=obs.subject.symbol or other_close.source_label=="baostock"
             or other_close.currency!="CNY" or other_close.price_basis!="RAW_CLOSE"):
         raise ValueError("ACTION_SCOPE_OR_BASIS_INVALID")
+    validate_symbol_window(obs.subject, obs.first_requested, obs.last_requested)
     sessions=check_calendar(calendar,first=obs.first_requested,last=obs.last_requested,cutoff=now)
     if tuple(r.session for r in obs.raw_rows)!=sessions or tuple(r.session for r in other_close.closes)!=sessions:
         raise ValueError("ACTION_PRICE_SESSION_COVERAGE_MISMATCH")
@@ -195,6 +197,7 @@ def _acquire(subject: PublicSecurity,first: date,last: date) -> ActionObservatio
     if subject.asset_type!="STOCK":
         raise ValueError("ACTION_STOCK_ONLY")
     validate_window(first,last,datetime.now(SH))
+    validate_symbol_window(subject, first, last)
     identity=subject.prefixed[:2]+"."+subject.symbol
     login=bs.login()
     if login.error_code!="0":
@@ -238,6 +241,7 @@ def acquire_action_observation(subject: PublicSecurity,first: date,last: date) -
         raise ValueError("ACTION_STOCK_ONLY")
     subject.prefixed
     validate_window(first,last,datetime.now(SH))
+    validate_symbol_window(subject, first, last)
     try:
         proc=subprocess.run([sys.executable,"-m",__name__,"--child",subject.symbol,first.isoformat(),last.isoformat()],
                             capture_output=True,check=False,timeout=35)

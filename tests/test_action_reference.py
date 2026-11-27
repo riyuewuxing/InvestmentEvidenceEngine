@@ -139,3 +139,21 @@ def test_preflight_checks_exact_included_terms_before_source_acquisition():
         bind_cash_reference_terms(events, SUB, tuple(reversed(DAYS)), (terms,))
     with pytest.raises(ValueError, match="TERMS_SCOPE"):
         bind_cash_reference_terms(events, SUB, DAYS, (replace(terms, disclosed_date=DAYS[5]),))
+
+
+@pytest.mark.parametrize("symbol", ["600087", "300114"])
+def test_known_invalid_identity_rejected_before_action_acquisition_and_audit(symbol, monkeypatch):
+    from investment_evidence_engine.action_reference import acquire_action_observation
+
+    obs, series, _ = fixture()
+    subject = PublicSecurity(symbol=symbol, asset_type="STOCK")
+    events = CashDistributionInputs(events=())
+    monkeypatch.setattr("investment_evidence_engine.action_reference.subprocess.run",
+                        lambda *args, **kwargs: pytest.fail("network child must not start"))
+    with pytest.raises(ValueError, match="REQUIRES_EXPLICIT_IDENTITY"):
+        acquire_action_observation(subject, START, END)
+    with pytest.raises(ValueError, match="REQUIRES_EXPLICIT_IDENTITY"):
+        bind_cash_reference_terms(events, subject, DAYS)
+    with pytest.raises(ValueError, match="REQUIRES_EXPLICIT_IDENTITY"):
+        audit_cash_actions(obs.model_copy(update={"subject": subject}),
+                           series.model_copy(update={"subject_id": symbol}), CAL, events, now=NOW)
