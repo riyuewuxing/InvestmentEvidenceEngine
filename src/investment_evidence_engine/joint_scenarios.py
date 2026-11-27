@@ -15,7 +15,7 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from .cash_fees import CashFeeScenario, CommissionScenario, fee_scenario
-from .historical_capture import SH, PublicSecurity, validate_window
+from .historical_capture import SH, PublicSecurity, validate_symbol_window, validate_window
 from .market_calendar import scheduled_days
 
 MODEL_VERSION = "JOINT_CASH_ALTERNATIVES_V1"
@@ -57,6 +57,7 @@ class PairPriceAnchor(_Strict):
     def scope(self) -> PairPriceAnchor:
         self.stock.prefixed
         self.etf.prefixed
+        validate_symbol_window(self.stock, self.reference_session, self.reference_session)
         if self.stock.asset_type!="STOCK" or self.etf.asset_type!="ETF" or self.stock.symbol==self.etf.symbol:
             raise ValueError("ANCHOR_ASSET_SCOPE_INVALID")
         if (self.reference_session<date(2026,7,6) or self.reference_session>date(2026,11,26)
@@ -143,6 +144,7 @@ class JointAssumptions(_Strict):
     def scope(self) -> JointAssumptions:
         self.stock.prefixed
         self.etf.prefixed
+        validate_symbol_window(self.stock, self.reference_session, self.reference_session)
         if self.stock.asset_type!="STOCK" or self.etf.asset_type!="ETF" or self.stock.symbol==self.etf.symbol:
             raise ValueError("JOINT_ASSET_SCOPE_INVALID")
         if _money(_d(self.budget_cny))!=_d(self.budget_cny):

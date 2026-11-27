@@ -140,3 +140,11 @@ def test_positive_subtick_price_is_not_zero_recovery():
     r=joint_scenarios(ANCHOR,x.model_copy(update={"states":(state,x.states[1])}),evaluated_at=NOW)
     assert r["states"][0]["stock"]["status"]=="POSITIVE_REFERENCE_BELOW_MODELED_EXIT_TICK"
     assert "conditional_net_return_pct" not in r["states"][0]["stock"]
+
+
+def test_known_retired_code_blocked_in_direct_anchor_and_assumptions():
+    stale = PublicSecurity(symbol="300114", asset_type="STOCK")
+    with pytest.raises(ValueError, match="REVIEWED_CODE_CHANGE_WINDOW"):
+        PairPriceAnchor.model_validate(ANCHOR.model_copy(update={"stock": stale}).model_dump())
+    with pytest.raises(ValueError, match="REVIEWED_CODE_CHANGE_WINDOW"):
+        JointAssumptions.model_validate(inputs().model_copy(update={"stock": stale}).model_dump())

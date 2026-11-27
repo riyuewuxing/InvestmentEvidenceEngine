@@ -73,3 +73,12 @@ def test_subcent_or_holiday_invalid():
 def test_ordinary_standard_minimum_fee_scope():
     with pytest.raises(ValueError):
         CommissionScenario(inclusive_rate_bps=3.,minimum_per_order_cny=0.,note="unverified special term")
+
+
+def test_known_retired_code_rejected_even_for_conditional_fee_scenario():
+    stale = inputs().model_copy(update={"subject": PublicSecurity(symbol="300114", asset_type="STOCK")})
+    with pytest.raises(ValueError, match="REVIEWED_CODE_CHANGE_WINDOW"):
+        fee_scenario(stale)
+    # A valid new-code point is not proof of actual brokerage fee or tradability.
+    current = stale.model_copy(update={"subject": PublicSecurity(symbol="302132", asset_type="STOCK")})
+    assert fee_scenario(current)["decision_authority"] is False

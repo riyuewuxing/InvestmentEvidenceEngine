@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
-from .historical_capture import PublicSecurity
+from .historical_capture import PublicSecurity, validate_symbol_window
 from .market_calendar import scheduled_days
 
 RULE_VERSION = "CN_CASH_2026_11_REVIEWED_V1"
@@ -60,6 +60,7 @@ class CashFeeScenario(BaseModel):
     @model_validator(mode="after")
     def valid_scope(self) -> CashFeeScenario:
         self.subject.prefixed
+        validate_symbol_window(self.subject, self.reference_session, self.reference_session)
         if (self.kind=="DOMESTIC_A_STOCK") != (self.subject.asset_type=="STOCK"):
             raise ValueError("ASSET_KIND_MISMATCH")
         if not FIRST<=self.reference_session<=LAST or not scheduled_days(self.reference_session,self.reference_session)[0].is_trading_day:
