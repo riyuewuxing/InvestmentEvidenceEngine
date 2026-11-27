@@ -3,6 +3,7 @@ from investment_evidence_engine.szse_factbook_reconcile import (
     capco_codes,
     compare_sets,
     counts_from_text,
+    overview_fields,
     partition_reconciled,
     row_anomalies,
     tail_partition,
@@ -63,3 +64,12 @@ def test_aidier_decision_and_exit_are_distinct():
     e=aidier_fields(common+"2024-023 关于股票终止上市暨摘牌的公告 摘牌日期：2024年3月4日","aidier_exit")
     assert e["issuer_reported_delisting_day"]=="2024-03-04"
     assert not e["first_availability_verified"]
+
+
+def test_overview_uses_company_counts_and_rounded_aggregate_not_membership():
+    pages=[f"2024 年{title}市场概况\n截至 2024. 12. 31\n上市公司数 {n} 0 0\n总市值（亿元） {v} 0 0"
+           for title,n,v in [("深圳证券",2852,"330411.53"),("主板",1487,"205870.81"),("创业板",1365,"124540.72")]]
+    got=overview_fields(pages)
+    assert got["company_count_differences"]==[1,1,0]
+    assert not got["company_count_difference_cause_verified"]
+    assert not got["member_identities_verified"]

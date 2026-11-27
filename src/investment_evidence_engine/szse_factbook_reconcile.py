@@ -48,6 +48,7 @@ AIDIER_URLS = {
 ORIGINAL_KEYS = tuple(URLS)
 URLS.update(TAIL_URLS)
 URLS.update(AIDIER_URLS)
+URLS["market_overview"]="https://www.szse.cn/market/subject/P020241231627621196204.pdf"
 TOTALS = {"main": Decimal("20587080.87"), "chinext": Decimal("12454072.25")}
 START = {"main": 136, "chinext": 230}
 BOARD_HASH = {
@@ -413,6 +414,56 @@ def parse_aidier(folder: Path, receipt: Path) -> None:
     write_worker_result(receipt,report)
 
 
+def overview_fields(pages: list[str]) -> dict:
+    titles=("2024年深圳证券市场概况","2024年主板市场概况","2024年创业板市场概况")
+    if len(pages)!=3:
+        raise ValueError("OVERVIEW_PAGE_SCOPE")
+    counts=[]
+    values=[]
+    for page,title in zip(pages,titles,strict=True):
+        flat=normalize_text(page)
+        if title not in flat or "截至2024.12.31" not in flat:
+            raise ValueError("OVERVIEW_TITLE_DATE")
+        count=re.search(r"上市公司数\s+([0-9,]+)\s",page)
+        value=re.search(r"总市值\s*[（(]亿元[）)]\s+([0-9,.]+)\s",page)
+        if count is None or value is None:
+            raise ValueError("OVERVIEW_FIELD_SCOPE")
+        counts.append(int(count[1].replace(",","")))
+        values.append(Decimal(value[1].replace(",","")))
+    if counts[0]!=counts[1]+counts[2] or abs(values[0]-values[1]-values[2])>Decimal("0.015"):
+        raise ValueError("OVERVIEW_TOTAL_MISMATCH")
+    if any(abs(values[i+1]-TOTALS[b]/100)>Decimal("0.005") for i,b in enumerate(("main","chinext"))):
+        raise ValueError("OVERVIEW_YEARBOOK_VALUE_MISMATCH")
+    monthly=[2851,1486,1365]  # Observed independent monthly document, run 45939705961.
+    return {"status":"OBSERVED_AGGREGATES_ONLY","as_of_date":"2024-12-31",
+            "columns":["SZ_total","SZ_main","SZ_chinext"],"listed_company_counts":counts,
+            "monthly_company_counts_reference":monthly,"monthly_source_run":45939705961,
+            "company_count_differences":[x-y for x,y in zip(counts,monthly,strict=True)],
+            "market_values_100m_cny":[str(v) for v in values],
+            "market_values_match_yearbook_within_rounding":True,
+            "company_count_difference_cause_verified":False,
+            "member_identities_verified":False,"first_availability_verified":False}
+
+
+def parse_overview(folder: Path, receipt: Path) -> None:
+    from pypdf import PdfReader
+
+    path=folder/"market_overview.pdf"
+    report={"status":"BLOCK","observed_file_sha256":{},"pit_safe":False,
+            "historical_universe_complete":False}
+    if path.is_file():
+        report["observed_file_sha256"]["market_overview"]=hashlib.sha256(path.read_bytes()).hexdigest()
+        try:
+            reader=PdfReader(path,strict=True)
+            if reader.is_encrypted or len(reader.pages)!=3:
+                raise ValueError("OVERVIEW_PAGE_SCOPE")
+            report["overview"]=overview_fields([p.extract_text(extraction_mode="layout") or "" for p in reader.pages])
+            report["status"]="WARN"
+        except (ValueError,TypeError,RuntimeError,IndexError) as exc:
+            report["reason"]=str(exc) if str(exc).startswith("OVERVIEW_") else type(exc).__name__
+    write_worker_result(receipt,report)
+
+
 def parse_tail(folder: Path, receipt: Path) -> None:
     from pypdf import PdfReader
 
@@ -495,11 +546,13 @@ def main() -> int:
             keys=("yearbook", *TAIL_URLS)
         elif mode=="AIDIER_ONLY":
             keys=tuple(AIDIER_URLS)
+        elif mode=="MARKET_OVERVIEW_ONLY":
+            keys=("market_overview",)
         for key in keys:
             _,receipts[key]=observe(key,folder)
         report["observations"]=receipts
         parser=run_json_worker((sys.executable,"-m","investment_evidence_engine.szse_factbook_reconcile",
-                                "--parse-tail" if mode=="COUNTS_AND_TAIL" else "--parse-aidier" if mode=="AIDIER_ONLY" else "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
+                                "--parse-tail" if mode=="COUNTS_AND_TAIL" else "--parse-aidier" if mode=="AIDIER_ONLY" else "--parse-overview" if mode=="MARKET_OVERVIEW_ONLY" else "--parse",str(folder)),timeout_seconds=85,max_bytes=256*1024)
         report["parser_worker"]={"status":parser.status,"elapsed_seconds":parser.elapsed_seconds}
         if parser.status=="OK" and parser.payload is not None:
             parsed=parser.payload
@@ -526,6 +579,8 @@ if __name__=="__main__":
         parse_tail(Path(sys.argv[2]),Path(sys.argv[3]))
     elif len(sys.argv)==4 and sys.argv[1]=="--parse-aidier":
         parse_aidier(Path(sys.argv[2]),Path(sys.argv[3]))
+    elif len(sys.argv)==4 and sys.argv[1]=="--parse-overview":
+        parse_overview(Path(sys.argv[2]),Path(sys.argv[3]))
     elif len(sys.argv)==1:
         raise SystemExit(main())
     else:
