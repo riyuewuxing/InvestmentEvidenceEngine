@@ -77,7 +77,8 @@ def date_cell(value: object) -> date:
 def expected_exchange(code: str) -> str:
     if re.fullmatch(r"(?:60[0135]|688|689)[0-9]{3}", code):
         return "SH"
-    if re.fullmatch(r"(?:00[0123]|30[01])[0-9]{3}", code):
+    # Reviewed exceptional SZSE identity: 中航成飞 (302132), not an arbitrary 302 prefix.
+    if code == "302132" or re.fullmatch(r"(?:00[0123]|30[01])[0-9]{3}", code):
         return "SZ"
     raise ValueError("INDEX_SECURITY_CODE_SCOPE")
 
@@ -220,6 +221,7 @@ def snapshot_summary(snapshot: dict) -> dict:
               "exchange_counts": {venue: list(snapshot["exchanges"].values()).count(venue)
                                   for venue in ("SH", "SZ")},
               "code_001280_reported_name": snapshot["names"].get("001280"),
+              "code_302132_reported_name": snapshot["names"].get("302132"),
               "complete_listing_instance_identity_verified": False,
               "historical_availability_verified": False,
               "complete_interval_membership_verified": False,

@@ -26,6 +26,6 @@ jobs:
       - name: Install public engine and reviewed XLS reader
         timeout-minutes: 4
         run: python -m pip install -e ".[dev]" "xlrd==2.0.2"
-      - name: Observe fixed public original files
+      - name: Replay exact first-capture bytes after narrow identity correction
         timeout-minutes: 3
         run: timeout --signal=TERM --kill-after=5s 150s python -m investment_evidence_engine.public_csi300_snapshot_control

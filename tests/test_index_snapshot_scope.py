@@ -9,6 +9,7 @@ from investment_evidence_engine.index_snapshot_scope import (
     IN,
     OUT,
     digest_codes,
+    expected_exchange,
     git_blob_sha1,
     membership_difference,
     parse_csv,
@@ -67,7 +68,7 @@ def test_csv_and_blob_exact_scope():
     s = parse_rows(fixture(), weighted=False, latest_label=date(2026, 5, 6))
     raw = ("code\r\n" + "\r\n".join(s["codes"]) + "\r\n").encode()
     assert parse_csv(raw) == s["codes"]
-    assert git_blob_sha1(b"test\n") == "9daeafb9864cf43055ae93beb0afd6c7d144bfad4"
+    assert git_blob_sha1(b"test\n") == "9daeafb9864cf43055ae93beb0afd6c7d144bfa4"
     assert digest_codes(s["codes"]) == digest_codes(list(reversed(s["codes"])))
     with pytest.raises(ValueError):
         parse_csv(raw.replace(b"000002", b"000001"))
@@ -92,3 +93,15 @@ def test_notice_and_snapshot_delta_exact():
     assert not membership_difference(before, changed, notice=notice)["reviewed_notice_set_match"]
     with pytest.raises(ValueError):
         membership_difference(after, before)
+
+
+def test_reviewed_exceptional_szse_identity_not_prefix():
+    assert expected_exchange("302132") == "SZ"
+    with pytest.raises(ValueError):
+        expected_exchange("302133")
+    rows = fixture()
+    rows[1][4:6] = [302132, "中航成飞"]
+    assert parse_rows(rows, weighted=False, latest_label=date(2026, 5, 6))["names"]["302132"] == "中航成飞"
+    rows[1][7] = "上海"
+    with pytest.raises(ValueError):
+        parse_rows(rows, weighted=False, latest_label=date(2026, 5, 6))

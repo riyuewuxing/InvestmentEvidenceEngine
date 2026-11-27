@@ -41,6 +41,30 @@ ARCHIVES = {
 CSI_BASE = "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/file/autofile/"
 NOTICE_URL = "https://oss-ch.csindex.com.cn/notice/20260529155822-" + quote("附件：部分指数样本调整名单.pdf")
 KEYS = (*ARCHIVES, "notice", "current_members", "current_weights")
+# Pin first observation, including mutable official URLs. A changed file is not this replay.
+FIRST_CAPTURE_SHA256 = {
+    "may": {
+        "workbook": "868cf4d117cf373861b0be37e1a3d5a841bf62e86d1270e76e955129f166a9fa",
+        "csv": "866efcbe29d3a65b869a106d486bc936443592cf59984422be8ead9071821a63"
+    },
+    "jun": {
+        "workbook": "e979569a29318764c74bbe015f9a30b06014e86a4062ee4f9dc27cc2323ba344",
+        "csv": "944c0f2c0164e7dc3335d9087ed80d7cac9eddee9f55ee69b9a3a181a29a1516"
+    },
+    "oct": {
+        "workbook": "25ef515205586babfbc590b1a21671582e75aec4da863cafa0c38e508bc5b8ec",
+        "csv": "f497cc1b346d149e10e4069983879944dc158e6da32503e772bcffa6938ab0db"
+    },
+    "notice": {
+        "pdf": "63301b60a2a2040c4bdd97c7db5021afc8425e1f0473b96dc0b472a39ba25d32"
+    },
+    "current_members": {
+        "workbook": "24a84a86dc57998e061acccef8c031042de382fd4b9dc197bc92c8c1ef8d88f4"
+    },
+    "current_weights": {
+        "workbook": "e5d80f178df11853c751029b3069790d4dcd0ae5cf6e15110a0ce87e1e1aaf38"
+    }
+}
 
 
 def routes(key: str) -> dict[str, str]:
@@ -159,6 +183,9 @@ def observe(key: str, directory: Path) -> tuple[dict, dict | None]:
             if raw2 != raw or hashlib.sha256(raw2).hexdigest() != item["sha256"]:
                 raise ValueError("INDEX_REOPEN_HASH")
             meta |= {"bytes": len(raw), "parent_rehash": "MATCH", "temporary_rehash": "MATCH"}
+            if item["sha256"] != FIRST_CAPTURE_SHA256[key][name]:
+                raise ValueError("INDEX_FIRST_CAPTURE_HASH_CHANGED")
+            meta["first_capture_hash_match"] = True
             bodies[name] = raw2
         if key == "notice":
             from pypdf import PdfReader
