@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import Decimal, localcontext
 
+from .cash_execution_math import price_band
 from .market_calendar import scheduled_days
 from .momentum_profile import WINDOW, momentum_profile
 
@@ -36,12 +37,7 @@ def tick_price(value: str) -> Decimal:
 def conditional_limits(reference: Decimal, rate: Decimal) -> tuple[Decimal, Decimal]:
     if type(rate) is not Decimal or rate not in {Decimal('0.05'), Decimal('0.10')}:
         raise ValueError('UNSUPPORTED_LIMIT_RATE')
-    reference = tick_price(str(reference))
-    with localcontext() as ctx:
-        ctx.prec = 32
-        up = (reference * (1 + rate)).quantize(TICK, rounding=ROUND_HALF_UP)
-        down = (reference * (1 - rate)).quantize(TICK, rounding=ROUND_HALF_UP)
-        return max(TICK, min(down, reference - TICK)), max(up, reference + TICK)
+    return price_band(tick_price(str(reference)), rate)
 
 
 def ordinary_limits(reference: Decimal) -> tuple[Decimal, Decimal]:
