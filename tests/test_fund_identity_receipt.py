@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -80,3 +81,17 @@ def test_duplicate_class_across_records_is_not_silently_selected():
     r["records"].append(r["records"][0])
     with pytest.raises(ValueError):
         parse(r)
+
+
+def test_replay_exact_observed_public_metadata():
+    fixture = Path(__file__).resolve().parents[1] / "controls/fund-identity-20261127-metadata.json"
+    r = json.loads(fixture.read_text(encoding="utf-8"))
+    rows = parse_identity_receipt(r["log_line"], expected_commit=r["executor_commit"], now=NOW)
+    assert set(rows) == {"510300", "161907", "015558", "013125"}
+    assert rows["510300"]["product_kind_reported"] == "INDEX_ETF"
+    assert rows["510300"]["tracking_error_target_pct_reported"] == "2"
+    assert rows["161907"]["product_kind_reported"] == "ETF_FEEDER_FUND"
+    assert rows["161907"]["conversion_day_reported"] == "2024-07-10"
+    assert rows["015558"]["estimated_operation_rate_pct_reported"] == "0.71"
+    assert rows["013125"]["document_day"] == "2025-06-30"
+    assert all(not row["formal_admission"] and not row["candidate_rank_membership_verified"] for row in rows.values())
