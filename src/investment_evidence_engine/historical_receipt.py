@@ -19,7 +19,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .historical_capture import PROVIDERS, PublicSecurity, summarize_observed_pair, validate_window
 from .historical_reference import HistoricalCloseSeries
-from .holding_risk import CashDistributionInputs, holding_period_reference
+from .holding_risk import CashDistributionInputs, ShareCashDistributionInputs, holding_period_reference
 from .market_calendar import CalendarObservation
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -35,7 +35,7 @@ class HistoricalCaptureFailure(BaseModel):
 
 class HistoricalReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["1", "2"] = "1"
+    schema_version: Literal["1", "2", "3"] = "1"
     acquisition_method: Literal["BOUNDED_VENDOR_NORMALIZED_CLOSE_V1"] = "BOUNDED_VENDOR_NORMALIZED_CLOSE_V1"
     candidate: PublicSecurity
     alternative: PublicSecurity
@@ -49,6 +49,7 @@ class HistoricalReceipt(BaseModel):
     calendar: CalendarObservation | None = None
     calendar_error_code: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_:]{1,160}$")
     distributions: CashDistributionInputs | None = None
+    share_cash_distributions: ShareCashDistributionInputs | None = None
     raw_provider_bytes_retained: Literal[False] = False
     research_only: Literal[True] = True
     execution_allowed: Literal[False] = False
@@ -56,7 +57,9 @@ class HistoricalReceipt(BaseModel):
 
 def _bytes(receipt: HistoricalReceipt) -> bytes:
     payload=receipt.model_dump(mode="json")
-    # Exact v1 serialization must remain byte-for-byte compatible.
+    # Exact v1/v2 serialization must remain byte-for-byte compatible.
+    if receipt.schema_version in {"1", "2"}:
+        payload.pop("share_cash_distributions")
     if receipt.schema_version=="1":
         for key in ("calendar","calendar_error_code","distributions"):
             payload.pop(key)
@@ -78,8 +81,13 @@ def _summary(receipt: HistoricalReceipt) -> dict:
     validate_window(receipt.first_requested, receipt.last_completed, receipt.observed_at)
     if receipt.schema_version=="1" and any(x is not None for x in (receipt.calendar,receipt.calendar_error_code,receipt.distributions)):
         raise ValueError("version one cannot carry holding-risk inputs")
-    if receipt.schema_version=="2" and (receipt.calendar is None)==(receipt.calendar_error_code is None):
-        raise ValueError("version two requires one calendar outcome")
+    if receipt.schema_version in {"2", "3"} and (receipt.calendar is None)==(receipt.calendar_error_code is None):
+        raise ValueError("version two or three requires one calendar outcome")
+    if receipt.schema_version in {"1", "2"} and receipt.share_cash_distributions is not None:
+        raise ValueError("legacy receipt cannot carry share/cash distribution terms")
+    if receipt.schema_version == "3" and (receipt.distributions is not None
+            or receipt.share_cash_distributions is None or not receipt.share_cash_distributions.events):
+        raise ValueError("version three requires explicit nonempty combined terms without legacy cash terms")
     if (len(set(receipt.attempted_providers)) != len(receipt.attempted_providers)
             or any(provider not in PROVIDERS for provider in receipt.attempted_providers)):
         raise ValueError("invalid attempted provider scope")
@@ -110,7 +118,7 @@ def _summary(receipt: HistoricalReceipt) -> dict:
         try:
             result["holding_reference"]=holding_period_reference(left,right,receipt.calendar,
                 first=receipt.first_requested,last=receipt.last_completed,cutoff=receipt.observed_at,
-                distributions=receipt.distributions)
+                distributions=receipt.distributions, share_cash_distributions=receipt.share_cash_distributions)
         except (ValueError,ArithmeticError) as exc:
             code=str(exc)
             if not code.isascii() or not code.isupper() or not code.replace("_","").isalnum():

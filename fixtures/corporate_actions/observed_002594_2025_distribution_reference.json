@@ -1,0 +1,40 @@
+{
+  "run_id": 45944850802,
+  "job_id": 140327079787,
+  "executor_commit": "b95d9a5f707367d63b8d0f9357f50f4b0c56d43b",
+  "derived_receipt_not_raw_provider_rows": true,
+  "receipt": {
+    "action_observation_sha256": "c6f5cff56c480270a896633da1177b3524359c8356f6bcd99f35984a8687877e",
+    "decision_authority": false,
+    "ex_date_factor_present": true,
+    "execution_allowed": false,
+    "executor_commit": "b95d9a5f707367d63b8d0f9357f50f4b0c56d43b",
+    "issuer_receipt_sha256": "6b7adca2a01a91d781fa70c5aab5e6eae2aa0728fe3ab627c99b535fc5aef1db",
+    "other_source_sha256": "9c5cfb160755ebdb35811ea6c64b7f30eb091557e7cb2053f1e46b00dece2a17",
+    "pit_safe": false,
+    "raw_close_crosscheck": "MATCH_WITHIN_0.011_CNY",
+    "raw_provider_bytes_retained": false,
+    "reference": {
+      "actual_account_credit_verified": false,
+      "actual_tax_and_cost_verified": false,
+      "complete_action_history_verified": false,
+      "conditional_cent_rounded_reference_cny": "111.01",
+      "conditional_gross_wealth_change_pct": "0.366172106824925816023738900",
+      "decision_authority": false,
+      "ex_day_raw_close_cny": "111.42",
+      "historical_vintage_verified": false,
+      "official_reference_verified": false,
+      "pit_safe": false,
+      "prior_raw_close_cny": "337.0",
+      "raw_price_change_pct": "-66.93768545994065281899109792",
+      "vendor_matches_conditional_reference": true,
+      "vendor_previous_reference_cny": "111.01"
+    },
+    "same_observed_sessions": 24,
+    "status": "WARN",
+    "subject": "002594",
+    "vendor_factor_dates": [
+      "2025-07-29"
+    ]
+  }
+}

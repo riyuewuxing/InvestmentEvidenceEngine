@@ -10,6 +10,8 @@ from investment_evidence_engine.historical_receipt import (
     persist_receipt,
 )
 from investment_evidence_engine.historical_reference import DailyClose, HistoricalCloseSeries
+from investment_evidence_engine.holding_risk import ShareCashDistribution, ShareCashDistributionInputs
+from investment_evidence_engine.market_calendar import CalendarObservation, scheduled_days
 
 A = PublicSecurity(symbol="600519", asset_type="STOCK")
 B = PublicSecurity(symbol="510050", asset_type="ETF")
@@ -95,7 +97,7 @@ def test_v1_canonical_encoding_is_unchanged(tmp_path):
     import json
     original=receipt()
     payload=original.model_dump(mode="json")
-    for name in ("calendar","calendar_error_code","distributions"):
+    for name in ("calendar","calendar_error_code","distributions","share_cash_distributions"):
         payload.pop(name)
     old_bytes=json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False).encode()
     digest, result=persist_receipt(tmp_path,original)
@@ -130,3 +132,55 @@ def test_newer_complete_source_failure_withholds_old_pair(tmp_path):
     loaded=load_receipt(tmp_path,A,B,END,now=NOW)
     assert loaded["normalized_observation_sha256"]==digest
     assert "reference" not in loaded
+
+
+def combined_receipt():
+    original = receipt()
+    dates = tuple(r.day for r in scheduled_days(START, END) if r.is_trading_day)
+    cal = CalendarObservation(first_requested=START, last_requested=END,
+                              observed_at=NOW-timedelta(minutes=2), rows=scheduled_days(START, END))
+    a = HistoricalCloseSeries(subject_id=A.symbol, currency="CNY", price_basis="RAW_CLOSE",
+        source_label="baostock", closes=tuple(DailyClose(session=d, close=100. if i<10 else 32.)
+                                               for i,d in enumerate(dates)))
+    b = HistoricalCloseSeries(subject_id=B.symbol, currency="CNY", price_basis="RAW_CLOSE",
+        source_label="sina", closes=tuple(DailyClose(session=d, close=100.) for d in dates))
+    event = ShareCashDistribution(action_id="synthetic:1", subject_id=A.symbol,
+        disclosed_date=dates[8], record_date=dates[9], ex_date=dates[10],
+        post_units_numerator=3, pre_units_denominator=1, gross_cash_per_old_unit_cny="4",
+        source_locator="https://example.invalid/disclosure", source_sha256="a"*64)
+    return original.model_copy(update={"schema_version":"3", "calendar":cal, "series":(a,b),
+        "share_cash_distributions":ShareCashDistributionInputs(events=(event,))})
+
+
+def test_v3_combined_terms_are_persisted_rehashed_and_recomputed(tmp_path):
+    r = combined_receipt()
+    digest, computed = persist_receipt(tmp_path, r)
+    assert computed["holding_reference"]["raw_full_window_pct"]["candidate"] == pytest.approx(-68)
+    assert computed["holding_reference"]["share_cash_full_window_pct"]["candidate"] == pytest.approx(0)
+    loaded = load_receipt(tmp_path, A, B, END, now=NOW)
+    assert loaded["normalized_observation_sha256"] == digest and loaded["normalized_observation_rehashed"]
+    assert loaded["holding_reference"] == computed["holding_reference"]
+    assert not loaded["holding_reference"]["share_cash_original_bytes_verified"]
+    assert not loaded["holding_reference"]["decision_authority"]
+
+
+@pytest.mark.parametrize("updates", [{"schema_version":"1"}, {"schema_version":"2"},
+                                    {"share_cash_distributions":None},
+                                    {"share_cash_distributions":ShareCashDistributionInputs(events=())}])
+def test_receipt_version_cannot_silently_discard_combined_terms(tmp_path, updates):
+    with pytest.raises(ValueError):
+        persist_receipt(tmp_path, combined_receipt().model_copy(update=updates))
+
+
+def test_v2_canonical_encoding_is_unchanged(tmp_path):
+    import hashlib
+    import json
+
+    original = receipt().model_copy(update={"schema_version":"2", "calendar_error_code":"MISSING"})
+    payload = original.model_dump(mode="json")
+    payload.pop("share_cash_distributions")
+    old_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                           separators=(",",":"), allow_nan=False).encode()
+    digest, _ = persist_receipt(tmp_path, original)
+    assert digest == hashlib.sha256(old_bytes).hexdigest()
+    assert (tmp_path/(digest+".json")).read_bytes() == old_bytes
