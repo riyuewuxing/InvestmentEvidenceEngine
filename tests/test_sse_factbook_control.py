@@ -2,6 +2,7 @@ from investment_evidence_engine.sse_factbook_control import (
     board,
     candidate_membership,
     directory_crosscheck,
+    parse_aggregate_text,
     parse_rows,
     summarize,
 )
@@ -62,3 +63,18 @@ def test_directory_compact_dates_and_strict_midnight_only():
     assert result["matched_count"] == 2
     assert result["targets"]["600112"]["directory_end_date"] == "2024-06-21"
     assert result["targets"]["600220"]["status"] == "BLOCK"
+
+
+def test_aggregate_a_stock_cdr_counts_separate_and_not_inferred():
+    first = """上海市场统计表 (2024 年)
+上市公司数 2,278 15 0.66
+A 股 2,273 16 0.71
+B 股 43 -1 -2.27
+CDR 1 0 0.00
+总市值 524,309 61,182 13.21"""
+    second = """上海股票市场统计表 (2024 年)
+上市公司数 1,697 0 0.00 581 15 2.65
+总市值 460,880 59,370 14.79 63,429 1,812 2.94"""
+    assert parse_aggregate_text(first, second)["status"] == "WARN"
+    assert parse_aggregate_text(first.replace("2,273", "2,274"), second)["status"] == "BLOCK"
+    assert parse_aggregate_text(first + "\nCDR 1 0 0.00", second)["status"] == "BLOCK"

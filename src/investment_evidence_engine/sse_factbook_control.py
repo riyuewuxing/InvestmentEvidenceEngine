@@ -23,6 +23,7 @@ URL = "https://www.sse.com.cn/aboutus/publication/yearly/documents/c/10801255/fi
 REPO = "riyuewuxing/InvestmentEvidenceEngine"
 EXPECTED_LENGTH = 37592482
 EXPECTED_SHA256 = "6e50e1fef5fa4c77e72e9cf0f58c2318604041b34e9d2e94a0f5be2f56983dc9"
+AGGREGATE_URL = "https://www.sse.com.cn/home/webupdate/c/10767583/files/8c4f5c315f594b80b262d22eeffc7f2c.pdf"
 PRIOR_DIRECTORY_SHA256 = "d5e5dec58882aef4aba8be707087e9c3483ee1be9c2d1fcb6070e1ae9abc8990"
 REMOVED_A = {"600112", "600213", "600220", "600277", "600290", "600297", "600306", "600321", "600565", "600647", "600766", "600823", "600836", "603133", "603555", "603603"}
 REMOVED_B = {"900953"}
@@ -263,6 +264,76 @@ def parse(target: Path, result: Path) -> None:
     write_worker_result(result, report)
 
 
+def parse_aggregate_text(first: str, second: str) -> dict:
+    def numbers(text: str, label: str, n: int) -> list[str]:
+        hits = [re.findall(r"(?<![\d,.])[-−]?[0-9][0-9,]*(?:\.[0-9]+)?", line.split(label, 1)[1])
+                for line in text.splitlines() if label in line]
+        if len(hits) != 1 or len(hits[0]) != n:
+            return []
+        return [v.replace(",", "").replace("−", "-") for v in hits[0]]
+
+    first = re.sub(r"(?<=\.)\s+(?=[0-9])", "", first).replace("A 股", "A股").replace("B 股", "B股")
+    second = re.sub(r"(?<=\.)\s+(?=[0-9])", "", second)
+    fields = {"companies": numbers(first, "上市公司数", 3), "ordinary_a": numbers(first, "A股", 3),
+              "b": numbers(first, "B股", 3), "cdr": numbers(first, "CDR", 3),
+              "stock_market_cap_100m": numbers(first, "总市值", 3),
+              "company_board": numbers(second, "上市公司数", 6),
+              "board_market_cap_100m": numbers(second, "总市值", 6)}
+    markers = ("上海市场统计表" in re.sub(r"\s+", "", first) and "上海股票市场统计表" in re.sub(r"\s+", "", second)
+               and "2024年" in re.sub(r"\s+", "", first) and "2024年" in re.sub(r"\s+", "", second))
+    observed = {k: v[0] if v else None for k, v in fields.items()}
+    observed["star_companies"] = fields["company_board"][3] if fields["company_board"] else None
+    observed["star_market_cap_100m"] = fields["board_market_cap_100m"][3] if fields["board_market_cap_100m"] else None
+    expected = {"companies": "2278", "ordinary_a": "2273", "b": "43", "cdr": "1", "stock_market_cap_100m": "524309",
+                "company_board": "1697", "board_market_cap_100m": "460880", "star_companies": "581", "star_market_cap_100m": "63429"}
+    return {"status": "WARN" if markers and observed == expected else "BLOCK", "period_title_markers": markers,
+            "observed": observed, "expected": expected, "source_unit_market_cap": "100m_CNY",
+            "complete_historical_universe_verified": False, "pit_safe": False}
+
+
+def aggregate_child(target: Path, result: Path) -> None:
+    import httpx
+    from pypdf import PdfReader
+
+    report = {"status": "BLOCK", "url": AGGREGATE_URL, "started_at": datetime.now(UTC).isoformat()}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10), follow_redirects=False) as client:
+            with client.stream("GET", AGGREGATE_URL, headers={"Accept": "application/pdf", "Accept-Encoding": "identity"}) as response:
+                if str(response.url) != AGGREGATE_URL:
+                    raise ValueError("source route changed")
+                raw = read_bounded_pdf(response, time.monotonic() + 25)
+        target.write_bytes(raw)
+        report.update(source_sha256=digest(raw), source_bytes=len(raw), observed_at=datetime.now(UTC).isoformat())
+        reader = PdfReader(target, strict=True)
+        report["pages"] = len(reader.pages)
+        if len(reader.pages) != 2 or reader.is_encrypted:
+            raise ValueError("unexpected page scope")
+        report["parser"] = parse_aggregate_text(*(page.extract_text(extraction_mode="layout") or "" for page in reader.pages))
+        report["status"] = report["parser"]["status"]
+    except Exception as exc:
+        report["error_type"] = type(exc).__name__
+        report["error_reason"] = str(exc)[:120] if isinstance(exc, ValueError) else None
+    write_worker_result(result, report)
+
+
+def aggregate_only() -> int:
+    if os.environ.get("GITHUB_REPOSITORY") != REPO:
+        raise SystemExit("public repository required")
+    with TemporaryDirectory() as folder:
+        target = Path(folder) / "aggregate.pdf"
+        task = run_json_worker((sys.executable, "-m", MODULE, "--aggregate-child", str(target)),
+                               timeout_seconds=45, max_bytes=65536)
+        data = task.payload or {"status": "BLOCK"}
+        data["parent_rehash"] = "MATCH" if target.is_file() and digest(target.read_bytes()) == data.get("source_sha256") else "NOT_VERIFIED"
+        if data["parent_rehash"] != "MATCH":
+            data["status"] = "BLOCK"
+        report = {"executor_commit": os.environ["GITHUB_SHA"], "worker_status": task.status, "elapsed_seconds": task.elapsed_seconds,
+                  "observation": data, "status": data["status"], "pit_safe": False, "decision_authority": False,
+                  "raw_pdf_retained": False}
+        print("PUBLIC_SSE_AGGREGATE " + json.dumps(report, sort_keys=True, allow_nan=False), flush=True)
+        return 0 if data["status"] == "WARN" else 2
+
+
 def main() -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
@@ -303,6 +374,10 @@ if __name__ == "__main__":
         download(Path(sys.argv[2]), Path(sys.argv[3]))
     elif len(sys.argv) == 4 and sys.argv[1] == "--parse":
         parse(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--aggregate-child":
+        aggregate_child(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif sys.argv[1:] == ["--aggregate-only"]:
+        raise SystemExit(aggregate_only())
     elif sys.argv[1:] == ["--directory-only"]:
         if os.environ.get("GITHUB_REPOSITORY") != REPO:
             raise SystemExit("public repository required")

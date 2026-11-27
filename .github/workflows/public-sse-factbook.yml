@@ -21,8 +21,8 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
         timeout-minutes: 4
-      - name: Reconcile directory dates only (no repeat PDF)
-        run: timeout --signal=TERM --kill-after=5s 205s python -m investment_evidence_engine.sse_factbook_control --directory-only
+      - name: Independent official 2024 market aggregate PDF
+        run: timeout --signal=TERM --kill-after=5s 205s python -m investment_evidence_engine.sse_factbook_control --aggregate-only
         timeout-minutes: 4
 
 # Diagnostic: inspect anonymized numeric row layout; no full source retention.
