@@ -1,8 +1,5 @@
 name: Public relisting identity evidence
 on:
-  push:
-    paths:
-      - ".github/workflows/public-relisting-control.yml"
   workflow_dispatch:
 permissions:
   contents: read

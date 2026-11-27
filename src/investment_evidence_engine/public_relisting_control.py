@@ -58,6 +58,30 @@ NOTICES = {
          "2019年01月08日14时57分起恢复交易"),
     ),
 }
+PRIMARY_KEYS = tuple(NOTICES)
+NOTICES.update({
+    "relisting_education": (
+        "https://edu.sse.com.cn/attention/c/4747935.shtml",
+        "2019-01-08", "股市修炼手册之关于ST长油重新上市需要关注的那些事",
+        ("上交所投教", "股票代码为601975", "首日交易不设涨跌幅限制",
+         "南京油运让渡其持股总数的50%", "其他中小股东让渡其持股总数的10%",
+         "停牌时间分别为09时31分至10时01分,10时03分至14时57分"),
+    ),
+    "relisting_rule": (
+        "aboutus/mediacenter/hotandd/c/c_20150912_3988728.shtml",
+        "2013-12-27", "关于修订和废止上海证券交易所退市公司股份转让系统相关业务规则的通知",
+        ("重新上市首日股票交易不设涨跌幅限制",
+         "最后一个转让日的成交价", "自2013年12月28日起施行"),
+    ),
+})
+SUPPLEMENT_KEYS = ("relisting_education", "relisting_rule")
+
+
+def notice_url(key: str) -> str:
+    path = NOTICES[key][0]
+    return path if path == "https://edu.sse.com.cn/attention/c/4747935.shtml" else ROOT + path
+
+
 WINDOWS = {
     "removal": (date(2014, 6, 3), date(2014, 6, 10), date(2014, 6, 5)),
     "relisting": (date(2019, 1, 2), date(2019, 1, 11), date(2019, 1, 8)),
@@ -90,6 +114,23 @@ def parse_notice(raw: bytes, key: str) -> dict:
         "halt": {"new_code": "601975", "halt_start": "2019-01-08T10:03:00+08:00",
                  "resume": "2019-01-08T14:57:00+08:00",
                  "clock_precision": "MINUTE_NOT_EXACT_SECONDS"},
+        "relisting_education": {
+            "new_code": "601975", "relisting_session": "2019-01-08",
+            "first_session_daily_limit": "NONE",
+            "reported_halts": [
+                ["2019-01-08T09:31:00+08:00", "2019-01-08T10:01:00+08:00"],
+                ["2019-01-08T10:03:00+08:00", "2019-01-08T14:57:00+08:00"],
+            ],
+            "clock_precision": "MINUTE_NOT_EXACT_SECONDS",
+            "reorganization_reported_share_surrender_pct": {"named_shareholder": 50, "other_small_shareholders": 10},
+            "individual_entitlement_verified": False,
+        },
+        "relisting_rule": {
+            "declared_effective_date": "2013-12-28",
+            "first_session_daily_limit": "NONE",
+            "opening_reference_basis": "PRINCIPALLY_LAST_OTC_TRANSACTION_PRICE",
+            "rule_amendment_chain_verified": False,
+        },
     }[key]
     return fields | {"declared_notice_date": label, "historical_first_availability_verified": False}
 
@@ -137,7 +178,7 @@ def _child(kind: str, key: str, symbol: str, path: Path) -> None:
     result = {"kind": kind, "key": key, "symbol": symbol, "started_at": datetime.now(UTC).isoformat()}
     try:
         if kind == "notice" and key in NOTICES and symbol == "-":
-            url = ROOT + NOTICES[key][0]
+            url = notice_url(key)
             req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept-Encoding": "identity"})
             with build_opener(NoRedirect()).open(req, timeout=12) as response:
                 if (response.status != 200 or response.geturl() != url
@@ -185,7 +226,7 @@ def observe(kind: str, key: str, symbol: str = "-") -> dict:
             return out | {"error": p.get("error", "RELIST_CHILD_BLOCK")}
         if kind == "notice":
             raw = base64.b64decode(p["body"], validate=True)
-            url = ROOT + NOTICES[key][0]
+            url = notice_url(key)
             if p["url"] != url or not 0 < len(raw) <= MAX_BYTES or hashlib.sha256(raw).hexdigest() != p["sha256"]:
                 raise ValueError("RELIST_RECEIPT_HASH")
             out |= {"url": url, "bytes": len(raw), "sha256": p["sha256"], "parent_rehash": "MATCH"}
@@ -205,25 +246,41 @@ def run_control() -> dict:
     # Five independent fixed documents, then sequential requests per vendor
     # (at most three vendor workers total); no alternative source or retry.
     with ThreadPoolExecutor(max_workers=3) as pool:
-        notices = list(pool.map(lambda key: observe("notice", key), NOTICES))
+        notices = list(pool.map(lambda key: observe("notice", key), PRIMARY_KEYS))
         vendors = list(pool.map(lambda provider: [
             observe(provider, window, symbol) for window in WINDOWS for symbol in SYMBOLS
         ], PROVIDERS))
     complete = all(r["status"] == "OBSERVED" for r in notices)
     return {"status": "WARN" if complete else "BLOCK", "notices": notices, "vendor_windows": vendors,
-            "same_issuer_not_same_listing_instance": complete, "ordinary_sse_gap_start": "2014-06-05",
-            "ordinary_sse_gap_end_exclusive": "2019-01-08", "vendor_history_not_stitched": True,
+            "same_issuer_not_same_listing_instance": complete,
+            "ordinary_sse_gap_start": "2014-06-05" if complete else None,
+            "ordinary_sse_gap_end_exclusive": "2019-01-08" if complete else None, "vendor_history_not_stitched": True,
             "historical_first_availability_verified": False, "source_independence_verified": False,
             "complete_listing_universe_verified": False, "tradability_verified": False,
             "ownership_entitlement_continuity_verified": False,
             "research_only": True, "execution_allowed": False, "decision_authority": False}
 
 
-def main() -> int:
+def run_supplement() -> dict:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        notices = list(pool.map(lambda key: observe("notice", key), SUPPLEMENT_KEYS))
+    complete = all(r["status"] == "OBSERVED" for r in notices)
+    return {
+        "status": "WARN" if complete else "BLOCK", "notices": notices,
+        "ordinary_st_rule_invalid_on_reviewed_first_session": complete,
+        "price_only_continuity_is_insufficient_for_shareholder_return": complete,
+        "historical_first_availability_verified": False, "individual_entitlement_verified": False,
+        "actual_fill_verified": False, "research_only": True,
+        "execution_allowed": False, "decision_authority": False,
+    }
+
+
+def main(supplement: bool = False) -> int:
     if os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise SystemExit("public repository required")
-    result = run_control() | {"executor_commit": os.environ["GITHUB_SHA"]}
-    print("PUBLIC_RELISTING_CONTROL " + json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
+    result = (run_supplement() if supplement else run_control()) | {"executor_commit": os.environ["GITHUB_SHA"]}
+    label = "PUBLIC_RELISTING_SUPPLEMENT " if supplement else "PUBLIC_RELISTING_CONTROL "
+    print(label + json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
     return 0 if result["status"] == "WARN" else 2
 
 
@@ -232,5 +289,7 @@ if __name__ == "__main__":
         _child(sys.argv[2], sys.argv[3], sys.argv[4], Path(sys.argv[5]))
     elif len(sys.argv) == 1:
         raise SystemExit(main())
+    elif sys.argv[1:] == ["--supplement"]:
+        raise SystemExit(main(supplement=True))
     else:
         raise SystemExit(2)

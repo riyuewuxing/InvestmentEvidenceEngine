@@ -65,6 +65,10 @@ def validate_window(start: date, end: date, now: datetime) -> None:
 # Reviewed exchange-filed issuer notice 2025-028, observed by public control
 # 45961469667. Narrow case only, not a complete security-master alias catalog.
 REVIEWED_CODE_CHANGE_SESSION = date(2025, 2, 17)
+# SSE removal and relisting notices, observed in public control 45963586265.
+# This is a negative identity guard, not proof of validity on other dates.
+REVIEWED_REMOVAL_SESSION = date(2014, 6, 5)
+REVIEWED_RELISTING_SESSION = date(2019, 1, 8)
 
 
 def validate_symbol_window(subject: PublicSecurity, start: date, end: date) -> None:
@@ -81,6 +85,11 @@ def validate_symbol_window(subject: PublicSecurity, start: date, end: date) -> N
         or (subject.symbol == "302132" and start < REVIEWED_CODE_CHANGE_SESSION)
     ):
         raise ValueError("REVIEWED_CODE_CHANGE_WINDOW_REQUIRES_EXPLICIT_IDENTITY")
+    if subject.asset_type == "STOCK" and (
+        (subject.symbol == "600087" and end >= REVIEWED_REMOVAL_SESSION)
+        or (subject.symbol == "601975" and start < REVIEWED_RELISTING_SESSION)
+    ):
+        raise ValueError("REVIEWED_RELISTING_WINDOW_REQUIRES_EXPLICIT_IDENTITY")
 
 
 def _from_rows(rows, subject: PublicSecurity, provider: str, start: date, end: date) -> HistoricalCloseSeries:

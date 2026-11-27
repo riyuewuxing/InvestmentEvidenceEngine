@@ -157,3 +157,32 @@ def test_reviewed_code_change_exact_boundary_and_unrelated_code():
     capture.validate_symbol_window(old, date(2025, 1, 2), date(2025, 2, 14))
     capture.validate_symbol_window(new, date(2025, 2, 17), date(2025, 3, 20))
     capture.validate_symbol_window(A, date(2025, 1, 2), date(2025, 3, 20))
+
+@pytest.mark.parametrize("code,first,last", [
+    ("600087", date(2014, 5, 5), date(2014, 6, 5)),
+    ("600087", date(2019, 1, 8), date(2019, 2, 15)),
+    ("601975", date(2014, 5, 5), date(2014, 6, 4)),
+    ("601975", date(2018, 12, 3), date(2019, 1, 8)),
+])
+def test_reviewed_relisting_windows_block_before_fetch_and_on_replay(monkeypatch, code, first, last):
+    subject = PublicSecurity(symbol=code, asset_type="STOCK")
+    def unexpected(*args, **kwargs):
+        pytest.fail("must not query known invalid listing window")
+    monkeypatch.setattr(capture.subprocess, "run", unexpected)
+    reason = "REVIEWED_RELISTING_WINDOW_REQUIRES_EXPLICIT_IDENTITY"
+    with pytest.raises(ValueError, match=reason):
+        capture.acquire_series("sina", subject, first, last)
+    with pytest.raises(ValueError, match=reason):
+        _from_rows([], subject, "sina", first, last)
+    with pytest.raises(ValueError, match=reason):
+        observe_pair(subject, B, first, last, providers=("sina",))
+    with pytest.raises(ValueError, match=reason):
+        summarize_observed_pair(subject, B, (), first, last)
+
+
+def test_reviewed_relisting_exact_boundary_and_unrelated_code():
+    old = PublicSecurity(symbol="600087", asset_type="STOCK")
+    new = PublicSecurity(symbol="601975", asset_type="STOCK")
+    capture.validate_symbol_window(old, date(2014, 5, 5), date(2014, 6, 4))
+    capture.validate_symbol_window(new, date(2019, 1, 8), date(2019, 2, 15))
+    capture.validate_symbol_window(A, date(2014, 6, 4), date(2014, 6, 5))

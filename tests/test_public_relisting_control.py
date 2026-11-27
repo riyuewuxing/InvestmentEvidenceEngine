@@ -51,3 +51,14 @@ def test_vendor_rows_are_diagnostics_not_tradability():
 def test_invalid_vendor_rows_rejected(rows):
     with pytest.raises(ValueError):
         normalize_window(rows, "relisting")
+
+def test_supplement_distinguishes_share_surrender_and_first_day_limit():
+    _, label, title, anchors = NOTICES["relisting_education"]
+    raw = (title + " " + label + " 上海证券交易所 " + " ".join(anchors)).encode()
+    fields = parse_notice(raw, "relisting_education")
+    assert fields["first_session_daily_limit"] == "NONE"
+    assert fields["reorganization_reported_share_surrender_pct"] == {
+        "named_shareholder": 50, "other_small_shareholders": 10,
+    }
+    assert len(fields["reported_halts"]) == 2
+    assert fields["individual_entitlement_verified"] is False
