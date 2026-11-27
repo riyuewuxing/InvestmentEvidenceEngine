@@ -24,7 +24,7 @@ def read_receipts():
         if key == "prior_q3":
             assert obj["financial"]["decision_authority"] is False
             assert obj["pressure"]["decision_authority"] is False
-            assert obj["pit_safe"] is False
+            assert obj["pressure"]["pit_safe"] is False
         else:
             assert obj["decision_authority"] is False
         out[key] = obj
