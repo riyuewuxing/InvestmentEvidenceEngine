@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/public-case-review-boundary.yml'
+      - 'src/investment_evidence_engine/review_boundary.py'
+      - 'scripts/public_case_review_boundary.py'
 permissions:
   contents: read
 jobs:
