@@ -7,8 +7,9 @@ constructs a total-return index, estimates expected alpha, or admits trades.
 from __future__ import annotations
 
 import re
+from calendar import monthrange
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, localcontext
 
 HORIZONS = ("3M", "6M", "1Y")
 REPORT_KEYS = {"symbol", "period_start", "period_end", "declared_report_day",
@@ -47,9 +48,10 @@ def evaluate_report(fields: dict) -> dict:
         raise ValueError("ETF_REPORT_SYMBOL")
     first, last, declared = (_day(fields[k]) for k in ("period_start", "period_end", "declared_report_day"))
     if (not 80 <= (last-first).days <= 92 or not last < declared
+            or first.year != last.year or last.day != monthrange(last.year, last.month)[1]
             or first.day != 1 or (first.month, last.month) not in {(1, 3), (4, 6), (7, 9), (10, 12)}):
         raise ValueError("ETF_REPORT_QUARTER_SCOPE")
-    if fields["benchmark_label"] not in BENCHMARK_LABELS:
+    if not isinstance(fields["benchmark_label"], str) or fields["benchmark_label"] not in BENCHMARK_LABELS:
         raise ValueError("ETF_REPORT_BENCHMARK_UNSUPPORTED")
     numbers = {key: _number(fields[key], scale=2) for key in
                ("overview_end_units", "begin_units", "created_units", "redeemed_units", "end_units",
@@ -158,7 +160,8 @@ def closing_premium(fields: dict, *, symbol: str, session: str, raw_close: str) 
         return {"symbol": symbol, "session": session, "raw_close_cny": raw_close,
                 "reported_nav_cny": result["reported_nav_cny"],
                 "close_over_reported_nav_minus_one_pct": _fmt(center, Decimal("0.000001")),
-                "nav_rounding_interval_pct": [_fmt(low, Decimal("0.000001")), _fmt(high, Decimal("0.000001"))],
+                "nav_rounding_interval_pct": [format(low.quantize(Decimal("0.000001"), rounding=ROUND_FLOOR), "f"),
+                                              format(high.quantize(Decimal("0.000001"), rounding=ROUND_CEILING), "f")],
                 "ratio_basis": "RETROSPECTIVE_SAME_SESSION_CLOSE_OVER_REPORTED_NAV",
                 "same_time_quote_and_nav_verified": False, "iopv_verified": False,
                 "historical_public_availability_verified": False, "arbitrage_or_fill_inferred": False,

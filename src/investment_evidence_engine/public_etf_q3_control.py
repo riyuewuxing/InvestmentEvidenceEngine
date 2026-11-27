@@ -40,6 +40,10 @@ DOCS = {
         "source_type": "EXCHANGE_OFFICIAL_FIXED_PDF",
     },
 }
+EXPECTED_SHA256 = {
+    "510330": "f0b3d948633558c55317fbc852257eb9657dfef3c47e89d5a9e5fe80ab099826",
+    "510320": "bce1bb11a2e0898b37f174ebbb96bba30794167a0cffc4e8b3182365dd86241c",
+}
 NUM = r"(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?"
 PCT = r"(-?[0-9]{1,3}\.[0-9]{2})%"
 PERF_LABELS = {"3M": "过去三个月", "6M": "过去六个月", "1Y": "过去一年"}
@@ -101,12 +105,17 @@ def parse_pages(symbol: str, pages: dict[int, str]) -> dict:
     financial = financial.split("主要财务指标", 1)[1]
     if "3.2基金净值表现" in financial:
         financial = financial.split("3.2基金净值表现", 1)[0]
-    # The first financial label may appear with an ordinal; the label itself is anchored.
-    assets = amount(r"期末基金资产净值", financial, "ETF_Q3_ASSETS")
-    nav = amount(r"期末基金份额净值", financial, "ETF_Q3_NAV")
-    realized = amount(r"本期已实现收益", financial.split("注:", 1)[0], "ETF_Q3_REALIZED", signed=True)
-    profit = amount(r"本期利润", financial.split("注:", 1)[0].split("加权平均", 1)[0],
-                    "ETF_Q3_PROFIT", signed=True)
+    # Compaction joins a value and the ordinal of the next row. Anchor each
+    # monetary cell to both its own label and the next label; do not infer digits.
+    financial = financial.split("注:", 1)[0]
+    money = r"(-?(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|[0-9]+)\.[0-9]{2})"
+    nav_cell = r"([0-9]+\.[0-9]{4})"
+    def financial_cell(label: str, following: str, pattern: str, code: str) -> str:
+        return one(label + pattern + r"(?=" + following + r")", financial, code).replace(",", "")
+    assets = financial_cell("期末基金资产净值", r"(?:5[.、])?期末基金份额净值", money, "ETF_Q3_ASSETS")
+    nav = one(r"期末基金份额净值" + nav_cell + r"(?![0-9.,])", financial, "ETF_Q3_NAV")
+    realized = financial_cell("本期已实现收益", r"(?:2[.、])?本期利润", money, "ETF_Q3_REALIZED")
+    profit = financial_cell("本期利润", r"(?:3[.、])?加权平均基金份额本期利润", money, "ETF_Q3_PROFIT")
     perf = texts[doc["performance"]]
     if "3.2.1基金份额净值增长率及其与同期业绩比较基准收益率的比较" not in perf:
         raise ValueError("ETF_Q3_PERFORMANCE_SECTION")
@@ -186,7 +195,7 @@ def observe(symbol: str, folder: Path) -> dict:
         raw = base64.b64decode(p["body"], validate=True)
         validate_pdf_shape(raw, max_bytes=MAX_BYTES)
         digest = hashlib.sha256(raw).hexdigest()
-        if digest != p["body_sha256"]:
+        if digest != p["body_sha256"] or digest != EXPECTED_SHA256[symbol]:
             raise ValueError("ETF_Q3_BODY_HASH")
         target = folder / (symbol + ".pdf")
         with target.open("xb") as handle:
@@ -218,8 +227,11 @@ def run_control() -> dict:
               "historical_first_availability_verified": False, "pit_safe": False,
               "decision_authority": False, "execution_allowed": False}
     if all(d["status"] == "OBSERVED" for d in docs):
-        report["comparison"] = compare_reports(docs[0]["fields"], docs[1]["fields"])
-        report["status"] = "WARN"
+        try:
+            report["comparison"] = compare_reports(docs[0]["fields"], docs[1]["fields"])
+            report["status"] = "WARN"
+        except ValueError as exc:
+            report["comparison_error"] = str(exc)
     return report
 
 
