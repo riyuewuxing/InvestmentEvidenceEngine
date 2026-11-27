@@ -1,8 +1,5 @@
 name: Public relisting daily status
 on:
-  push:
-    paths:
-      - '.github/workflows/public-relisting-daily-status.yml'
   workflow_dispatch:
 permissions:
   contents: read
