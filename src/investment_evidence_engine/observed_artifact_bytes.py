@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,6 +62,34 @@ def observe_file(
     if expected_sha256 is not None and digest != expected_sha256:
         raise ValueError("ARTIFACT_DIGEST_MISMATCH")
     return ObservedFile(content, digest, _signature(before))
+
+
+def observe_named_files(
+    files: Mapping[str, Path], *, max_bytes: int = DEFAULT_MAX_BYTES,
+) -> tuple[dict[str, ObservedFile], str]:
+    """Bind exact parsed bytes to an ordered, domain-separated set identity.
+
+    Detect changes across this bounded read window. This is not a filesystem
+    transaction: no claim is made about coherence before or after the window.
+    """
+    if not files or len(files) > 128 or max_bytes < 0:
+        raise ValueError("OBSERVATION_FILE_SET_LIMIT")
+    if any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name)
+           for name in files):
+        raise ValueError("OBSERVATION_FILE_LABEL")
+    if len({path.resolve() for path in files.values()}) != len(files):
+        raise ValueError("OBSERVATION_FILE_DUPLICATE")
+    digest = hashlib.sha256(b"OBSERVED_NAMED_FILE_SET_V1\0")
+    records: dict[str, ObservedFile] = {}
+    remaining = max_bytes
+    for name, path in sorted(files.items()):
+        item = observe_file(path, max_bytes=remaining)
+        records[name] = item
+        remaining -= len(item.content)
+        digest.update(f"{name}:{len(item.content)}:{item.sha256}\n".encode("ascii"))
+    if any(_signature(files[name].lstat()) != item.signature for name, item in records.items()):
+        raise ValueError("OBSERVATION_FILE_SET_CHANGED")
+    return records, digest.hexdigest()
 
 
 def _inventory(root: Path, ignored: frozenset[str]) -> dict[str, Path]:
